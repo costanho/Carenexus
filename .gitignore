@@ -73,6 +73,9 @@ build/
 # macOS
 .DS_Store
 
+# Claude Code
+.claude/
+
 # Project specific
 example
 HELP.md
