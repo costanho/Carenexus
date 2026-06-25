@@ -13,34 +13,17 @@ import {
   View,
 } from 'react-native';
 import { PhoneInput } from '@/components/shared/phone-input';
-import { registerSchema, type RegisterFormData } from '@/lib/validation/auth-schemas';
+import { registerSchema } from '../validation/register.schema';
+import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '../validation/register.types';
+import { getPasswordStrength } from '../validation/register.validators';
 
-const TEAL   = '#0D9488';
-const PURPLE = '#7C3AED';
-const INDIGO = '#4F46E5';
-const NAVY   = '#0D1B2E';
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const RED    = '#EF4444';
-const GREEN  = '#10B981';
-
-type Role = 'patient' | 'doctor' | 'proxy';
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: string; desc: string }[] = [
-  { key: 'patient', label: 'Patient',       icon: 'person-outline',   color: TEAL,   bg: '#E6F4F1', desc: 'Manage your health records' },
-  { key: 'doctor',  label: 'Doctor',        icon: 'medical-outline',  color: INDIGO, bg: '#EEF2FF', desc: 'Manage your practice'        },
-  { key: 'proxy',   label: 'Proxy / Carer', icon: 'people-outline',   color: PURPLE, bg: '#F5F3FF', desc: 'Care for a loved one'         },
-];
+const { NAVY, WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
 
 const panelPoints: { icon: IoniconsName; text: string }[] = [
-  { icon: 'person-add-outline',       text: 'Create your secure health profile'   },
-  { icon: 'shield-checkmark-outline', text: 'Your data is encrypted and private'  },
-  { icon: 'videocam-outline',         text: 'Consult doctors from anywhere'        },
-  { icon: 'notifications-outline',    text: 'Get real-time care updates'           },
+  { icon: 'person-add-outline',       text: 'Create your secure health profile'  },
+  { icon: 'shield-checkmark-outline', text: 'Your data is encrypted and private' },
+  { icon: 'videocam-outline',         text: 'Consult doctors from anywhere'       },
+  { icon: 'notifications-outline',    text: 'Get real-time care updates'          },
 ];
 
 function FieldError({ message }: { message?: string }) {
@@ -95,14 +78,9 @@ export default function RegisterWeb() {
   const [showPass, setShowPass] = useState(false);
   const [showConf, setShowConf] = useState(false);
 
-  const active = roles.find(r => r.key === role)!;
+  const active = REGISTER_ROLES.find(r => r.key === role)!;
 
-  const {
-    control,
-    handleSubmit,
-    watch,
-    formState: { errors },
-  } = useForm<RegisterFormData>({
+  const { control, handleSubmit, watch, formState: { errors } } = useForm<RegisterFormData>({
     resolver:      zodResolver(registerSchema),
     defaultValues: {
       firstName: '', lastName: '', email: '',
@@ -113,12 +91,7 @@ export default function RegisterWeb() {
 
   const passwordValue = watch('password');
   const agreedValue   = watch('agreed');
-
-  const pwStrength = !passwordValue ? 0
-    : passwordValue.length < 6  ? 1
-    : passwordValue.length < 10 ? 2 : 3;
-  const strengthColor = ['transparent', RED, INDIGO, GREEN][pwStrength];
-  const strengthLabel = ['', 'Weak', 'Good', 'Strong'][pwStrength];
+  const strength      = getPasswordStrength(passwordValue);
 
   function onSubmit(data: RegisterFormData) {
     // TODO: connect to auth service
@@ -151,10 +124,10 @@ export default function RegisterWeb() {
         <Text style={styles.heading}>Create your account</Text>
         <Text style={styles.subheading}>Join CareNexus — it only takes a minute.</Text>
 
-        {/* Role */}
+        {/* Role selector */}
         <Text style={styles.label}>I am a</Text>
         <View style={styles.roleRow}>
-          {roles.map(r => {
+          {REGISTER_ROLES.map(r => {
             const on = role === r.key;
             return (
               <TouchableOpacity
@@ -179,9 +152,7 @@ export default function RegisterWeb() {
         {/* Name row */}
         <View style={styles.twoCol}>
           <View style={{ flex: 1 }}>
-            <Controller
-              control={control}
-              name="firstName"
+            <Controller control={control} name="firstName"
               render={({ field: { onChange, value } }) => (
                 <Field label="First Name" icon="person-outline" placeholder="John"
                   value={value} onChangeText={onChange} error={errors.firstName?.message} />
@@ -189,9 +160,7 @@ export default function RegisterWeb() {
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Controller
-              control={control}
-              name="lastName"
+            <Controller control={control} name="lastName"
               render={({ field: { onChange, value } }) => (
                 <Field label="Last Name" icon="person-outline" placeholder="Smith"
                   value={value} onChangeText={onChange} error={errors.lastName?.message} />
@@ -200,9 +169,7 @@ export default function RegisterWeb() {
           </View>
         </View>
 
-        <Controller
-          control={control}
-          name="email"
+        <Controller control={control} name="email"
           render={({ field: { onChange, value } }) => (
             <Field label="Email Address" icon="mail-outline" placeholder="you@example.com"
               value={value} onChangeText={onChange} keyboardType="email-address" error={errors.email?.message} />
@@ -211,27 +178,18 @@ export default function RegisterWeb() {
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Phone Number</Text>
-          <Controller
-            control={control}
-            name="phone"
+          <Controller control={control} name="phone"
             render={({ field: { onChange, value } }) => (
-              <PhoneInput
-                value={value}
-                onChange={onChange}
-                error={errors.phone?.message}
-                accentColor={active.color}
-              />
+              <PhoneInput value={value} onChange={onChange}
+                error={errors.phone?.message} accentColor={active.color} />
             )}
           />
         </View>
 
         {/* Password */}
-        <Controller
-          control={control}
-          name="password"
+        <Controller control={control} name="password"
           render={({ field: { onChange, value } }) => (
-            <Field
-              label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
+            <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
               value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
               rightElement={
                 <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
@@ -241,22 +199,18 @@ export default function RegisterWeb() {
             />
           )}
         />
-        {passwordValue.length > 0 && (
+        {passwordValue?.length > 0 && (
           <View style={styles.strengthRow}>
             {[1, 2, 3].map(i => (
-              <View key={i} style={[styles.strengthBar, { backgroundColor: i <= pwStrength ? strengthColor : BORDER }]} />
+              <View key={i} style={[styles.strengthBar, { backgroundColor: i <= strength.level ? strength.color : BORDER }]} />
             ))}
-            <Text style={[styles.strengthLabel, { color: strengthColor }]}>{strengthLabel}</Text>
+            <Text style={[styles.strengthLabel, { color: strength.color }]}>{strength.label}</Text>
           </View>
         )}
 
-        {/* Confirm password */}
-        <Controller
-          control={control}
-          name="confirmPassword"
+        <Controller control={control} name="confirmPassword"
           render={({ field: { onChange, value } }) => (
-            <Field
-              label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter your password"
+            <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter your password"
               value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
               rightElement={
                 <TouchableOpacity onPress={() => setShowConf(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
@@ -268,9 +222,7 @@ export default function RegisterWeb() {
         />
 
         {/* Terms */}
-        <Controller
-          control={control}
-          name="agreed"
+        <Controller control={control} name="agreed"
           render={({ field: { onChange } }) => (
             <TouchableOpacity
               style={styles.termsRow}
@@ -306,7 +258,7 @@ export default function RegisterWeb() {
           <Text style={styles.submitText}>Create Account</Text>
         </TouchableOpacity>
 
-        {/* Sign in link */}
+        {/* Sign in */}
         <View style={styles.signinRow}>
           <Text style={styles.signinText}>Already have an account? </Text>
           <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/login/web/login-web')}>
@@ -371,11 +323,7 @@ const styles = StyleSheet.create({
   },
   roleLabel: { fontSize: 12, color: GRAY, fontWeight: '600', textAlign: 'center' },
   roleDesc:  { fontSize: 10, color: GRAY, textAlign: 'center', lineHeight: 14 },
-  roleCheck: {
-    position: 'absolute', top: -7, right: -7,
-    width: 18, height: 18, borderRadius: 9,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  roleCheck: { position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
 
   twoCol: { flexDirection: 'row', gap: 12 },
 
@@ -398,10 +346,7 @@ const styles = StyleSheet.create({
   strengthLabel: { fontSize: 11, fontWeight: '600', width: 44 },
 
   termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16 },
-  checkbox: {
-    width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
-    borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1,
-  },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   termsText: { flex: 1, fontSize: 13, color: GRAY, lineHeight: 20 },
   termsLink: { fontWeight: '600' },
 
@@ -412,8 +357,8 @@ const styles = StyleSheet.create({
   signinText: { fontSize: 13, color: GRAY },
   signinLink: { fontSize: 13, fontWeight: '700' },
 
-  panel:      { flex: 1, overflow: 'hidden' },
-  panelInner: { flex: 1, justifyContent: 'center', padding: 56, gap: 20 },
+  panel:         { flex: 1, overflow: 'hidden' },
+  panelInner:    { flex: 1, justifyContent: 'center', padding: 56, gap: 20 },
   panelLogoRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   panelLogoText: { fontSize: 24, fontWeight: '800', color: WHITE },
   panelTitle:    { fontSize: 32, fontWeight: '800', color: WHITE, lineHeight: 40 },

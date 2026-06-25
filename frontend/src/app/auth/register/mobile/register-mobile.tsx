@@ -16,27 +16,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PhoneInput } from '@/components/shared/phone-input';
-import { registerSchema, type RegisterFormData } from '@/lib/validation/auth-schemas';
+import { registerSchema } from '../validation/register.schema';
+import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '../validation/register.types';
+import { getPasswordStrength } from '../validation/register.validators';
 
-const TEAL   = '#0D9488';
-const PURPLE = '#7C3AED';
-const INDIGO = '#4F46E5';
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const RED    = '#EF4444';
-const GREEN  = '#10B981';
-
-type Role = 'patient' | 'doctor' | 'proxy';
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: string }[] = [
-  { key: 'patient', label: 'Patient',       icon: 'person-outline',  color: TEAL,   bg: '#E6F4F1' },
-  { key: 'doctor',  label: 'Doctor',        icon: 'medical-outline', color: INDIGO, bg: '#EEF2FF' },
-  { key: 'proxy',   label: 'Proxy / Carer', icon: 'people-outline',  color: PURPLE, bg: '#F5F3FF' },
-];
+const { WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
 
 export default function RegisterMobile() {
   const router = useRouter();
@@ -50,14 +34,9 @@ export default function RegisterMobile() {
   const [showPass, setShowPass] = useState(false);
   const [showConf, setShowConf] = useState(false);
 
-  const active = roles.find(r => r.key === role)!;
+  const active = REGISTER_ROLES.find(r => r.key === role)!;
 
-  const {
-    control,
-    handleSubmit,
-    watch,
-    formState: { errors },
-  } = useForm<RegisterFormData>({
+  const { control, handleSubmit, watch, formState: { errors } } = useForm<RegisterFormData>({
     resolver:      zodResolver(registerSchema),
     defaultValues: {
       firstName: '', lastName: '', email: '',
@@ -68,19 +47,14 @@ export default function RegisterMobile() {
 
   const passwordValue = watch('password');
   const agreedValue   = watch('agreed');
-
-  const pwStrength = !passwordValue ? 0
-    : passwordValue.length < 6  ? 1
-    : passwordValue.length < 10 ? 2 : 3;
-  const strengthColor = ['transparent', RED, INDIGO, GREEN][pwStrength];
-  const strengthLabel = ['', 'Weak', 'Good', 'Strong'][pwStrength];
+  const strength      = getPasswordStrength(passwordValue);
 
   function onSubmit(data: RegisterFormData) {
     // TODO: connect to auth service
     console.log({ ...data, role });
   }
 
-  // Field defined inside to close over s()
+  // Defined inside to close over s() for proportional sizing
   function Field({
     label, icon, placeholder, value, onChangeText,
     keyboardType = 'default', secureTextEntry = false,
@@ -161,7 +135,7 @@ export default function RegisterMobile() {
         {/* Role selector */}
         <Text style={[styles.label, { fontSize: s(12), marginBottom: s(8) }]}>I am a</Text>
         <View style={[styles.roleRow, { gap: s(8), marginBottom: s(16) }]}>
-          {roles.map(r => {
+          {REGISTER_ROLES.map(r => {
             const on = role === r.key;
             return (
               <TouchableOpacity
@@ -180,8 +154,7 @@ export default function RegisterMobile() {
                 </Text>
                 {on && (
                   <View style={[styles.roleCheck, {
-                    backgroundColor: r.color,
-                    width: s(15), height: s(15), borderRadius: s(8),
+                    backgroundColor: r.color, width: s(15), height: s(15), borderRadius: s(8),
                   }]}>
                     <Ionicons name="checkmark" size={s(9)} color={WHITE} />
                   </View>
@@ -191,12 +164,10 @@ export default function RegisterMobile() {
           })}
         </View>
 
-        {/* Name row — side by side */}
+        {/* Name row */}
         <View style={[styles.twoCol, { gap: s(10) }]}>
           <View style={{ flex: 1 }}>
-            <Controller
-              control={control}
-              name="firstName"
+            <Controller control={control} name="firstName"
               render={({ field: { onChange, value } }) => (
                 <Field label="First Name" icon="person-outline" placeholder="John"
                   value={value} onChangeText={onChange} error={errors.firstName?.message} />
@@ -204,9 +175,7 @@ export default function RegisterMobile() {
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Controller
-              control={control}
-              name="lastName"
+            <Controller control={control} name="lastName"
               render={({ field: { onChange, value } }) => (
                 <Field label="Last Name" icon="person-outline" placeholder="Smith"
                   value={value} onChangeText={onChange} error={errors.lastName?.message} />
@@ -215,9 +184,7 @@ export default function RegisterMobile() {
           </View>
         </View>
 
-        <Controller
-          control={control}
-          name="email"
+        <Controller control={control} name="email"
           render={({ field: { onChange, value } }) => (
             <Field label="Email Address" icon="mail-outline" placeholder="you@example.com"
               value={value} onChangeText={onChange} keyboardType="email-address" error={errors.email?.message} />
@@ -226,27 +193,18 @@ export default function RegisterMobile() {
 
         <View style={{ marginBottom: s(12) }}>
           <Text style={[styles.label, { fontSize: s(12), marginBottom: s(6) }]}>Phone Number</Text>
-          <Controller
-            control={control}
-            name="phone"
+          <Controller control={control} name="phone"
             render={({ field: { onChange, value } }) => (
-              <PhoneInput
-                value={value}
-                onChange={onChange}
-                error={errors.phone?.message}
-                accentColor={active.color}
-                scale={s}
-              />
+              <PhoneInput value={value} onChange={onChange}
+                error={errors.phone?.message} accentColor={active.color} scale={s} />
             )}
           />
         </View>
 
-        <Controller
-          control={control}
-          name="password"
+        {/* Password */}
+        <Controller control={control} name="password"
           render={({ field: { onChange, value } }) => (
-            <Field
-              label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
+            <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
               value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
               rightEl={
                 <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
@@ -256,23 +214,18 @@ export default function RegisterMobile() {
             />
           )}
         />
-
-        {/* Password strength */}
         {passwordValue?.length > 0 && (
           <View style={[styles.strengthRow, { gap: s(5), marginBottom: s(10), marginTop: -s(6) }]}>
             {[1, 2, 3].map(i => (
-              <View key={i} style={[styles.strengthBar, { backgroundColor: i <= pwStrength ? strengthColor : BORDER }]} />
+              <View key={i} style={[styles.strengthBar, { backgroundColor: i <= strength.level ? strength.color : BORDER }]} />
             ))}
-            <Text style={[styles.strengthLabel, { fontSize: s(10), color: strengthColor }]}>{strengthLabel}</Text>
+            <Text style={[styles.strengthLabel, { fontSize: s(10), color: strength.color }]}>{strength.label}</Text>
           </View>
         )}
 
-        <Controller
-          control={control}
-          name="confirmPassword"
+        <Controller control={control} name="confirmPassword"
           render={({ field: { onChange, value } }) => (
-            <Field
-              label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter password"
+            <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter password"
               value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
               rightEl={
                 <TouchableOpacity onPress={() => setShowConf(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
@@ -284,9 +237,7 @@ export default function RegisterMobile() {
         />
 
         {/* Terms */}
-        <Controller
-          control={control}
-          name="agreed"
+        <Controller control={control} name="agreed"
           render={({ field: { onChange } }) => (
             <TouchableOpacity
               style={[styles.termsRow, { gap: s(10), marginBottom: s(6), marginTop: s(4) }]}
@@ -356,18 +307,14 @@ const styles = StyleSheet.create({
   label: { fontWeight: '600', color: TEXT },
 
   roleRow: { flexDirection: 'row' },
-  roleBtn: {
-    flex: 1, alignItems: 'center',
-    borderWidth: 1.5, borderColor: BORDER, position: 'relative',
-  },
+  roleBtn: { flex: 1, alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, position: 'relative' },
   roleLabel: { color: GRAY, textAlign: 'center' },
   roleCheck: { position: 'absolute', top: -6, right: -6, alignItems: 'center', justifyContent: 'center' },
 
   twoCol: { flexDirection: 'row' },
 
-  inputRow:  { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, backgroundColor: BG },
-  input:     { flex: 1, color: TEXT },
-
+  inputRow:       { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, backgroundColor: BG },
+  input:          { flex: 1, color: TEXT },
   fieldError:     { flexDirection: 'row', alignItems: 'center' },
   fieldErrorText: { color: RED },
 
@@ -375,8 +322,8 @@ const styles = StyleSheet.create({
   strengthBar:   { flex: 1, height: 3, borderRadius: 2 },
   strengthLabel: { fontWeight: '600', width: 40 },
 
-  termsRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  checkbox: { borderWidth: 1.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  termsRow:  { flexDirection: 'row', alignItems: 'flex-start' },
+  checkbox:  { borderWidth: 1.5, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   termsText: { flex: 1, color: GRAY, lineHeight: 18 },
   termsLink: { fontWeight: '600' },
 

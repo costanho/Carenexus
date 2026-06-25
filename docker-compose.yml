@@ -1,0 +1,21 @@
+services:
+  postgres-db:
+    image: postgres:16
+    container_name: carenexus-postgres
+    environment:
+      POSTGRES_DB: carenexus_db
+      POSTGRES_USER: carenexus
+      POSTGRES_PASSWORD: local_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "carenexus"]
+      timeout: 5s
+      retries: 10
+      interval: 5s
+
+volumes:
+  postgres-data:

@@ -1,0 +1,70 @@
+server:
+  port: 9000
+
+jwt:
+  secret: your-super-secret-key-that-is-at-least-32-characters-long-change-in-production
+  expiration: 900000  # 15 minutes in milliseconds
+
+spring:
+  application:
+    name: carenexus-auth-server
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+
+logging:
+  level:
+    root: INFO
+    com.carenexus: DEBUG
+    org.springframework.security: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/carenexus_db?currentSchema=identity
+    username: carenexus
+    password: local_dev_password
+    driver-class-name: org.postgresql.Driver
+
+  security:
+    oauth2:
+      authorizationserver:
+        issuer: http://localhost:9000
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+  datasource:
+    url: jdbc:postgresql://postgres-db:5432/carenexus_db?currentSchema=identity
+    username: carenexus
+    password: local_dev_password
+    driver-class-name: org.postgresql.Driver
+
+  security:
+    oauth2:
+      authorizationserver:
+        issuer: http://carenexus-auth-server:9000

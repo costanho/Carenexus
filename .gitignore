@@ -78,4 +78,4 @@ build/
 
 # Project specific
 example
-HELP.md
+*.md
