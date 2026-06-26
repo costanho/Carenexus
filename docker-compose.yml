@@ -12,10 +12,33 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "carenexus"]
+      test: ["CMD", "pg_isready", "-U", "carenexus", "-d", "carenexus_db"]
       timeout: 5s
       retries: 10
       interval: 5s
+
+  carenexus-auth-server:
+    build:
+      context: ./backend/auth-server
+      dockerfile: Dockerfile
+    container_name: carenexus-auth-server
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/carenexus_db
+      SPRING_DATASOURCE_USERNAME: carenexus
+      SPRING_DATASOURCE_PASSWORD: local_dev_password
+      JWT_SECRET: your-super-secret-key-that-is-at-least-32-characters-long-change-in-production
+      JWT_EXPIRATION: 900000
+    ports:
+      - "9000:9000"
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]
+      timeout: 10s
+      retries: 5
+      interval: 10s
 
 volumes:
   postgres-data:

@@ -25,7 +25,10 @@ public class SecurityConfig {
             // Disable CSRF (stateless JWT auth doesn't need it)
             .csrf(csrf -> csrf.disable())
             // Stateless session management (no server-side sessions)
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .sessionFixation().migrateSession()
+            )
             // Configure authorization rules
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints — no token needed
@@ -33,8 +36,12 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/refresh",
                     "/api/auth/register",
-                    "/actuator/health",
-                    "/actuator/info"
+                    "/actuator/**",
+                    "/swagger-ui.html",
+                    "/swagger-ui/**",
+                    "/v3/api-docs/**",
+                    "/v3/api-docs.yaml",
+                    "/webjars/**"
                 ).permitAll()
                 // Everything else requires authentication
                 .anyRequest().authenticated()

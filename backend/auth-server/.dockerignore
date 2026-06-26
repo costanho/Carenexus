@@ -1,0 +1,11 @@
+target/
+.git
+.gitignore
+.mvn
+.docker
+.claude
+.DS_Store
+*.md
+.idea
+*.iml
+node_modules

@@ -11,7 +11,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: none
     show-sql: false
     properties:
       hibernate:
@@ -22,6 +22,15 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
+
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
 
 management:
   endpoints:
@@ -42,7 +51,7 @@ spring:
       on-profile: local
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/carenexus_db?currentSchema=identity
+    url: jdbc:postgresql://localhost:5432/carenexus_db
     username: carenexus
     password: local_dev_password
     driver-class-name: org.postgresql.Driver
@@ -59,7 +68,7 @@ spring:
       on-profile: docker
 
   datasource:
-    url: jdbc:postgresql://postgres-db:5432/carenexus_db?currentSchema=identity
+    url: jdbc:postgresql://postgres-db:5432/carenexus_db
     username: carenexus
     password: local_dev_password
     driver-class-name: org.postgresql.Driver
