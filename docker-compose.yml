@@ -17,11 +17,11 @@ services:
       retries: 10
       interval: 5s
 
-  carenexus-auth-server:
+  carenexus-api:
     build:
-      context: ./backend/auth-server
+      context: ./backend/carenexus-api
       dockerfile: Dockerfile
-    container_name: carenexus-auth-server
+    container_name: carenexus-api
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/carenexus_db
