@@ -15,6 +15,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { login, logout } from '@/lib/auth/auth.service';
+import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
 const TEAL   = '#0D9488';
@@ -44,8 +46,10 @@ export default function LoginMobile() {
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
 
-  const [role, setRole]         = useState<Role>('patient');
-  const [showPass, setShowPass] = useState(false);
+  const [role, setRole]           = useState<Role>('patient');
+  const [showPass, setShowPass]   = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [loading, setLoading]     = useState(false);
 
   const active = roles.find(r => r.key === role)!;
 
@@ -54,9 +58,24 @@ export default function LoginMobile() {
     defaultValues: { email: '', password: '' },
   });
 
-  function onSubmit(data: LoginFormData) {
-    // TODO: connect to auth service
-    console.log({ ...data, role });
+  async function onSubmit(data: LoginFormData) {
+    setAuthError('');
+    setLoading(true);
+    try {
+      const { user } = await login({ ...data, role });
+      if (user.role !== role) {
+        await logout();
+        const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };
+        setAuthError(`This account is registered as a ${labels[user.role]}. Please select the correct role.`);
+        return;
+      }
+      router.replace(ROLE_HOME[user.role] as any);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Invalid email or password.';
+      setAuthError(msg);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -205,6 +224,14 @@ export default function LoginMobile() {
           )}
         </View>
 
+        {/* Auth error */}
+        {!!authError && (
+          <View style={[styles.errorBox, { borderRadius: s(10), padding: s(12), gap: s(6), marginBottom: s(4) }]}>
+            <Ionicons name="alert-circle-outline" size={s(15)} color={RED} />
+            <Text style={[styles.errorText, { fontSize: s(12) }]}>{authError}</Text>
+          </View>
+        )}
+
         {/* Sign In */}
         <TouchableOpacity
           style={[styles.signInBtn, {
@@ -212,12 +239,19 @@ export default function LoginMobile() {
             borderRadius: s(12),
             paddingVertical: s(16),
             gap: s(8),
+            opacity: loading ? 0.7 : 1,
           }]}
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
+          disabled={loading}
         >
-          <Text style={[styles.signInText, { fontSize: s(15) }]}>Sign In</Text>
-          <Ionicons name="arrow-forward-outline" size={s(18)} color={WHITE} />
+          {loading
+            ? <Text style={[styles.signInText, { fontSize: s(15) }]}>Signing in…</Text>
+            : <>
+                <Text style={[styles.signInText, { fontSize: s(15) }]}>Sign In</Text>
+                <Ionicons name="arrow-forward-outline" size={s(18)} color={WHITE} />
+              </>
+          }
         </TouchableOpacity>
 
         {/* Divider */}
@@ -281,6 +315,9 @@ const styles = StyleSheet.create({
 
   fieldError:     { flexDirection: 'row', alignItems: 'center' },
   fieldErrorText: { color: RED },
+
+  errorBox:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2' },
+  errorText: { color: RED, flex: 1 },
 
   signInBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   signInText: { fontWeight: '700', color: WHITE },

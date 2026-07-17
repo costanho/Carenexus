@@ -1,23 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
 const RED   = '#EF4444';
+const TEAL  = '#0D9488';
 
 export function PatientTopNavbar() {
-  const insets       = useSafeAreaInsets();
+  const insets         = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const { user, loading } = useCurrentUser();
 
-  // All sizes derived from screen dimensions — no fixed pixels
-  const s = (n: number) => Math.round(n * (width / 390));   // scale to screen width
-  const h = (n: number) => Math.round(n * (height / 844));  // scale to screen height
+  const s = (n: number) => Math.round(n * (width / 390));
+  const h = (n: number) => Math.round(n * (height / 844));
 
   const iconSize   = s(24);
   const avatarSize = s(40);
   const badgeSize  = s(14);
+
+  const firstName = user?.first_name ?? (loading ? '...' : 'there');
+  const avatarUri = user?.avatar_url ?? null;
 
   return (
     <View style={[styles.navbar, {
@@ -30,7 +35,7 @@ export function PatientTopNavbar() {
       {/* Left: greeting */}
       <View style={styles.left}>
         <Text style={[styles.title, { fontSize: s(16) }]} numberOfLines={1}>
-          Welcome back, Linda!
+          Welcome back, {firstName}!
         </Text>
         <Text style={[styles.subtitle, { fontSize: s(12), marginTop: s(2) }]} numberOfLines={1}>
           Here's your health overview and latest updates.
@@ -45,10 +50,18 @@ export function PatientTopNavbar() {
         <View style={[styles.divider, { height: s(28) }]} />
 
         <TouchableOpacity style={[styles.userRow, { gap: s(4) }]} activeOpacity={0.7}>
-          <Image
-            source={{ uri: 'https://i.pravatar.cc/150?img=47' }}
-            style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2, backgroundColor: '#E5E7EB' }}
-          />
+          {avatarUri ? (
+            <Image
+              source={{ uri: avatarUri }}
+              style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2, backgroundColor: '#E5E7EB' }}
+            />
+          ) : (
+            <View style={[styles.avatarFallback, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
+              <Text style={[styles.avatarInitial, { fontSize: s(16) }]}>
+                {user?.first_name?.[0] ?? '?'}
+              </Text>
+            </View>
+          )}
           <Ionicons name="chevron-down" size={s(14)} color={GRAY} />
         </TouchableOpacity>
       </View>
@@ -88,6 +101,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   badgeText: { color: WHITE, fontWeight: '700' },
-  divider:  { width: StyleSheet.hairlineWidth, backgroundColor: '#E5E7EB' },
-  userRow:  { flexDirection: 'row', alignItems: 'center' },
+  divider:        { width: StyleSheet.hairlineWidth, backgroundColor: '#E5E7EB' },
+  userRow:        { flexDirection: 'row', alignItems: 'center' },
+  avatarFallback: { backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial:  { color: WHITE, fontWeight: '700' },
 });

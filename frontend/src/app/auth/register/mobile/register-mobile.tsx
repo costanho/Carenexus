@@ -16,9 +16,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PhoneInput } from '@/components/shared/phone-input';
-import { registerSchema } from '../validation/register.schema';
-import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '../validation/register.types';
-import { getPasswordStrength } from '../validation/register.validators';
+import { register } from '@/lib/auth/auth.service';
+import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { registerSchema } from '@/lib/validation/register/register.schema';
+import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '@/lib/validation/register/register.types';
+import { getPasswordStrength } from '@/lib/validation/register/register.validators';
 
 const { WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
 
@@ -33,6 +35,8 @@ export default function RegisterMobile() {
   const [role, setRole]         = useState<Role>('patient');
   const [showPass, setShowPass] = useState(false);
   const [showConf, setShowConf] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [loading, setLoading]     = useState(false);
 
   const active = REGISTER_ROLES.find(r => r.key === role)!;
 
@@ -49,9 +53,25 @@ export default function RegisterMobile() {
   const agreedValue   = watch('agreed');
   const strength      = getPasswordStrength(passwordValue);
 
-  function onSubmit(data: RegisterFormData) {
-    // TODO: connect to auth service
-    console.log({ ...data, role });
+  async function onSubmit(data: RegisterFormData) {
+    setAuthError('');
+    setLoading(true);
+    try {
+      const { user } = await register({
+        firstName: data.firstName,
+        lastName:  data.lastName,
+        email:     data.email,
+        phone:     data.phone,
+        password:  data.password,
+        role,
+      });
+      router.replace(ROLE_HOME[user.role] as any);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Registration failed. Please try again.';
+      setAuthError(msg);
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Defined inside to close over s() for proportional sizing
@@ -265,18 +285,30 @@ export default function RegisterMobile() {
           </View>
         )}
 
+        {/* Auth error */}
+        {!!authError && (
+          <View style={[styles.fieldError, { gap: s(6), marginBottom: s(8), padding: s(10), backgroundColor: '#FEF2F2', borderRadius: s(8) }]}>
+            <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
+            <Text style={[styles.fieldErrorText, { fontSize: s(12), flex: 1 }]}>{authError}</Text>
+          </View>
+        )}
+
         {/* Submit */}
         <TouchableOpacity
           style={[styles.submitBtn, {
             backgroundColor: active.color,
             borderRadius: s(12), paddingVertical: s(15),
             gap: s(8), marginTop: s(4),
+            opacity: loading ? 0.7 : 1,
           }]}
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
+          disabled={loading}
         >
           <Ionicons name="person-add-outline" size={s(18)} color={WHITE} />
-          <Text style={[styles.submitText, { fontSize: s(15) }]}>Create Account</Text>
+          <Text style={[styles.submitText, { fontSize: s(15) }]}>
+            {loading ? 'Creating account…' : 'Create Account'}
+          </Text>
         </TouchableOpacity>
 
         {/* Sign in */}

@@ -46,3 +46,30 @@ example
 
 # Claude Code
 .claude/
+
+# Mock server (local development only)
+mock-server/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temp / cache
+.cache/
+tmp/
+temp/
+
+# Environment secrets
+.env
+.env.production
+.env.staging

@@ -12,6 +12,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { login, logout } from '@/lib/auth/auth.service';
+import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
 const TEAL   = '#0D9488';
@@ -58,6 +60,8 @@ export default function LoginWeb() {
 
   const [role, setRole]         = useState<Role>('patient');
   const [showPass, setShowPass] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [loading, setLoading]     = useState(false);
 
   const active = roles.find(r => r.key === role)!;
 
@@ -66,9 +70,24 @@ export default function LoginWeb() {
     defaultValues: { email: '', password: '' },
   });
 
-  function onSubmit(data: LoginFormData) {
-    // TODO: connect to auth service
-    console.log({ ...data, role });
+  async function onSubmit(data: LoginFormData) {
+    setAuthError('');
+    setLoading(true);
+    try {
+      const { user } = await login({ ...data, role });
+      if (user.role !== role) {
+        await logout();
+        const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };
+        setAuthError(`This account is registered as a ${labels[user.role]}. Please select the correct role.`);
+        return;
+      }
+      router.replace(ROLE_HOME[user.role] as any);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Invalid email or password.';
+      setAuthError(msg);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -178,14 +197,28 @@ export default function LoginWeb() {
           <FieldError message={errors.password?.message} />
         </View>
 
+        {/* Auth error */}
+        {!!authError && (
+          <View style={styles.errorBox}>
+            <Ionicons name="alert-circle-outline" size={15} color={RED} />
+            <Text style={styles.errorText}>{authError}</Text>
+          </View>
+        )}
+
         {/* Sign In */}
         <TouchableOpacity
-          style={[styles.signInBtn, { backgroundColor: active.color }]}
+          style={[styles.signInBtn, { backgroundColor: active.color, opacity: loading ? 0.7 : 1 }]}
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
+          disabled={loading}
         >
-          <Text style={styles.signInText}>Sign In</Text>
-          <Ionicons name="arrow-forward-outline" size={18} color={WHITE} />
+          {loading
+            ? <Text style={styles.signInText}>Signing in…</Text>
+            : <>
+                <Text style={styles.signInText}>Sign In</Text>
+                <Ionicons name="arrow-forward-outline" size={18} color={WHITE} />
+              </>
+          }
         </TouchableOpacity>
 
         {/* Divider */}
@@ -300,6 +333,9 @@ const styles = StyleSheet.create({
 
   fieldError:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
   fieldErrorText: { fontSize: 12, color: RED },
+
+  errorBox:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 14 },
+  errorText: { fontSize: 13, color: RED, flex: 1 },
 
   signInBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 16, marginBottom: 20 },
   signInText: { fontSize: 16, fontWeight: '700', color: WHITE },
