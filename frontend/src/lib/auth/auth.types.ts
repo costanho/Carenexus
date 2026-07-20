@@ -22,10 +22,10 @@ export interface AuthTokens {
 }
 
 export interface AuthUser {
-  id:    string;
-  name:  string;
-  email: string;
-  role:  Role;
+  user_id: number;
+  name:    string;
+  email:   string;
+  role:    Role;
 }
 
 export interface AuthResponse {

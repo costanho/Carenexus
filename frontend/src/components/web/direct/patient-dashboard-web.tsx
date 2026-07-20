@@ -1,27 +1,98 @@
-import { useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Suspense, lazy, useState } from 'react';
+import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { PatientSidebar as PatientLeftSidebar } from './patient/patient-left-sidebar';
 import { PatientMainDashboardArea } from './patient/patient-main-dashboard-area';
 import { PatientRightSidebar } from './patient/patient-right-sidebar';
 import { PatientTopNavbar } from './patient/patient-top-navbar';
 
+const PatientWebAppointment = lazy(() =>
+  import('./patient/patient-web-appointment')
+);
+
+const PatientWebAppointmentStatus = lazy(() =>
+  import('./patient/patient-web-appointment-status')
+);
+
+const PatientWebConsultationHistory = lazy(() =>
+  import('./patient/patient-web-consultation-history')
+);
+
 export function PatientDashboardWeb() {
   const { width } = useWindowDimensions();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen]   = useState(false);
+  const [activeKey, setActiveKey]     = useState('dashboard');
 
   const isLarge  = width >= 1024;
   const isMedium = width >= 768 && width < 1024;
   const isSmall  = width < 768;
 
+  function handleNavigate(key: string) {
+    setActiveKey(key);
+    if (isSmall) setDrawerOpen(false);
+  }
+
+  const loader = <View style={styles.loader}><ActivityIndicator size="large" color="#0D9488" /></View>;
+
+  function renderCenter() {
+    if (activeKey === 'book-appointment') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebAppointment onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'my-appointments') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebAppointmentStatus />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'consultation-history') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebConsultationHistory onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    return (
+      <>
+        <PatientMainDashboardArea
+          onBookAppointment={() => setActiveKey('book-appointment')}
+          onViewConsultations={() => setActiveKey('consultation-history')}
+        />
+        {isLarge && <PatientRightSidebar />}
+      </>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {/* Left sidebar: hidden on small, icon-only on medium, full on large */}
-      {!isSmall && <PatientLeftSidebar collapsed={isMedium} />}
+      {!isSmall && (
+        <PatientLeftSidebar
+          collapsed={isMedium}
+          activeKey={activeKey}
+          onNavigate={handleNavigate}
+        />
+      )}
 
-      {/* Drawer overlay on small screens */}
       {isSmall && drawerOpen && (
         <View style={styles.drawerOverlay}>
-          <PatientLeftSidebar collapsed={false} onClose={() => setDrawerOpen(false)} />
+          <PatientLeftSidebar
+            collapsed={false}
+            activeKey={activeKey}
+            onNavigate={handleNavigate}
+            onClose={() => setDrawerOpen(false)}
+          />
         </View>
       )}
 
@@ -31,8 +102,7 @@ export function PatientDashboardWeb() {
           onMenuPress={() => setDrawerOpen(true)}
         />
         <View style={styles.body}>
-          <PatientMainDashboardArea />
-          {isLarge && <PatientRightSidebar />}
+          {renderCenter()}
         </View>
       </View>
     </View>
@@ -54,6 +124,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     minWidth: 0,
+  },
+loader: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   drawerOverlay: {
     position: 'absolute',

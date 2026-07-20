@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useAppointments } from '@/hooks/use-appointments';
 
 const TEAL       = '#0D9488';
 const NAVY       = '#1E3A5F';
@@ -23,18 +24,24 @@ function useScale() {
 type QuickAction = { label: string; icon: IoniconsName; iconBg: string; iconColor: string };
 
 const quickActions: QuickAction[] = [
-  { label: 'Book Appointment',   icon: 'calendar-outline',      iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
-  { label: 'Join Consultation',  icon: 'videocam-outline',      iconBg: '#E6F4F1', iconColor: TEAL },
-  { label: 'Upload Documents',   icon: 'cloud-upload-outline',  iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'View Prescriptions', icon: 'medkit-outline',        iconBg: '#FFF3E6', iconColor: '#F4A124' },
-  { label: 'Message Doctor',     icon: 'chatbubble-outline',    iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { label: 'Book Appointment',      icon: 'calendar-outline',      iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { label: 'Join Consultation',     icon: 'videocam-outline',      iconBg: '#E6F4F1', iconColor: TEAL },
+  { label: 'Consultation History',  icon: 'document-text-outline', iconBg: '#EEF2FF', iconColor: '#4F46E5' },
+  { label: 'Upload Documents',      icon: 'cloud-upload-outline',  iconBg: '#E8F0FE', iconColor: '#4285F4' },
+  { label: 'View Prescriptions',    icon: 'medkit-outline',        iconBg: '#FFF3E6', iconColor: '#F4A124' },
+  { label: 'Message Doctor',        icon: 'chatbubble-outline',    iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions() {
+function QuickActions({ onBookAppointment, onViewConsultations }: { onBookAppointment?: () => void; onViewConsultations?: () => void }) {
   const { s, width } = useScale();
   const cardWidth   = width * 0.42;
   const iconBox     = s(40);
   const gap         = s(10);
+
+  function handlePress(label: string) {
+    if (label === 'Book Appointment')     onBookAppointment?.();
+    if (label === 'Consultation History') onViewConsultations?.();
+  }
 
   return (
     <ScrollView
@@ -47,6 +54,7 @@ function QuickActions() {
           key={a.label}
           style={[styles.quickCard, { width: cardWidth, padding: s(12), borderRadius: s(12), gap: s(6) }]}
           activeOpacity={0.8}
+          onPress={() => handlePress(a.label)}
         >
           <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: iconBox / 2, backgroundColor: a.iconBg }]}>
             <Ionicons name={a.icon} size={s(20)} color={a.iconColor} />
@@ -131,33 +139,43 @@ function HealthOverview() {
 
 // ── Recent Consultations ─────────────────────────────────────────────
 
-type Consultation = { date: string; title: string; doctor: string };
+const TYPE_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  VIDEO:     'videocam-outline',
+  IN_PERSON: 'business-outline',
+  PHONE:     'call-outline',
+};
 
-const consultations: Consultation[] = [
-  { date: '24 May 2024 • 10:30 AM', title: 'Follow-up Consultation', doctor: 'Dr. Matt (Physician)' },
-  { date: '10 May 2024 • 11:00 AM', title: 'Review Lab Results',     doctor: 'Dr. Matt (Physician)' },
-  { date: '26 Apr 2024 • 09:15 AM', title: 'Initial Consultation',   doctor: 'Dr. Matt (Physician)' },
-];
+function formatApptDate(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
+    ' • ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
 
-function RecentConsultations() {
+function RecentConsultations({ onViewConsultations }: { onViewConsultations?: () => void }) {
   const { s } = useScale();
   const iconBox = s(34);
+  const { appointments, loading } = useAppointments();
+  const recent = appointments.filter(a => a.status === 'COMPLETED').slice(0, 3);
 
   return (
     <View style={[styles.section, { padding: s(14), borderRadius: s(14) }]}>
       <View style={[styles.row, { marginBottom: s(10) }]}>
         <Text style={[styles.sectionTitle, { fontSize: s(14) }]}>Recent Consultations</Text>
-        <TouchableOpacity><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onViewConsultations}><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
       </View>
-      {consultations.map((c) => (
-        <TouchableOpacity key={c.date} style={[styles.listRow, { gap: s(10), paddingVertical: s(10) }]} activeOpacity={0.7}>
+      {loading ? (
+        <Text style={[styles.listDate, { fontSize: s(12), padding: s(8) }]}>Loading…</Text>
+      ) : recent.length === 0 ? (
+        <Text style={[styles.listDate, { fontSize: s(12), padding: s(8) }]}>No completed consultations yet.</Text>
+      ) : recent.map((a) => (
+        <TouchableOpacity key={a.appointment_id} style={[styles.listRow, { gap: s(10), paddingVertical: s(10) }]} activeOpacity={0.7}>
           <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: s(8), backgroundColor: '#E6F4F1' }]}>
-            <Ionicons name="videocam-outline" size={s(16)} color={TEAL} />
+            <Ionicons name={TYPE_ICON[a.type] ?? 'calendar-outline'} size={s(16)} color={TEAL} />
           </View>
           <View style={styles.flex1}>
-            <Text style={[styles.listDate,  { fontSize: s(10) }]}>{c.date}</Text>
-            <Text style={[styles.listTitle, { fontSize: s(13) }]}>{c.title}</Text>
-            <Text style={[styles.listSub,   { fontSize: s(11) }]}>{c.doctor}</Text>
+            <Text style={[styles.listDate,  { fontSize: s(10) }]}>{formatApptDate(a.scheduled_at)}</Text>
+            <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={1}>{a.reason_for_visit ?? 'Consultation'}</Text>
+            <Text style={[styles.listSub,   { fontSize: s(11) }]}>{a.doctor_name}{a.doctor_specialization ? ` (${a.doctor_specialization})` : ''}</Text>
           </View>
           <View style={[styles.badge, { paddingHorizontal: s(7), paddingVertical: s(3), borderRadius: s(6) }]}>
             <Text style={[styles.badgeText, { fontSize: s(10) }]}>Completed</Text>
@@ -165,7 +183,7 @@ function RecentConsultations() {
           <Ionicons name="chevron-forward" size={s(15)} color={GRAY} />
         </TouchableOpacity>
       ))}
-      <TouchableOpacity style={[styles.viewAllRow, { paddingTop: s(10) }]}>
+      <TouchableOpacity style={[styles.viewAllRow, { paddingTop: s(10) }]} onPress={onViewConsultations}>
         <Text style={[styles.link, { fontSize: s(12) }]}>View all consultations →</Text>
       </TouchableOpacity>
     </View>
@@ -250,7 +268,13 @@ function ImportantReminders() {
 
 // ── Main export ──────────────────────────────────────────────────────
 
-export function PatientMainDashboardAreaMobile() {
+export function PatientMainDashboardAreaMobile({
+  onBookAppointment,
+  onViewConsultations,
+}: {
+  onBookAppointment?: () => void;
+  onViewConsultations?: () => void;
+}) {
   const { s } = useScale();
   const pad = s(16);
 
@@ -261,10 +285,10 @@ export function PatientMainDashboardAreaMobile() {
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
-      <QuickActions />
+      <QuickActions onBookAppointment={onBookAppointment} onViewConsultations={onViewConsultations} />
       <WelcomeBanner />
       <HealthOverview />
-      <RecentConsultations />
+      <RecentConsultations onViewConsultations={onViewConsultations} />
       <LatestPrescriptions />
       <ImportantReminders />
     </ScrollView>

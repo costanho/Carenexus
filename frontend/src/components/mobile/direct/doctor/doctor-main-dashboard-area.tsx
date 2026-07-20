@@ -197,7 +197,7 @@ export function DoctorMainDashboardAreaMobile() {
         <View style={[styles.sep, { marginVertical: s(10) }]} />
         <AppointmentRow time="02:00 PM" name="David Thompson"  type="Follow-up Consultation"  status="Pending"   action="Start"    avatarId={15} />
         <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <AppointmentRow time="03:00 PM" name="Linda Davis"     type="Chronic Care Management" status="Confirmed" action="Start"    avatarId={56} />
+        <AppointmentRow time="03:00 PM" name="Grace Mutasa"    type="Chronic Care Management" status="Confirmed" action="Start"    avatarId={56} />
         <TouchableOpacity style={[styles.viewAll, { marginTop: s(14) }]} activeOpacity={0.7}>
           <Text style={[styles.cardAction, { fontSize: s(13) }]}>View all appointments →</Text>
         </TouchableOpacity>
@@ -209,7 +209,7 @@ export function DoctorMainDashboardAreaMobile() {
         <View style={[styles.sep, { marginVertical: s(10) }]} />
         <ActivityRow icon="flask-outline"         iconBg="#D1FAE5" iconColor={GREEN}   title="Lab results for Michael Brown"          sub="Blood Test Results"               time="45 min ago" />
         <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ActivityRow icon="medkit-outline"        iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Linda Davis"     sub="Atorvastatin 20mg"               time="1 hr ago"   />
+        <ActivityRow icon="medkit-outline"        iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Grace Mutasa"    sub="Atorvastatin 20mg"               time="1 hr ago"   />
         <View style={[styles.sep, { marginVertical: s(10) }]} />
         <ActivityRow icon="calendar-outline"      iconBg="#EFF6FF" iconColor="#3B82F6" title="New appointment booked"                 sub="James Wilson — 24 May 2024"       time="2 hrs ago"  />
         <View style={[styles.sep, { marginVertical: s(10) }]} />

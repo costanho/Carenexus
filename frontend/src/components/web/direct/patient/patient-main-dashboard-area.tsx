@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useAppointments } from '@/hooks/use-appointments';
 
 const TEAL       = '#0D9488';
 const NAVY       = '#1E3A5F';
@@ -23,15 +24,19 @@ const quickActions: QuickAction[] = [
   { label: 'Message\nDoctor',     desc: 'Send a message to your doctor',     icon: 'chatbubble-outline',   iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions() {
+function QuickActions({ onBookAppointment }: { onBookAppointment?: () => void }) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
+
+  function handlePress(label: string) {
+    if (label === 'Book\nAppointment' && onBookAppointment) onBookAppointment();
+  }
 
   if (isSmall) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
         {quickActions.map((a) => (
-          <TouchableOpacity key={a.label} style={[styles.quickCard, { width: 140 }]} activeOpacity={0.8}>
+          <TouchableOpacity key={a.label} style={[styles.quickCard, { width: 140 }]} activeOpacity={0.8} onPress={() => handlePress(a.label)}>
             <View style={[styles.quickIconBg, { backgroundColor: a.iconBg }]}>
               <Ionicons name={a.icon} size={20} color={a.iconColor} />
             </View>
@@ -46,7 +51,7 @@ function QuickActions() {
   return (
     <View style={styles.quickRow}>
       {quickActions.map((a) => (
-        <TouchableOpacity key={a.label} style={styles.quickCard} activeOpacity={0.8}>
+        <TouchableOpacity key={a.label} style={styles.quickCard} activeOpacity={0.8} onPress={() => handlePress(a.label)}>
           <View style={[styles.quickIconBg, { backgroundColor: a.iconBg }]}>
             <Ionicons name={a.icon} size={22} color={a.iconColor} />
           </View>
@@ -147,36 +152,47 @@ function HealthOverview() {
 
 // ── Recent Consultations ─────────────────────────────────────────────
 
-type Consultation = { date: string; title: string; doctor: string };
+const TYPE_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  VIDEO:     'videocam-outline',
+  IN_PERSON: 'business-outline',
+  PHONE:     'call-outline',
+};
 
-const consultations: Consultation[] = [
-  { date: '24 May 2024 • 10:30 AM', title: 'Follow-up Consultation', doctor: 'Dr. Matt (Physician)' },
-  { date: '10 May 2024 • 11:00 AM', title: 'Review Lab Results',     doctor: 'Dr. Matt (Physician)' },
-  { date: '26 Apr 2024 • 09:15 AM', title: 'Initial Consultation',   doctor: 'Dr. Matt (Physician)' },
-];
+function formatApptDate(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
+    ' • ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
 
-function RecentConsultations() {
+function RecentConsultations({ onViewConsultations }: { onViewConsultations?: () => void }) {
+  const { appointments, loading } = useAppointments();
+  const recent = appointments.filter(a => a.status === 'COMPLETED').slice(0, 3);
+
   return (
     <View style={[styles.section, { flex: 1 }]}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Consultations</Text>
-        <TouchableOpacity><Text style={styles.link}>View all</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onViewConsultations}><Text style={styles.link}>View all</Text></TouchableOpacity>
       </View>
-      {consultations.map((c) => (
-        <View key={c.date} style={styles.consultRow}>
+      {loading ? (
+        <Text style={[styles.consultDate, { padding: 12 }]}>Loading…</Text>
+      ) : recent.length === 0 ? (
+        <Text style={[styles.consultDate, { padding: 12 }]}>No completed consultations yet.</Text>
+      ) : recent.map((a) => (
+        <View key={a.appointment_id} style={styles.consultRow}>
           <View style={styles.consultIconBg}>
-            <Ionicons name="videocam-outline" size={18} color={TEAL} />
+            <Ionicons name={TYPE_ICON[a.type] ?? 'calendar-outline'} size={18} color={TEAL} />
           </View>
           <View style={styles.consultInfo}>
-            <Text style={styles.consultDate}>{c.date}</Text>
-            <Text style={styles.consultTitle}>{c.title}</Text>
-            <Text style={styles.consultDoctor}>{c.doctor}</Text>
+            <Text style={styles.consultDate}>{formatApptDate(a.scheduled_at)}</Text>
+            <Text style={styles.consultTitle}>{a.reason_for_visit ?? 'Consultation'}</Text>
+            <Text style={styles.consultDoctor}>{a.doctor_name}{a.doctor_specialization ? ` (${a.doctor_specialization})` : ''}</Text>
           </View>
           <View style={styles.badge}><Text style={styles.badgeText}>Completed</Text></View>
           <Ionicons name="chevron-forward" size={16} color={GRAY} />
         </View>
       ))}
-      <TouchableOpacity style={styles.viewAllRow}>
+      <TouchableOpacity style={styles.viewAllRow} onPress={onViewConsultations}>
         <Text style={styles.link}>View all consultations →</Text>
       </TouchableOpacity>
     </View>
@@ -261,17 +277,23 @@ function ImportantReminders() {
 
 // ── Main export ──────────────────────────────────────────────────────
 
-export function PatientMainDashboardArea() {
+export function PatientMainDashboardArea({
+  onBookAppointment,
+  onViewConsultations,
+}: {
+  onBookAppointment?: () => void;
+  onViewConsultations?: () => void;
+}) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <QuickActions />
+      <QuickActions onBookAppointment={onBookAppointment} />
       <WelcomeBanner />
       <HealthOverview />
       <View style={[styles.twoCol, isSmall && { flexDirection: 'column' }]}>
-        <RecentConsultations />
+        <RecentConsultations onViewConsultations={onViewConsultations} />
         <LatestPrescriptions />
       </View>
       <ImportantReminders />

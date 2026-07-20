@@ -1,8 +1,15 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import { Platform } from 'react-native';
 import { clearAuth, getAccessToken, getRefreshToken, saveTokens } from './auth.storage';
 import type { AuthTokens } from './auth.types';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080';
+// Web always uses localhost (browser runs on the same Mac as the server).
+// Mobile uses EXPO_PUBLIC_API_URL (set to the Mac's LAN IP in .env.development)
+// so a physical device on the same network can reach the server.
+const BASE_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:8080'
+    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.106:8080');
 
 // ── Axios instance shared across the whole app ────────────────────────────────
 export const api: AxiosInstance = axios.create({

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,10 +21,22 @@ const tabs: TabItem[] = [
   { key: 'profile',      label: 'Profile',      icon: 'person-outline',       activeIcon: 'person' },
 ];
 
-export function PatientBottomNavbar() {
+const TAB_ROUTES: Record<string, string> = {
+  appointments: '/dashboard/patient/appointments/status',
+};
+
+export function PatientBottomNavbar({
+  activeKey,
+  onNavigate,
+}: {
+  activeKey?: string;
+  onNavigate?: (key: string) => void;
+}) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [active, setActive] = useState('dashboard');
+  const [localActive, setLocalActive] = useState('dashboard');
+  const active = activeKey ?? localActive;
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
@@ -32,6 +45,16 @@ export function PatientBottomNavbar() {
   const fontSize  = s(10);
   const padTop    = h(12);
   const padBottom = insets.bottom || h(16);
+
+  function handlePress(tab: TabItem) {
+    if (onNavigate) {
+      onNavigate(tab.key);
+    } else {
+      setLocalActive(tab.key);
+      const route = TAB_ROUTES[tab.key];
+      if (route) router.push(route as any);
+    }
+  }
 
   return (
     <View style={[styles.container, { paddingTop: padTop, paddingBottom: padBottom }]}>
@@ -42,7 +65,7 @@ export function PatientBottomNavbar() {
             key={tab.key}
             style={[styles.tab, { gap: s(4) }]}
             activeOpacity={0.7}
-            onPress={() => setActive(tab.key)}
+            onPress={() => handlePress(tab)}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />

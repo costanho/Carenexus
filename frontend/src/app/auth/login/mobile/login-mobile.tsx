@@ -29,7 +29,6 @@ const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const RED    = '#EF4444';
 
-type Role = 'patient' | 'doctor' | 'proxy';
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: string }[] = [

@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const TEAL       = '#0D9488';
 const TEAL_BG    = '#E8F5F4';
@@ -54,27 +56,37 @@ const sections: NavSection[] = [
   },
 ];
 
-function SidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
-  const color = item.active ? TEAL : ICON_GRAY;
+function SidebarItem({
+  item, collapsed, isActive, onNavigate,
+}: {
+  item: NavItem; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void;
+}) {
+  const color = isActive ? TEAL : ICON_GRAY;
   return (
     <TouchableOpacity
-      style={[styles.navItem, item.active && styles.navItemActive, collapsed && styles.navItemCollapsed]}
+      style={[styles.navItem, isActive && styles.navItemActive, collapsed && styles.navItemCollapsed]}
       activeOpacity={0.7}
+      onPress={() => onNavigate(item.key)}
     >
       <Ionicons name={item.icon} size={18} color={color} />
       {!collapsed && (
-        <Text style={[styles.navLabel, item.active && styles.navLabelActive]}>{item.label}</Text>
+        <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{item.label}</Text>
       )}
     </TouchableOpacity>
   );
 }
 
 export interface PatientSidebarProps {
-  collapsed?: boolean;
-  onClose?: () => void;
+  collapsed?:   boolean;
+  onClose?:     () => void;
+  activeKey?:   string;
+  onNavigate?:  (key: string) => void;
 }
 
-export function PatientSidebar({ collapsed = false, onClose }: PatientSidebarProps) {
+export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashboard', onNavigate }: PatientSidebarProps) {
+  const { user } = useCurrentUser();
+  const fullName  = user ? `${user.first_name} ${user.last_name}` : '...';
+  const avatarUri = user?.avatar_url ?? null;
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       {/* Logo */}
@@ -104,21 +116,32 @@ export function PatientSidebar({ collapsed = false, onClose }: PatientSidebarPro
         {/* Profile */}
         {!collapsed ? (
           <View style={styles.profileSection}>
-            <Image source={{ uri: 'https://i.pravatar.cc/150?img=47' }} style={styles.avatar} />
+            {avatarUri
+              ? <Image source={{ uri: avatarUri }} style={styles.avatar} />
+              : <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
+            }
             <View style={styles.flex1}>
               <Text style={styles.helloText}>Hello,</Text>
-              <Text style={styles.nameText}>Linda Davis 👋</Text>
+              <Text style={styles.nameText}>{fullName} 👋</Text>
               <Text style={styles.roleText}>Patient</Text>
             </View>
           </View>
         ) : (
           <View style={styles.avatarCollapsed}>
-            <Image source={{ uri: 'https://i.pravatar.cc/150?img=47' }} style={styles.avatarSmall} />
+            {avatarUri
+              ? <Image source={{ uri: avatarUri }} style={styles.avatarSmall} />
+              : <View style={[styles.avatarSmall, styles.avatarFallback]}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
+            }
           </View>
         )}
 
         {/* Dashboard */}
-        <SidebarItem collapsed={collapsed} item={{ key: 'dashboard', label: 'Dashboard', icon: 'home', active: true }} />
+        <SidebarItem
+          collapsed={collapsed}
+          item={{ key: 'dashboard', label: 'Dashboard', icon: 'home' }}
+          isActive={activeKey === 'dashboard'}
+          onNavigate={onNavigate ?? (() => {})}
+        />
 
         {/* Sections */}
         {sections.map((section) => (
@@ -128,7 +151,13 @@ export function PatientSidebar({ collapsed = false, onClose }: PatientSidebarPro
               : <View style={styles.sectionDivider} />
             }
             {section.items.map((item) => (
-              <SidebarItem key={item.key} collapsed={collapsed} item={item} />
+              <SidebarItem
+                key={item.key}
+                collapsed={collapsed}
+                item={item}
+                isActive={activeKey === item.key}
+                onNavigate={onNavigate ?? (() => {})}
+              />
             ))}
           </View>
         ))}
@@ -186,6 +215,8 @@ const styles = StyleSheet.create({
   avatar:         { width: 52, height: 52, borderRadius: 26, backgroundColor: '#E5E7EB' },
   avatarCollapsed:{ alignItems: 'center', paddingVertical: 16 },
   avatarSmall:    { width: 36, height: 36, borderRadius: 18, backgroundColor: '#E5E7EB' },
+  avatarFallback: { backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial:  { color: WHITE, fontWeight: '700', fontSize: 16 },
   helloText:      { fontSize: 14, color: TEXT },
   nameText:       { fontSize: 16, fontWeight: '700', color: TEXT },
   roleText:       { fontSize: 13, color: TEAL, fontWeight: '500' },

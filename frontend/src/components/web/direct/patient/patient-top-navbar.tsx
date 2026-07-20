@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
@@ -24,7 +25,12 @@ function BellIcon({ count }: { count: number }) {
 
 export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
   const { width } = useWindowDimensions();
+  const { user, loading } = useCurrentUser();
   const isSmall = width < 768;
+
+  const firstName = user?.first_name ?? (loading ? '...' : 'there');
+  const fullName  = user ? `${user.first_name} ${user.last_name}` : '';
+  const avatarUri = user?.avatar_url ?? null;
 
   return (
     <View style={styles.navbar}>
@@ -35,7 +41,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
           </TouchableOpacity>
         )}
         <View>
-          <Text style={styles.title} numberOfLines={1}>Welcome back, Linda!</Text>
+          <Text style={styles.title} numberOfLines={1}>Welcome back, {firstName}!</Text>
           {!isSmall && (
             <Text style={styles.subtitle}>Here's your health overview and latest updates.</Text>
           )}
@@ -47,11 +53,14 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
         {!isSmall && <BellIcon count={2} />}
         <View style={styles.divider} />
         <TouchableOpacity style={styles.userRow} activeOpacity={0.7}>
-          <Image
-            source={{ uri: 'https://i.pravatar.cc/150?img=47' }}
-            style={styles.avatar}
-          />
-          {!isSmall && <Text style={styles.userName}>Linda Davis</Text>}
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback]}>
+              <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>
+            </View>
+          )}
+          {!isSmall && fullName && <Text style={styles.userName}>{fullName}</Text>}
           <Ionicons name="chevron-down" size={16} color={GRAY} />
         </TouchableOpacity>
       </View>
@@ -139,5 +148,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: TEXT,
+  },
+  avatarFallback: {
+    backgroundColor: '#0D9488',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitial: {
+    color: WHITE,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

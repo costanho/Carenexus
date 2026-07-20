@@ -215,7 +215,7 @@ export function DoctorMainDashboardArea() {
             <View style={styles.separator} />
             <AppointmentRow time="02:00 PM" name="David Thompson"  type="Follow-up Consultation"   status="Pending"   action="Start"    avatarId={15} />
             <View style={styles.separator} />
-            <AppointmentRow time="03:00 PM" name="Linda Davis"     type="Chronic Care Management"  status="Confirmed" action="Start"    avatarId={56} />
+            <AppointmentRow time="03:00 PM" name="Grace Mutasa"    type="Chronic Care Management"  status="Confirmed" action="Start"    avatarId={56} />
             <TouchableOpacity style={styles.viewAll} activeOpacity={0.7}>
               <Text style={styles.viewAllText}>View all appointments →</Text>
             </TouchableOpacity>
@@ -240,7 +240,7 @@ export function DoctorMainDashboardArea() {
             <View style={styles.separator} />
             <ActivityRow icon="flask-outline"        iconBg="#D1FAE5" iconColor={GREEN}   title="Lab results uploaded for Michael Brown" sub="Blood Test Results"              time="45 min ago" />
             <View style={styles.separator} />
-            <ActivityRow icon="medkit-outline"       iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Linda Davis"     sub="Atorvastatin 20mg"              time="1 hr ago"   />
+            <ActivityRow icon="medkit-outline"       iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Grace Mutasa"    sub="Atorvastatin 20mg"              time="1 hr ago"   />
             <View style={styles.separator} />
             <ActivityRow icon="calendar-outline"     iconBg="#EFF6FF" iconColor="#3B82F6" title="New appointment booked"                 sub="With James Wilson on 24 May 2024" time="2 hrs ago"  />
             <View style={styles.separator} />
