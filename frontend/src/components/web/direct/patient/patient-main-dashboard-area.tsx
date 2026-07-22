@@ -24,12 +24,13 @@ const quickActions: QuickAction[] = [
   { label: 'Message\nDoctor',     desc: 'Send a message to your doctor',     icon: 'chatbubble-outline',   iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions({ onBookAppointment }: { onBookAppointment?: () => void }) {
+function QuickActions({ onBookAppointment, onViewPrescriptions }: { onBookAppointment?: () => void; onViewPrescriptions?: () => void }) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
 
   function handlePress(label: string) {
-    if (label === 'Book\nAppointment' && onBookAppointment) onBookAppointment();
+    if (label === 'Book\nAppointment')   onBookAppointment?.();
+    if (label === 'View\nPrescriptions') onViewPrescriptions?.();
   }
 
   if (isSmall) {
@@ -280,16 +281,18 @@ function ImportantReminders() {
 export function PatientMainDashboardArea({
   onBookAppointment,
   onViewConsultations,
+  onViewPrescriptions,
 }: {
   onBookAppointment?: () => void;
   onViewConsultations?: () => void;
+  onViewPrescriptions?: () => void;
 }) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <QuickActions onBookAppointment={onBookAppointment} />
+      <QuickActions onBookAppointment={onBookAppointment} onViewPrescriptions={onViewPrescriptions} />
       <WelcomeBanner />
       <HealthOverview />
       <View style={[styles.twoCol, isSmall && { flexDirection: 'column' }]}>

@@ -32,7 +32,7 @@ const quickActions: QuickAction[] = [
   { label: 'Message Doctor',        icon: 'chatbubble-outline',    iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions({ onBookAppointment, onViewConsultations }: { onBookAppointment?: () => void; onViewConsultations?: () => void }) {
+function QuickActions({ onBookAppointment, onViewConsultations, onViewPrescriptions }: { onBookAppointment?: () => void; onViewConsultations?: () => void; onViewPrescriptions?: () => void }) {
   const { s, width } = useScale();
   const cardWidth   = width * 0.42;
   const iconBox     = s(40);
@@ -41,6 +41,7 @@ function QuickActions({ onBookAppointment, onViewConsultations }: { onBookAppoin
   function handlePress(label: string) {
     if (label === 'Book Appointment')     onBookAppointment?.();
     if (label === 'Consultation History') onViewConsultations?.();
+    if (label === 'View Prescriptions')   onViewPrescriptions?.();
   }
 
   return (
@@ -271,9 +272,11 @@ function ImportantReminders() {
 export function PatientMainDashboardAreaMobile({
   onBookAppointment,
   onViewConsultations,
+  onViewPrescriptions,
 }: {
   onBookAppointment?: () => void;
   onViewConsultations?: () => void;
+  onViewPrescriptions?: () => void;
 }) {
   const { s } = useScale();
   const pad = s(16);
@@ -285,7 +288,7 @@ export function PatientMainDashboardAreaMobile({
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
-      <QuickActions onBookAppointment={onBookAppointment} onViewConsultations={onViewConsultations} />
+      <QuickActions onBookAppointment={onBookAppointment} onViewConsultations={onViewConsultations} onViewPrescriptions={onViewPrescriptions} />
       <WelcomeBanner />
       <HealthOverview />
       <RecentConsultations onViewConsultations={onViewConsultations} />

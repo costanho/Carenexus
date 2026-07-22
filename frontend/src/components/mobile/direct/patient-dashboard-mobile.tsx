@@ -5,7 +5,7 @@ import { PatientBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientMainDashboardAreaMobile } from './patient/patient-main-dashboard-area';
 import { PatientTopNavbar } from './patient/patient-topnavbar';
 
-type ActiveKey = 'dashboard' | 'appointments' | 'book-appointment' | 'consultation-history';
+type ActiveKey = 'dashboard' | 'appointments' | 'book-appointment' | 'consultation-history' | 'records' | 'prescriptions' | 'lab-results' | 'imaging-results' | 'profile';
 
 const PatientMobileAppointmentStatus = lazy(
   () => import('./patient/patient-mobile-appointment-status'),
@@ -15,6 +15,21 @@ const PatientMobileAppointment = lazy(
 );
 const PatientMobileConsultationHistory = lazy(
   () => import('./patient/patient-mobile-consultation-history'),
+);
+const PatientMobileMedicalRecords = lazy(
+  () => import('./patient/patient-mobile-medical-records'),
+);
+const PatientMobilePrescription = lazy(
+  () => import('./patient/patient-mobile-prescription'),
+);
+const PatientMobileLabResults = lazy(
+  () => import('./patient/patient-mobile-lab-results'),
+);
+const PatientMobileImagingResults = lazy(
+  () => import('./patient/patient-mobile-imaging-results'),
+);
+const PatientMobileProfile = lazy(
+  () => import('./patient/patient-mobile-profile'),
 );
 
 function LoadingFallback() {
@@ -32,11 +47,16 @@ export function PatientDashboardMobile() {
     if (
       key === 'appointments' ||
       key === 'dashboard' ||
-      key === 'consultation-history'
+      key === 'consultation-history' ||
+      key === 'records' ||
+      key === 'prescriptions' ||
+      key === 'lab-results' ||
+      key === 'imaging-results' ||
+      key === 'profile'
     ) {
       setActiveKey(key as ActiveKey);
     }
-    // records, messages, profile — not yet implemented, just update highlight
+    // messages — not yet implemented
   }
 
   function renderContent() {
@@ -68,12 +88,56 @@ export function PatientDashboardMobile() {
         </Suspense>
       );
     }
+    if (activeKey === 'records') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobileMedicalRecords
+            onBack={() => setActiveKey('dashboard')}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'prescriptions') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobilePrescription
+            onBack={() => setActiveKey('dashboard')}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'lab-results') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobileLabResults
+            onBack={() => setActiveKey('dashboard')}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'imaging-results') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobileImagingResults
+            onBack={() => setActiveKey('dashboard')}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'profile') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobileProfile />
+        </Suspense>
+      );
+    }
     return (
       <>
         <PatientTopNavbar />
         <PatientMainDashboardAreaMobile
           onBookAppointment={() => setActiveKey('book-appointment')}
           onViewConsultations={() => setActiveKey('consultation-history')}
+          onViewPrescriptions={() => setActiveKey('prescriptions')}
         />
       </>
     );

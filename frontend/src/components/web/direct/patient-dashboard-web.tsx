@@ -17,6 +17,26 @@ const PatientWebConsultationHistory = lazy(() =>
   import('./patient/patient-web-consultation-history')
 );
 
+const PatientWebMedicalRecords = lazy(() =>
+  import('./patient/patient-web-medical-records')
+);
+
+const PatientWebPrescription = lazy(() =>
+  import('./patient/patient-web-prescription')
+);
+
+const PatientWebLabResults = lazy(() =>
+  import('./patient/patient-web-lab-results')
+);
+
+const PatientWebImagingResults = lazy(() =>
+  import('./patient/patient-web-imaging-results')
+);
+
+const PatientWebProfile = lazy(() =>
+  import('./patient/patient-web-profile')
+);
+
 export function PatientDashboardWeb() {
   const { width } = useWindowDimensions();
   const [drawerOpen, setDrawerOpen]   = useState(false);
@@ -64,11 +84,59 @@ export function PatientDashboardWeb() {
         </>
       );
     }
+    if (activeKey === 'medical-records') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebMedicalRecords onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'prescriptions') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebPrescription onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'lab-results') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebLabResults onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'imaging-results') {
+      return (
+        <>
+          <Suspense fallback={loader}>
+            <PatientWebImagingResults onBack={() => setActiveKey('dashboard')} />
+          </Suspense>
+          {isLarge && <PatientRightSidebar />}
+        </>
+      );
+    }
+    if (activeKey === 'profile-settings') {
+      return (
+        <Suspense fallback={loader}>
+          <PatientWebProfile />
+        </Suspense>
+      );
+    }
     return (
       <>
         <PatientMainDashboardArea
           onBookAppointment={() => setActiveKey('book-appointment')}
           onViewConsultations={() => setActiveKey('consultation-history')}
+          onViewPrescriptions={() => setActiveKey('prescriptions')}
         />
         {isLarge && <PatientRightSidebar />}
       </>
