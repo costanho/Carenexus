@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { useLogout } from '@/hooks/use-logout';
 
 const TEAL       = '#0D9488';
 const TEAL_BG    = '#E8F5F4';
@@ -10,6 +10,7 @@ const ICON_GRAY  = '#6B7280';
 const TEXT       = '#111827';
 const SUPPORT_BG = '#F3F4F6';
 const WHITE      = '#FFFFFF';
+const LOGOUT_RED = '#EF4444';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type NavItem      = { key: string; label: string; icon: IoniconsName; active?: boolean };
@@ -85,8 +86,10 @@ export interface PatientSidebarProps {
 
 export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashboard', onNavigate }: PatientSidebarProps) {
   const { user } = useCurrentUser();
+  const { handleLogout, loading } = useLogout();
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '...';
   const avatarUri = user?.avatar_url ?? null;
+
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       {/* Logo */}
@@ -176,7 +179,31 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
             <Ionicons name="headset-outline" size={20} color={TEAL} />
           </TouchableOpacity>
         )}
+
+        <View style={{ height: 16 }} />
       </ScrollView>
+
+      {/* Logout footer */}
+      <View style={styles.logoutFooter}>
+        <View style={styles.divider} />
+        <TouchableOpacity
+          style={[styles.logoutBtn, collapsed && styles.logoutBtnCollapsed]}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+          disabled={loading}
+        >
+          <View style={styles.logoutIconWrap}>
+            <Ionicons
+              name={loading ? 'hourglass-outline' : 'log-out-outline'}
+              size={17}
+              color={LOGOUT_RED}
+            />
+          </View>
+          {!collapsed && (
+            <Text style={styles.logoutText}>{loading ? 'Signing out…' : 'Sign Out'}</Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -185,6 +212,7 @@ const styles = StyleSheet.create({
   sidebar: {
     width: 260, backgroundColor: WHITE,
     height: '100%', borderRightWidth: 1, borderRightColor: '#E5E7EB',
+    flexDirection: 'column',
   },
   sidebarCollapsed: { width: 72 },
   flex1: { flex: 1 },
@@ -240,8 +268,41 @@ const styles = StyleSheet.create({
   supportCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: SUPPORT_BG, borderRadius: 12, padding: 16,
-    marginTop: 20, marginBottom: 24, marginHorizontal: 4,
+    marginTop: 20, marginHorizontal: 4,
   },
   supportTitle: { fontSize: 15, fontWeight: '700', color: TEAL },
   supportSub:   { fontSize: 12, color: TEAL },
+
+  logoutFooter: { paddingBottom: 16 },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 10,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FFF5F5',
+  },
+  logoutBtnCollapsed: {
+    justifyContent: 'center',
+    marginHorizontal: 10,
+    paddingHorizontal: 0,
+  },
+  logoutIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: LOGOUT_RED,
+  },
 });

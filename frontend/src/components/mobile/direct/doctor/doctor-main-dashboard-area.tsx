@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -162,6 +163,9 @@ function Card({ title, action, s, children }: { title: string; action: string; s
 
 export function DoctorMainDashboardAreaMobile() {
   const { s, sh } = useScale();
+  const { user } = useCurrentUser();
+  const greeting = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
+  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }} showsVerticalScrollIndicator={false}>
@@ -169,12 +173,12 @@ export function DoctorMainDashboardAreaMobile() {
       {/* Header */}
       <View style={[styles.header, { marginBottom: s(20) }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.greeting, { fontSize: s(18) }]}>Good morning, Dr. Matt 👋</Text>
+          <Text style={[styles.greeting, { fontSize: s(18) }]}>Good morning, {greeting} 👋</Text>
           <Text style={[styles.greetingSub, { fontSize: s(12), marginTop: s(2) }]}>Here's what's happening today.</Text>
         </View>
         <TouchableOpacity style={[styles.dateBtn, { gap: s(5), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6) }]} activeOpacity={0.8}>
           <Ionicons name="calendar-outline" size={s(13)} color={GRAY} />
-          <Text style={[styles.dateText, { fontSize: s(11) }]}>22 May 2024</Text>
+          <Text style={[styles.dateText, { fontSize: s(11) }]}>{today}</Text>
         </TouchableOpacity>
       </View>
 

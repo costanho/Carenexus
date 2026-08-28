@@ -1,5 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Platform } from 'react-native';
+import { useState } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { logout } from '@/lib/auth/auth.service';
 
 const PURPLE = '#7C3AED';
 const WHITE  = '#FFFFFF';
@@ -7,6 +12,27 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
+const RED    = '#EF4444';
+
+const LOGIN_ROUTE = Platform.OS === 'web'
+  ? '/auth/login/web/login-web'
+  : '/auth/login/mobile/login-mobile';
+
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initials(first: string, last: string) {
+  return `${first[0] ?? ''}${last[0] ?? ''}`.toUpperCase();
+}
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -22,11 +48,34 @@ function IconBadge({ name, badge }: { name: IoniconsName; badge: string }) {
 }
 
 export function PatientProxyTopNavbar() {
+  const { user }              = useCurrentUser();
+  const router                = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const firstName = user?.first_name ?? '';
+  const lastName  = user?.last_name  ?? '';
+  const fullName  = user ? `${firstName} ${lastName}`.trim() : '—';
+  const avatarUrl = user?.avatar_url ?? null;
+  const ac        = avatarColor(fullName);
+
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      setMenuOpen(false);
+      setLoggingOut(false);
+      router.replace(LOGIN_ROUTE as any);
+    }
+  }
+
   return (
     <View style={styles.navbar}>
       {/* Left: greeting */}
       <View style={styles.left}>
-        <Text style={styles.greeting}>Good morning, Sarah! 👋</Text>
+        <Text style={styles.greeting}>{greeting()}, {firstName || '…'}!</Text>
         <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>
       </View>
 
@@ -43,19 +92,39 @@ export function PatientProxyTopNavbar() {
 
         <View style={styles.divider} />
 
-        {/* Profile + switch stacked */}
+        {/* Profile + dropdown */}
         <View style={styles.profileBlock}>
-          <TouchableOpacity style={styles.profileRow} activeOpacity={0.8}>
-            <Image
-              source={{ uri: 'https://i.pravatar.cc/150?img=47' }}
-              style={styles.avatar}
-            />
+          <TouchableOpacity style={styles.profileRow} activeOpacity={0.8} onPress={() => setMenuOpen(o => !o)}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]}>
+                <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>
+              </View>
+            )}
             <View>
-              <Text style={styles.profileName}>Sarah Davis</Text>
-              <Text style={styles.profileRole}>Proxy (Daughter)</Text>
+              <Text style={styles.profileName}>{fullName || '—'}</Text>
+              <Text style={styles.profileRole}>Proxy / Caregiver</Text>
             </View>
-            <Ionicons name="chevron-down" size={16} color={GRAY} />
+            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} />
           </TouchableOpacity>
+
+          {/* Dropdown menu */}
+          {menuOpen && (
+            <View style={styles.dropdown}>
+              <TouchableOpacity
+                style={styles.dropdownItem}
+                activeOpacity={0.7}
+                onPress={handleLogout}
+                disabled={loggingOut}
+              >
+                <Ionicons name="log-out-outline" size={16} color={RED} />
+                <Text style={styles.dropdownLogoutText}>
+                  {loggingOut ? 'Signing out…' : 'Log Out'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <TouchableOpacity style={styles.switchBtn} activeOpacity={0.8}>
             <Ionicons name="people-outline" size={15} color={PURPLE} />
@@ -152,6 +221,15 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: BORDER,
   },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: WHITE,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   profileName: {
     fontSize: 14,
     fontWeight: '700',
@@ -176,6 +254,34 @@ const styles = StyleSheet.create({
   switchText: {
     fontSize: 12,
     color: PURPLE,
+    fontWeight: '600',
+  },
+
+  dropdown: {
+    position: 'absolute',
+    top: 48,
+    right: 0,
+    backgroundColor: WHITE,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    minWidth: 160,
+    zIndex: 999,
+  } as any,
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  dropdownLogoutText: {
+    fontSize: 14,
+    color: RED,
     fontWeight: '600',
   },
 });

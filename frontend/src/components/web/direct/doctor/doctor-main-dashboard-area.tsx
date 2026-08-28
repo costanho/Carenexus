@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
 
 const WHITE   = '#FFFFFF';
 const TEXT    = '#111827';
@@ -176,18 +177,21 @@ function Card({ title, action, children }: { title: string; action: string; chil
 export function DoctorMainDashboardArea() {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
+  const { user } = useCurrentUser();
+  const greeting = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good morning, Dr. Matt 👋</Text>
+          <Text style={styles.greeting}>Good morning, {greeting} 👋</Text>
           <Text style={styles.greetingSub}>Here's what's happening in your practice today.</Text>
         </View>
         <TouchableOpacity style={styles.dateBtn} activeOpacity={0.8}>
           <Ionicons name="calendar-outline" size={16} color={GRAY} />
-          <Text style={styles.dateText}>Wednesday, 22 May 2024</Text>
+          <Text style={styles.dateText}>{today}</Text>
           <Ionicons name="chevron-down" size={14} color={GRAY} />
         </TouchableOpacity>
       </View>

@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { useLogout } from '@/hooks/use-logout';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -34,13 +36,18 @@ export interface DoctorTopNavbarMobileProps {
 export function DoctorTopNavbarMobile({ onMenuPress }: DoctorTopNavbarMobileProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const { user } = useCurrentUser();
+  const { handleLogout, loading } = useLogout();
+
+  const avatarUri = user?.avatar_url ?? null;
+  const initials  = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'DR';
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
 
-  const iconSize   = s(22);
-  const badgeSize  = s(15);
-  const avatarSize = s(34);
+  const iconSize   = s(20);
+  const badgeSize  = s(14);
+  const avatarSize = s(32);
 
   return (
     <View style={[styles.navbar, {
@@ -48,11 +55,11 @@ export function DoctorTopNavbarMobile({ onMenuPress }: DoctorTopNavbarMobileProp
       paddingBottom: h(10),
       paddingLeft:   insets.left  + s(14),
       paddingRight:  insets.right + s(14),
-      gap:           s(10),
+      gap:           s(8),
     }]}>
       {/* Hamburger */}
       <TouchableOpacity onPress={onMenuPress} activeOpacity={0.7} style={{ padding: s(4) }}>
-        <Ionicons name="menu-outline" size={s(26)} color={TEXT} />
+        <Ionicons name="menu-outline" size={s(24)} color={TEXT} />
       </TouchableOpacity>
 
       {/* Search bar */}
@@ -62,7 +69,7 @@ export function DoctorTopNavbarMobile({ onMenuPress }: DoctorTopNavbarMobileProp
         paddingVertical: h(7),
         gap: s(6),
       }]}>
-        <Ionicons name="search-outline" size={s(16)} color={GRAY} />
+        <Ionicons name="search-outline" size={s(15)} color={GRAY} />
         <TextInput
           style={[styles.searchInput, { fontSize: s(13) }]}
           placeholder="Search..."
@@ -73,24 +80,39 @@ export function DoctorTopNavbarMobile({ onMenuPress }: DoctorTopNavbarMobileProp
       {/* Right icons */}
       <View style={[styles.rightSection, { gap: s(6) }]}>
         <TouchableOpacity activeOpacity={0.7}>
-          <IconBadge name="chatbubble-outline"    badge="6"  iconSize={iconSize} badgeSize={badgeSize} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7}>
           <IconBadge name="notifications-outline" badge="12" iconSize={iconSize} badgeSize={badgeSize} />
         </TouchableOpacity>
 
-        <View style={[styles.divider, { height: s(24) }]} />
+        <View style={[styles.divider, { height: s(22) }]} />
 
-        <TouchableOpacity style={[styles.profileRow, { gap: s(6) }]} activeOpacity={0.8}>
-          <Image
-            source={{ uri: 'https://i.pravatar.cc/150?img=12' }}
-            style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2, backgroundColor: BORDER }}
-          />
-          <View>
-            <Text style={[styles.doctorName, { fontSize: s(12) }]} numberOfLines={1}>Dr. Matt</Text>
-            <Text style={[styles.doctorRole, { fontSize: s(10) }]} numberOfLines={1}>Physician</Text>
-          </View>
+        {/* Avatar */}
+        <TouchableOpacity style={[styles.profileRow, { gap: s(4) }]} activeOpacity={0.8}>
+          {avatarUri
+            ? <Image source={{ uri: avatarUri }} style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2, backgroundColor: BORDER }} />
+            : <View style={[{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }, styles.avatarFallback]}>
+                <Text style={[styles.avatarInitials, { fontSize: s(10) }]}>{initials}</Text>
+              </View>
+          }
           <Ionicons name="chevron-down" size={s(12)} color={GRAY} />
+        </TouchableOpacity>
+
+        <View style={[styles.divider, { height: s(22) }]} />
+
+        {/* Sign Out */}
+        <TouchableOpacity
+          style={[styles.logoutBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: h(7), gap: s(4) }]}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+          disabled={loading}
+        >
+          <Ionicons
+            name={loading ? 'hourglass-outline' : 'log-out-outline'}
+            size={s(17)}
+            color={RED}
+          />
+          <Text style={[styles.logoutText, { fontSize: s(11) }]}>
+            {loading ? '…' : 'Out'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -152,5 +174,25 @@ const styles = StyleSheet.create({
   },
   doctorRole: {
     color: GRAY,
+  },
+  avatarFallback: {
+    backgroundColor: '#0D9488',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: WHITE,
+    fontWeight: '700',
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FFF5F5',
+  },
+  logoutText: {
+    fontWeight: '600',
+    color: RED,
   },
 });

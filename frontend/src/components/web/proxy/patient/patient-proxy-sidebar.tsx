@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+
 
 const PURPLE      = '#7C3AED';
 const PURPLE_LIGHT= '#EDE9FE';
@@ -27,18 +30,39 @@ const accountItems: NavItem[] = [
   { key: 'notification-settings', label: 'Notification Settings', icon: 'notifications-outline' },
 ];
 
-type LovedOne = { name: string; relation: string; access: string; avatarId: number; dotColor: string };
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initials(name: string) {
+  return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+function healthDotColor(status: string | null) {
+  switch (status) {
+    case 'STABLE':   return '#22C55E';
+    case 'MONITOR':  return '#F59E0B';
+    case 'CRITICAL': return '#EF4444';
+    default:         return '#9CA3AF';
+  }
+}
+function accessLabel(level: string) {
+  switch (level) {
+    case 'FULL_ACCESS': return 'Full Access';
+    case 'VIEW_ONLY':   return 'View Only';
+    case 'EDIT_ONLY':   return 'Edit Only';
+    case 'CUSTOM':      return 'Custom';
+    default:            return level;
+  }
+}
 
-const lovedOnes: LovedOne[] = [
-  { name: 'Mom (Mary Davis)',   relation: 'Mom',  access: 'Full Access', avatarId: 47, dotColor: '#22C55E' },
-  { name: 'Dad (Robert Davis)', relation: 'Dad',  access: 'View Only',   avatarId: 15, dotColor: '#F59E0B' },
-];
-
-function SidebarNavItem({ item, active }: { item: NavItem; active?: boolean }) {
+function SidebarNavItem({ item, active, onPress }: { item: NavItem; active?: boolean; onPress?: () => void }) {
   return (
     <TouchableOpacity
       style={[styles.navItem, active && styles.navItemActive]}
       activeOpacity={0.7}
+      onPress={onPress}
     >
       <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} />
       <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
@@ -47,10 +71,18 @@ function SidebarNavItem({ item, active }: { item: NavItem; active?: boolean }) {
 }
 
 export interface PatientProxySidebarProps {
-  collapsed?: boolean;
+  collapsed?:        boolean;
+  activeKey?:        string;
+  onNavigate?:       (key: string) => void;
+  onSelectPatient?:  (dep: CaregiverDependent) => void;
 }
 
-export function PatientProxySidebar({ collapsed = false }: PatientProxySidebarProps) {
+const SHOW_LIMIT = 3;
+
+export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard', onNavigate, onSelectPatient }: PatientProxySidebarProps) {
+  const { dependents, loading, error } = useCaregiverDependents();
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       {/* Logo */}
@@ -70,46 +102,114 @@ export function PatientProxySidebar({ collapsed = false }: PatientProxySidebarPr
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Dashboard active */}
-        <SidebarNavItem item={{ key: 'dashboard', label: 'Dashboard', icon: 'home-outline' }} active />
+        {/* Dashboard */}
+        <SidebarNavItem
+          item={{ key: 'dashboard', label: 'Dashboard', icon: 'home-outline' }}
+          active={activeKey === 'dashboard'}
+          onPress={() => onNavigate?.('dashboard')}
+        />
 
         {/* My Loved Ones */}
         {!collapsed && (
           <>
             <Text style={styles.sectionLabel}>MY LOVED ONES</Text>
-            {lovedOnes.map((person) => (
-              <TouchableOpacity key={person.name} style={styles.lovedOneRow} activeOpacity={0.7}>
-                <View style={styles.avatarWrapper}>
-                  <Image
-                    source={{ uri: `https://i.pravatar.cc/150?img=${person.avatarId}` }}
-                    style={styles.avatar}
-                  />
-                  <View style={[styles.dot, { backgroundColor: person.dotColor }]} />
-                </View>
-                <View>
-                  <Text style={styles.lovedOneName}>{person.name}</Text>
-                  <Text style={styles.lovedOneAccess}>{person.access}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
+
+            {loading ? (
+              <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 12 }} />
+            ) : error ? (
+              <Text style={[styles.emptyText, { color: '#EF4444' }]}>{error}</Text>
+            ) : dependents.length === 0 ? (
+              <Text style={styles.emptyText}>No linked patients yet.</Text>
+            ) : (
+              <>
+                {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep) => {
+                  const name     = dep.patient_name ?? 'Unknown';
+                  const dotColor = healthDotColor(dep.patient_health_status);
+                  const label    = accessLabel(dep.access_level);
+                  const rel      = dep.relationship
+                    ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                    : '';
+                  return (
+                    <TouchableOpacity key={dep.access_id} style={styles.lovedOneRow} activeOpacity={0.7} onPress={() => onSelectPatient?.(dep)}>
+                      <View style={styles.avatarWrapper}>
+                        {dep.patient_avatar ? (
+                          <Image source={{ uri: dep.patient_avatar }} style={styles.avatar} />
+                        ) : (
+                          <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
+                            <Text style={styles.avatarInitials}>{initials(name)}</Text>
+                          </View>
+                        )}
+                        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.lovedOneName} numberOfLines={1}>{name}</Text>
+                        <Text style={styles.lovedOneRel} numberOfLines={1}>{rel}</Text>
+                        <Text style={styles.lovedOneAccess}>{label}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+                {dependents.length > SHOW_LIMIT && (
+                  <TouchableOpacity style={styles.expandBtn} activeOpacity={0.7} onPress={() => setExpanded(e => !e)}>
+                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={PURPLE} />
+                    <Text style={styles.expandText}>
+                      {expanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => onNavigate?.('add-dependent')}>
               <Ionicons name="add" size={16} color={PURPLE} />
               <Text style={styles.addBtnText}>Add Another Loved One</Text>
             </TouchableOpacity>
           </>
         )}
 
+        {/* Collapsed: dot indicators only */}
+        {collapsed && (
+          <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }}>
+            {dependents.map((dep) => {
+              const name     = dep.patient_name ?? '?';
+              const dotColor = healthDotColor(dep.patient_health_status);
+              return (
+                <TouchableOpacity key={dep.access_id} activeOpacity={0.7} style={{ position: 'relative' }}>
+                  {dep.patient_avatar ? (
+                    <Image source={{ uri: dep.patient_avatar }} style={styles.collapsedAvatar} />
+                  ) : (
+                    <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+                      <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
+                    </View>
+                  )}
+                  <View style={[styles.collapsedDot, { backgroundColor: dotColor }]} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Care Coordination */}
         <Text style={styles.sectionLabel}>{collapsed ? '' : 'CARE COORDINATION'}</Text>
         {careItems.map((item) => (
-          <SidebarNavItem key={item.key} item={item} />
+          <SidebarNavItem
+            key={item.key}
+            item={item}
+            active={activeKey === item.key}
+            onPress={() => onNavigate?.(item.key)}
+          />
         ))}
 
         {/* Account */}
         {!collapsed && <Text style={styles.sectionLabel}>ACCOUNT</Text>}
         {collapsed && <View style={styles.sectionDivider} />}
         {accountItems.map((item) => (
-          <SidebarNavItem key={item.key} item={item} />
+          <SidebarNavItem
+            key={item.key}
+            item={item}
+            active={activeKey === item.key}
+            onPress={() => onNavigate?.(item.key)}
+          />
         ))}
 
         {/* Help card */}
@@ -226,7 +326,22 @@ const styles = StyleSheet.create({
     right: 1,
   },
   lovedOneName:   { fontSize: 14, fontWeight: '600', color: TEXT },
-  lovedOneAccess: { fontSize: 12, color: GRAY, marginTop: 1 },
+  lovedOneRel:    { fontSize: 11, color: PURPLE, fontWeight: '500', marginTop: 1 },
+  lovedOneAccess: { fontSize: 11, color: GRAY, marginTop: 1 },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { color: WHITE, fontSize: 14, fontWeight: '700' },
+  emptyText:      { fontSize: 12, color: GRAY_LABEL, paddingHorizontal: 10, paddingVertical: 8 },
+  collapsedAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: BORDER },
+  collapsedDot:    { width: 9, height: 9, borderRadius: 5, borderWidth: 2, borderColor: PURPLE_BG, position: 'absolute', bottom: 0, right: 0 },
+
+  expandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  expandText: { fontSize: 12, color: PURPLE, fontWeight: '600' },
 
   addBtn: {
     flexDirection: 'row',

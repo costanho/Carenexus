@@ -136,7 +136,11 @@ export function PatientDashboardMobile() {
         <PatientTopNavbar />
         <PatientMainDashboardAreaMobile
           onBookAppointment={() => setActiveKey('book-appointment')}
+          onViewAppointments={() => setActiveKey('appointments')}
           onViewConsultations={() => setActiveKey('consultation-history')}
+          onViewRecords={() => setActiveKey('records')}
+          onViewLabResults={() => setActiveKey('lab-results')}
+          onViewImagingResults={() => setActiveKey('imaging-results')}
           onViewPrescriptions={() => setActiveKey('prescriptions')}
         />
       </>

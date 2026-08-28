@@ -24,15 +24,19 @@ function useScale() {
 type QuickAction = { label: string; icon: IoniconsName; iconBg: string; iconColor: string };
 
 const quickActions: QuickAction[] = [
-  { label: 'Book Appointment',      icon: 'calendar-outline',      iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
-  { label: 'Join Consultation',     icon: 'videocam-outline',      iconBg: '#E6F4F1', iconColor: TEAL },
-  { label: 'Consultation History',  icon: 'document-text-outline', iconBg: '#EEF2FF', iconColor: '#4F46E5' },
-  { label: 'Upload Documents',      icon: 'cloud-upload-outline',  iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'View Prescriptions',    icon: 'medkit-outline',        iconBg: '#FFF3E6', iconColor: '#F4A124' },
-  { label: 'Message Doctor',        icon: 'chatbubble-outline',    iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { label: 'Book Appointment',      icon: 'calendar-outline',        iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { label: 'Join Consultation',     icon: 'videocam-outline',        iconBg: '#E6F4F1', iconColor: TEAL },
+  { label: 'Consultation History',  icon: 'document-text-outline',   iconBg: '#EEF2FF', iconColor: '#4F46E5' },
+  { label: 'Medical Records',       icon: 'folder-open-outline',     iconBg: '#F0FDF4', iconColor: '#10B981' },
+  { label: 'Lab Results',           icon: 'flask-outline',           iconBg: '#EFF6FF', iconColor: '#3B82F6' },
+  { label: 'Imaging Results',       icon: 'image-outline',           iconBg: '#F5F3FF', iconColor: '#8B5CF6' },
+  { label: 'Prescriptions',         icon: 'medkit-outline',          iconBg: '#ECFDF5', iconColor: '#10B981' },
+  { label: 'My Appointments',       icon: 'calendar-number-outline', iconBg: '#FFF3E6', iconColor: '#F4A124' },
+  { label: 'Upload Documents',      icon: 'cloud-upload-outline',    iconBg: '#E8F0FE', iconColor: '#4285F4' },
+  { label: 'Message Doctor',        icon: 'chatbubble-outline',      iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions({ onBookAppointment, onViewConsultations, onViewPrescriptions }: { onBookAppointment?: () => void; onViewConsultations?: () => void; onViewPrescriptions?: () => void }) {
+function QuickActions({ onBookAppointment, onViewConsultations, onViewPrescriptions, onViewAppointments, onViewRecords, onViewLabResults, onViewImagingResults }: { onBookAppointment?: () => void; onViewConsultations?: () => void; onViewPrescriptions?: () => void; onViewAppointments?: () => void; onViewRecords?: () => void; onViewLabResults?: () => void; onViewImagingResults?: () => void }) {
   const { s, width } = useScale();
   const cardWidth   = width * 0.42;
   const iconBox     = s(40);
@@ -40,7 +44,12 @@ function QuickActions({ onBookAppointment, onViewConsultations, onViewPrescripti
 
   function handlePress(label: string) {
     if (label === 'Book Appointment')     onBookAppointment?.();
+    if (label === 'My Appointments')      onViewAppointments?.();
     if (label === 'Consultation History') onViewConsultations?.();
+    if (label === 'Medical Records')      onViewRecords?.();
+    if (label === 'Lab Results')          onViewLabResults?.();
+    if (label === 'Imaging Results')      onViewImagingResults?.();
+    if (label === 'Prescriptions')        onViewPrescriptions?.();
     if (label === 'View Prescriptions')   onViewPrescriptions?.();
   }
 
@@ -273,10 +282,18 @@ export function PatientMainDashboardAreaMobile({
   onBookAppointment,
   onViewConsultations,
   onViewPrescriptions,
+  onViewAppointments,
+  onViewRecords,
+  onViewLabResults,
+  onViewImagingResults,
 }: {
   onBookAppointment?: () => void;
   onViewConsultations?: () => void;
   onViewPrescriptions?: () => void;
+  onViewAppointments?: () => void;
+  onViewRecords?: () => void;
+  onViewLabResults?: () => void;
+  onViewImagingResults?: () => void;
 }) {
   const { s } = useScale();
   const pad = s(16);
@@ -288,7 +305,7 @@ export function PatientMainDashboardAreaMobile({
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
     >
-      <QuickActions onBookAppointment={onBookAppointment} onViewConsultations={onViewConsultations} onViewPrescriptions={onViewPrescriptions} />
+      <QuickActions onBookAppointment={onBookAppointment} onViewConsultations={onViewConsultations} onViewPrescriptions={onViewPrescriptions} onViewAppointments={onViewAppointments} onViewRecords={onViewRecords} onViewLabResults={onViewLabResults} onViewImagingResults={onViewImagingResults} />
       <WelcomeBanner />
       <HealthOverview />
       <RecentConsultations onViewConsultations={onViewConsultations} />

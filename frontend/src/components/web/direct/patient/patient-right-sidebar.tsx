@@ -1,62 +1,155 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAppointments, type Appointment } from '@/hooks/use-appointments';
 
-const TEAL = '#0D9488';
-const TEAL_BG = '#E8F5F4';
-const NAVY = '#1E3A5F';
-const GRAY = '#6B7280';
+const TEAL      = '#0D9488';
+const TEAL_BG   = '#E8F5F4';
+const NAVY      = '#1E3A5F';
+const GRAY      = '#6B7280';
 const GRAY_LIGHT = '#F3F4F6';
-const BORDER = '#E5E7EB';
-const WHITE = '#FFFFFF';
+const BORDER    = '#E5E7EB';
+const WHITE     = '#FFFFFF';
 const PURPLE_BG = '#EEF0FB';
-const PURPLE = '#5B6BB5';
+const PURPLE    = '#5B6BB5';
+const RED       = '#EF4444';
+const ORANGE    = '#F97316';
+const AMBER     = '#F59E0B';
+const GREEN     = '#10B981';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
+// Urgency thresholds in milliseconds
+const HOUR  = 60 * 60 * 1000;
+const DAY   = 24 * HOUR;
+
+function urgencyScheme(appt: Appointment): { color: string; bg: string; label: string } {
+  const diff = new Date(appt.scheduled_at).getTime() - Date.now();
+  if (diff <= HOUR)       return { color: RED,    bg: '#FEF2F2', label: 'Starting soon!' };
+  if (diff <= DAY)        return { color: ORANGE, bg: '#FFF7ED', label: 'Tomorrow'       };
+  if (diff <= 3 * DAY)    return { color: AMBER,  bg: '#FFFBEB', label: 'In a few days'  };
+  if (diff <= 7 * DAY)    return { color: TEAL,   bg: TEAL_BG,  label: 'This week'       };
+  return                         { color: GREEN,  bg: '#F0FDF4', label: 'Upcoming'        };
+}
+
+const TYPE_ICON: Record<string, IoniconsName> = {
+  IN_PERSON: 'business-outline',
+  VIDEO:     'videocam-outline',
+  PHONE:     'call-outline',
+};
+const TYPE_LABEL: Record<string, string> = {
+  IN_PERSON: 'In-Person Visit',
+  VIDEO:     'Video Consultation',
+  PHONE:     'Phone Call',
+};
+
+function formatApptDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function formatApptTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+}
+
 // ── Upcoming Appointment ────────────────────────────────────────────
 
-function UpcomingAppointment() {
+function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => void }) {
+  const onViewAll = () => onNavigate?.('my-appointments');
+  const { appointments, loading } = useAppointments();
+
+  const now = Date.now();
+  const next = appointments
+    .filter(a => (a.status === 'SCHEDULED' || a.status === 'RESCHEDULED') && new Date(a.scheduled_at).getTime() > now)
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0] ?? null;
+
+  const scheme = next ? urgencyScheme(next) : { color: TEAL, bg: TEAL_BG, label: '' };
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>Upcoming Appointment</Text>
-        <TouchableOpacity><Text style={styles.link}>View all</Text></TouchableOpacity>
-      </View>
-
-      <View style={styles.apptInner}>
-        {/* Date & time */}
-        <View style={styles.apptTopRow}>
-          <View style={styles.apptIconBg}>
-            <Ionicons name="calendar-outline" size={24} color={TEAL} />
-          </View>
-          <View>
-            <Text style={styles.apptDate}>24 May 2024</Text>
-            <Text style={styles.apptTime}>10:30 AM</Text>
-          </View>
-        </View>
-
-        {/* Details */}
-        <Text style={styles.apptTitle}>Follow-up Consultation</Text>
-        <Text style={styles.apptSub}>with Dr. Matt (Physician)</Text>
-
-        <View style={styles.apptMeta}>
-          <Ionicons name="videocam-outline" size={15} color={GRAY} />
-          <Text style={styles.apptMetaText}>Video Consultation</Text>
-        </View>
-        <View style={styles.apptMeta}>
-          <Ionicons name="time-outline" size={15} color={GRAY} />
-          <Text style={styles.apptMetaText}>30 minutes</Text>
-        </View>
-
-        {/* Actions */}
-        <TouchableOpacity style={styles.joinBtn} activeOpacity={0.85}>
-          <Ionicons name="videocam" size={16} color={WHITE} />
-          <Text style={styles.joinBtnText}>Join Consultation</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.rescheduleBtn} activeOpacity={0.7}>
-          <Text style={styles.rescheduleBtnText}>Reschedule</Text>
+        <TouchableOpacity onPress={onViewAll} activeOpacity={0.7}>
+          <Text style={[styles.link, { color: scheme.color }]}>View all</Text>
         </TouchableOpacity>
       </View>
+
+      {loading ? (
+        <View style={[styles.apptInner, { backgroundColor: TEAL_BG, alignItems: 'center', paddingVertical: 24 }]}>
+          <Text style={{ color: GRAY, fontSize: 13 }}>Loading…</Text>
+        </View>
+      ) : !next ? (
+        <View style={[styles.apptInner, { backgroundColor: GRAY_LIGHT, alignItems: 'center', gap: 8, paddingVertical: 24 }]}>
+          <Ionicons name="calendar-outline" size={32} color={BORDER} />
+          <Text style={{ color: GRAY, fontSize: 13, textAlign: 'center' }}>No upcoming appointments</Text>
+          <Text style={{ color: GRAY, fontSize: 11, textAlign: 'center' }}>Book one to get started</Text>
+        </View>
+      ) : (
+        <View style={[styles.apptInner, { backgroundColor: scheme.bg, borderColor: scheme.color + '40', borderWidth: 1 }]}>
+          {/* Urgency badge */}
+          <View style={[styles.urgencyBadge, { backgroundColor: scheme.color }]}>
+            <Ionicons name="time-outline" size={11} color={WHITE} />
+            <Text style={styles.urgencyText}>{scheme.label}</Text>
+          </View>
+
+          {/* Date & time */}
+          <View style={styles.apptTopRow}>
+            <View style={[styles.apptIconBg, { backgroundColor: WHITE, borderColor: scheme.color + '30', borderWidth: 1 }]}>
+              <Ionicons name="calendar-outline" size={24} color={scheme.color} />
+            </View>
+            <View>
+              <Text style={styles.apptDate}>{formatApptDate(next.scheduled_at)}</Text>
+              <Text style={[styles.apptTime, { color: scheme.color }]}>{formatApptTime(next.scheduled_at)}</Text>
+            </View>
+          </View>
+
+          {/* Details */}
+          <Text style={styles.apptTitle}>{next.reason_for_visit ?? 'Appointment'}</Text>
+          <Text style={styles.apptSub}>
+            with {next.doctor_name}{next.doctor_specialization ? ` (${next.doctor_specialization})` : ''}
+          </Text>
+
+          <View style={styles.apptMeta}>
+            <Ionicons name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={15} color={GRAY} />
+            <Text style={styles.apptMetaText}>{TYPE_LABEL[next.type] ?? next.type}</Text>
+          </View>
+          <View style={styles.apptMeta}>
+            <Ionicons name="time-outline" size={15} color={GRAY} />
+            <Text style={styles.apptMetaText}>{next.duration_minutes} minutes</Text>
+          </View>
+          {next.facility_name && (
+            <View style={styles.apptMeta}>
+              <Ionicons name="location-outline" size={15} color={GRAY} />
+              <Text style={styles.apptMetaText}>{next.facility_name}</Text>
+            </View>
+          )}
+
+          {/* Actions */}
+          {next.type === 'VIDEO' && next.video_consultation_link ? (
+            <TouchableOpacity
+              style={[styles.joinBtn, { backgroundColor: scheme.color }]}
+              onPress={() => Linking.openURL(next.video_consultation_link!)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="videocam" size={16} color={WHITE} />
+              <Text style={styles.joinBtnText}>Join Consultation</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.joinBtn, { backgroundColor: scheme.color }]}
+              onPress={() => onNavigate?.('my-appointments')}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={16} color={WHITE} />
+              <Text style={styles.joinBtnText}>View Details</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.rescheduleBtn, { borderColor: scheme.color }]}
+            onPress={() => onNavigate?.('my-appointments')}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.rescheduleBtnText, { color: scheme.color }]}>Reschedule</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -149,14 +242,14 @@ function NeedHelp() {
 
 // ── Main export ─────────────────────────────────────────────────────
 
-export function PatientRightSidebar() {
+export function PatientRightSidebar({ onNavigate }: { onNavigate?: (key: string) => void }) {
   return (
     <View style={styles.sidebar}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        <UpcomingAppointment />
+        <UpcomingAppointment onNavigate={onNavigate} />
         <MyProxies />
         <QuickAccess />
         <NeedHelp />
@@ -205,10 +298,26 @@ const styles = StyleSheet.create({
 
   // Appointment
   apptInner: {
-    backgroundColor: TEAL_BG,
     borderRadius: 10,
     padding: 14,
     gap: 6,
+  },
+  urgencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+    marginBottom: 4,
+  },
+  urgencyText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: WHITE,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   apptTopRow: {
     flexDirection: 'row',

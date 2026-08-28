@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
@@ -18,10 +18,16 @@ const INDIGO = '#4F46E5';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
+const GRAY2  = '#9CA3AF';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const RED    = '#EF4444';
 const GREEN  = '#10B981';
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAY_LABELS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+const HOURS       = [1,2,3,4,5,6,7,8,9,10,11,12];
+const MINUTES     = [0,15,30,45];
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type ApptType = 'IN_PERSON' | 'VIDEO' | 'PHONE';
@@ -38,7 +44,6 @@ const appointmentSchema = z.object({
 });
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
-
 
 const FACILITIES = [
   { id: '1', name: 'CareNexus Main Clinic' },
@@ -58,6 +63,285 @@ const APPT_TYPES: { value: ApptType; label: string; icon: IoniconsName; color: s
   { value: 'VIDEO',     label: 'Video',      icon: 'videocam-outline', color: INDIGO, bg: '#EEF2FF' },
   { value: 'PHONE',     label: 'Phone',      icon: 'call-outline',     color: GREEN,  bg: '#F0FDF4' },
 ];
+
+// ─── CalendarPicker ──────────────────────────────────────────────────────────
+
+function CalendarPicker({
+  value, onChange, s,
+}: { value: string; onChange: (v: string) => void; s: (n: number) => number }) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayRef = today.getTime();
+
+  const [viewYear,  setViewYear]  = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+
+  const isPrevDisabled =
+    viewYear < today.getFullYear() ||
+    (viewYear === today.getFullYear() && viewMonth <= today.getMonth());
+
+  function prevMonth() {
+    if (isPrevDisabled) return;
+    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+    else setViewMonth(m => m + 1);
+  }
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  function selectDay(day: number) {
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    onChange(`${viewYear}-${mm}-${dd}`);
+  }
+
+  function isSelected(day: number) {
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    return value === `${viewYear}-${mm}-${dd}`;
+  }
+  function isToday(day: number) {
+    return (
+      viewYear  === today.getFullYear() &&
+      viewMonth === today.getMonth() &&
+      day       === today.getDate()
+    );
+  }
+  function isPast(day: number) {
+    return new Date(viewYear, viewMonth, day).getTime() < todayRef;
+  }
+
+  return (
+    <View style={{ gap: s(10) }}>
+      {/* Month navigation */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <TouchableOpacity
+          onPress={prevMonth}
+          disabled={isPrevDisabled}
+          activeOpacity={0.7}
+          style={[
+            styles.calNavBtn,
+            { width: s(32), height: s(32), borderRadius: s(8) },
+            isPrevDisabled && { opacity: 0.3 },
+          ]}
+        >
+          <Ionicons name="chevron-back" size={s(16)} color={TEXT} />
+        </TouchableOpacity>
+        <Text style={[styles.calMonthLabel, { fontSize: s(14) }]}>
+          {MONTH_NAMES[viewMonth]} {viewYear}
+        </Text>
+        <TouchableOpacity
+          onPress={nextMonth}
+          activeOpacity={0.7}
+          style={[styles.calNavBtn, { width: s(32), height: s(32), borderRadius: s(8) }]}
+        >
+          <Ionicons name="chevron-forward" size={s(16)} color={TEXT} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Day-of-week headers */}
+      <View style={{ flexDirection: 'row' }}>
+        {DAY_LABELS.map(d => (
+          <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={[styles.calDayHeader, { fontSize: s(10) }]}>{d}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Grid */}
+      <View style={{ gap: s(4) }}>
+        {Array.from({ length: cells.length / 7 }, (_, row) => (
+          <View key={row} style={{ flexDirection: 'row' }}>
+            {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
+              if (!day) return <View key={col} style={{ flex: 1 }} />;
+              const past     = isPast(day);
+              const selected = isSelected(day);
+              const todayDay = isToday(day);
+              return (
+                <View key={col} style={{ flex: 1, alignItems: 'center' }}>
+                  <TouchableOpacity
+                    onPress={() => selectDay(day)}
+                    disabled={past}
+                    activeOpacity={0.75}
+                    style={[
+                      styles.calDayCircle,
+                      { width: s(32), height: s(32), borderRadius: s(16) },
+                      selected && { backgroundColor: TEAL },
+                      !selected && todayDay && { borderWidth: 1.5, borderColor: TEAL },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.calDayText,
+                        { fontSize: s(12) },
+                        past     && { color: '#D1D5DB' },
+                        todayDay && !selected && { color: TEAL, fontWeight: '700' },
+                        selected && { color: WHITE, fontWeight: '700' },
+                      ]}
+                    >
+                      {day}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+
+      {/* Selected date display */}
+      {value ? (
+        <View style={[styles.calSelectedRow, { borderRadius: s(8), padding: s(8), gap: s(6) }]}>
+          <Ionicons name="calendar" size={s(13)} color={TEAL} />
+          <Text style={[styles.calSelectedText, { fontSize: s(12) }]}>{value}</Text>
+        </View>
+      ) : (
+        <Text style={[styles.calHint, { fontSize: s(11) }]}>Tap a date to select</Text>
+      )}
+    </View>
+  );
+}
+
+// ─── TimePicker ──────────────────────────────────────────────────────────────
+
+function TimePicker({
+  value, onChange, s,
+}: { value: string; onChange: (v: string) => void; s: (n: number) => number }) {
+  const [hour,   setHour]   = useState(9);
+  const [minute, setMinute] = useState(0);
+  const [ampm,   setAmpm]   = useState<'AM'|'PM'>('AM');
+  const synced = useRef(false);
+
+  function parse24(v: string) {
+    const [hStr, mStr] = v.split(':');
+    let h = parseInt(hStr, 10);
+    const m = parseInt(mStr, 10) || 0;
+    const ap: 'AM'|'PM' = h < 12 ? 'AM' : 'PM';
+    if (h === 0) h = 12;
+    else if (h > 12) h -= 12;
+    return { h, m, ap };
+  }
+
+  useEffect(() => {
+    if (value && !synced.current) {
+      const { h, m, ap } = parse24(value);
+      setHour(h); setMinute(m); setAmpm(ap);
+      synced.current = true;
+    }
+  }, [value]);
+
+  function emit(h: number, m: number, ap: 'AM'|'PM') {
+    let h24 = h;
+    if (ap === 'AM' && h === 12) h24 = 0;
+    else if (ap === 'PM' && h !== 12) h24 = h + 12;
+    const hh = String(h24).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    onChange(`${hh}:${mm}`);
+  }
+
+  function pickHour(h: number) { setHour(h); emit(h, minute, ampm); }
+  function pickMinute(m: number) { setMinute(m); emit(hour, m, ampm); }
+  function pickAmpm(ap: 'AM'|'PM') { setAmpm(ap); emit(hour, minute, ap); }
+
+  const displayHour   = String(hour).padStart(2, '0');
+  const displayMinute = String(minute).padStart(2, '0');
+
+  return (
+    <View style={{ gap: s(12) }}>
+      {/* AM / PM */}
+      <View>
+        <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>AM / PM</Text>
+        <View style={{ flexDirection: 'row', gap: s(8) }}>
+          {(['AM', 'PM'] as const).map(ap => (
+            <TouchableOpacity
+              key={ap}
+              onPress={() => pickAmpm(ap)}
+              activeOpacity={0.8}
+              style={[
+                styles.ampmBtn,
+                { flex: 1, borderRadius: s(10), paddingVertical: s(12) },
+                ampm === ap && styles.ampmBtnActive,
+              ]}
+            >
+              <Text style={[styles.ampmText, { fontSize: s(14) }, ampm === ap && styles.ampmTextActive]}>
+                {ap}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Hour */}
+      <View>
+        <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>Hour</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(8) }}>
+          {HOURS.map(h => (
+            <TouchableOpacity
+              key={h}
+              onPress={() => pickHour(h)}
+              activeOpacity={0.75}
+              style={[
+                styles.hourBtn,
+                { width: s(44), height: s(44), borderRadius: s(22) },
+                hour === h && styles.hourBtnActive,
+              ]}
+            >
+              <Text style={[styles.hourText, { fontSize: s(13) }, hour === h && styles.hourTextActive]}>
+                {h}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Minute */}
+      <View>
+        <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>Minute</Text>
+        <View style={{ flexDirection: 'row', gap: s(8) }}>
+          {MINUTES.map(m => (
+            <TouchableOpacity
+              key={m}
+              onPress={() => pickMinute(m)}
+              activeOpacity={0.75}
+              style={[
+                styles.minuteBtn,
+                { flex: 1, borderRadius: s(8), paddingVertical: s(10) },
+                minute === m && styles.minuteBtnActive,
+              ]}
+            >
+              <Text style={[styles.minuteText, { fontSize: s(12) }, minute === m && styles.minuteTextActive]}>
+                :{String(m).padStart(2, '0')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Preview */}
+      {value ? (
+        <View style={[styles.timePreview, { borderRadius: s(8), padding: s(8), gap: s(6) }]}>
+          <Ionicons name="time" size={s(13)} color={TEAL} />
+          <Text style={[styles.timePreviewText, { fontSize: s(12) }]}>
+            {displayHour}:{displayMinute} {ampm}
+          </Text>
+        </View>
+      ) : (
+        <Text style={[styles.calHint, { fontSize: s(11) }]}>Select time above</Text>
+      )}
+    </View>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
   const router  = useRouter();
@@ -215,7 +499,6 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
         <View>
           <Text style={[styles.sectionTitle, { fontSize: s(12), marginBottom: s(10) }]}>Select Doctor</Text>
 
-          {/* Search */}
           <View style={[styles.inputRow, { borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(10), marginBottom: s(10) }]}>
             <Ionicons name="search-outline" size={s(15)} color={GRAY} style={{ marginRight: s(8) }} />
             <TextInput
@@ -289,48 +572,36 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           {!!errors.doctor_id && <FieldError message={errors.doctor_id.message} s={s} />}
         </View>
 
-        {/* Date & Time */}
-        <View>
-          <Text style={[styles.sectionTitle, { fontSize: s(12), marginBottom: s(10) }]}>Date & Time</Text>
-          <View style={[styles.twoCol, { gap: s(10) }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { fontSize: s(12), marginBottom: s(6) }]}>Date</Text>
-              <Controller control={control} name="scheduled_date"
-                render={({ field: { onChange, value } }) => (
-                  <View style={[styles.inputRow, { borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(12) }, !!errors.scheduled_date && styles.inputRowError]}>
-                    <Ionicons name="calendar-outline" size={s(16)} color={GRAY} style={{ marginRight: s(8) }} />
-                    <TextInput
-                      style={[styles.input, { fontSize: s(13) }]}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor={GRAY}
-                      value={value}
-                      onChangeText={onChange}
-                      autoCorrect={false}
-                    />
-                  </View>
-                )}
-              />
-              {!!errors.scheduled_date && <FieldError message={errors.scheduled_date.message} s={s} />}
+        {/* Date & Time — stacked vertically on mobile */}
+        <View style={{ gap: s(16) }}>
+          <Text style={[styles.sectionTitle, { fontSize: s(12) }]}>Date &amp; Time</Text>
+
+          {/* Calendar */}
+          <View style={[styles.pickerCard, { borderRadius: s(12), padding: s(14) }]}>
+            <View style={[styles.pickerCardHeader, { marginBottom: s(12), gap: s(8) }]}>
+              <Ionicons name="calendar-outline" size={s(15)} color={TEAL} />
+              <Text style={[styles.pickerCardTitle, { fontSize: s(13) }]}>Select Date</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { fontSize: s(12), marginBottom: s(6) }]}>Time</Text>
-              <Controller control={control} name="scheduled_time"
-                render={({ field: { onChange, value } }) => (
-                  <View style={[styles.inputRow, { borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(12) }, !!errors.scheduled_time && styles.inputRowError]}>
-                    <Ionicons name="time-outline" size={s(16)} color={GRAY} style={{ marginRight: s(8) }} />
-                    <TextInput
-                      style={[styles.input, { fontSize: s(13) }]}
-                      placeholder="HH:MM"
-                      placeholderTextColor={GRAY}
-                      value={value}
-                      onChangeText={onChange}
-                      autoCorrect={false}
-                    />
-                  </View>
-                )}
-              />
-              {!!errors.scheduled_time && <FieldError message={errors.scheduled_time.message} s={s} />}
+            <Controller control={control} name="scheduled_date"
+              render={({ field: { onChange, value } }) => (
+                <CalendarPicker value={value} onChange={onChange} s={s} />
+              )}
+            />
+            {!!errors.scheduled_date && <FieldError message={errors.scheduled_date.message} s={s} />}
+          </View>
+
+          {/* Time */}
+          <View style={[styles.pickerCard, { borderRadius: s(12), padding: s(14) }]}>
+            <View style={[styles.pickerCardHeader, { marginBottom: s(12), gap: s(8) }]}>
+              <Ionicons name="time-outline" size={s(15)} color={TEAL} />
+              <Text style={[styles.pickerCardTitle, { fontSize: s(13) }]}>Select Time</Text>
             </View>
+            <Controller control={control} name="scheduled_time"
+              render={({ field: { onChange, value } }) => (
+                <TimePicker value={value} onChange={onChange} s={s} />
+              )}
+            />
+            {!!errors.scheduled_time && <FieldError message={errors.scheduled_time.message} s={s} />}
           </View>
         </View>
 
@@ -511,6 +782,38 @@ const styles = StyleSheet.create({
   inputRow:      { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
   inputRowError: { borderColor: RED },
   input:         { flex: 1, color: TEXT },
+
+  // Picker cards
+  pickerCard:       { borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
+  pickerCardHeader: { flexDirection: 'row', alignItems: 'center' },
+  pickerCardTitle:  { fontWeight: '700', color: TEXT },
+
+  // Calendar
+  calNavBtn:      { alignItems: 'center', justifyContent: 'center', backgroundColor: BG, borderWidth: 1, borderColor: BORDER },
+  calMonthLabel:  { fontWeight: '700', color: TEXT },
+  calDayHeader:   { fontWeight: '600', color: GRAY2 },
+  calDayCircle:   { alignItems: 'center', justifyContent: 'center' },
+  calDayText:     { color: TEXT },
+  calSelectedRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E6F4F1' },
+  calSelectedText:{ color: TEAL, fontWeight: '600' },
+  calHint:        { color: GRAY2, textAlign: 'center' },
+
+  // Time
+  timeSubLabel:     { fontWeight: '600', color: GRAY },
+  ampmBtn:          { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
+  ampmBtnActive:    { borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  ampmText:         { fontWeight: '700', color: GRAY },
+  ampmTextActive:   { color: TEAL },
+  hourBtn:          { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
+  hourBtnActive:    { borderColor: TEAL, backgroundColor: TEAL },
+  hourText:         { fontWeight: '600', color: TEXT },
+  hourTextActive:   { color: WHITE, fontWeight: '700' },
+  minuteBtn:        { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
+  minuteBtnActive:  { borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  minuteText:       { fontWeight: '600', color: GRAY },
+  minuteTextActive: { color: TEAL, fontWeight: '700' },
+  timePreview:      { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E6F4F1' },
+  timePreviewText:  { color: TEAL, fontWeight: '600' },
 
   durationBtn:         { alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
   durationBtnActive:   { borderColor: TEAL, backgroundColor: '#E6F4F1' },

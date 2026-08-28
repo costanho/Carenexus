@@ -9,7 +9,7 @@ import type { AuthTokens } from './auth.types';
 const BASE_URL =
   Platform.OS === 'web'
     ? 'http://localhost:8080'
-    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.106:8080');
+    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.55:8080');
 
 // ── Axios instance shared across the whole app ────────────────────────────────
 export const api: AxiosInstance = axios.create({

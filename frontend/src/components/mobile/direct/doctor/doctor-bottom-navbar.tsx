@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,36 +11,41 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type TabItem = { key: string; label: string; icon: IoniconsName; activeIcon: IoniconsName };
 
 const tabs: TabItem[] = [
-  { key: 'dashboard',     label: 'Dashboard',   icon: 'home-outline',        activeIcon: 'home' },
-  { key: 'schedule',      label: 'Schedule',    icon: 'calendar-outline',    activeIcon: 'calendar' },
-  { key: 'patients',      label: 'Patients',    icon: 'people-outline',      activeIcon: 'people' },
-  { key: 'messages',      label: 'Messages',    icon: 'chatbubble-outline',  activeIcon: 'chatbubble' },
-  { key: 'profile',       label: 'Profile',     icon: 'person-outline',      activeIcon: 'person' },
+  { key: 'dashboard',     label: 'Home',     icon: 'home-outline',            activeIcon: 'home'            },
+  { key: 'schedule',      label: 'Schedule', icon: 'calendar-outline',        activeIcon: 'calendar'        },
+  { key: 'appointments',  label: 'Appts',    icon: 'calendar-number-outline', activeIcon: 'calendar-number' },
+  { key: 'patients',      label: 'Patients', icon: 'people-outline',          activeIcon: 'people'          },
+  { key: 'consultations', label: 'Consults', icon: 'document-text-outline',   activeIcon: 'document-text'   },
+  { key: 'profile',       label: 'Profile',  icon: 'person-outline',          activeIcon: 'person'          },
 ];
 
-export function DoctorBottomNavbar() {
+export interface DoctorBottomNavbarProps {
+  activeKey?:  string;
+  onNavigate?: (key: string) => void;
+}
+
+export function DoctorBottomNavbar({ activeKey = 'dashboard', onNavigate }: DoctorBottomNavbarProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [active, setActive] = useState('dashboard');
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
 
-  const iconSize  = s(24);
-  const fontSize  = s(10);
+  const iconSize  = s(21);
+  const fontSize  = s(9);
   const padTop    = h(12);
   const padBottom = insets.bottom || h(16);
 
   return (
     <View style={[styles.container, { paddingTop: padTop, paddingBottom: padBottom }]}>
       {tabs.map((tab) => {
-        const isActive = active === tab.key;
+        const isActive = activeKey === tab.key;
         return (
           <TouchableOpacity
             key={tab.key}
             style={[styles.tab, { gap: s(4) }]}
             activeOpacity={0.7}
-            onPress={() => setActive(tab.key)}
+            onPress={() => onNavigate?.(tab.key)}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />

@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -14,6 +16,42 @@ const ORANGE = '#F59E0B';
 const RED    = '#EF4444';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initials(name: string) {
+  return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+function healthDotColor(status: string | null) {
+  switch (status) {
+    case 'STABLE':   return GREEN;
+    case 'MONITOR':  return ORANGE;
+    case 'CRITICAL': return RED;
+    default:         return '#9CA3AF';
+  }
+}
+function healthLabel(status: string | null) {
+  if (!status) return 'Unknown';
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
+function accessLabel(level: string) {
+  switch (level) {
+    case 'FULL_ACCESS': return 'Full Access';
+    case 'VIEW_ONLY':   return 'View Only';
+    case 'EDIT_ONLY':   return 'Edit Only';
+    case 'CUSTOM':      return 'Custom';
+    default:            return level;
+  }
+}
+function calcAge(dob: string | null) {
+  if (!dob) return null;
+  const years = Math.floor((Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+  return `${years} yrs`;
+}
 
 function useScale() {
   const { width, height } = useWindowDimensions();
@@ -62,38 +100,6 @@ function Card({ title, action, s, children }: {
 }
 
 // ─── Loved One Row ────────────────────────────────────────────────────────────
-
-function LovedOneRow({ name, access, age, gender, lastUpdated, health, lastVisit, avatarId, dotColor }: {
-  name: string; access: string; age: string; gender: string;
-  lastUpdated: string; health: string; lastVisit: string; avatarId: number; dotColor: string;
-}) {
-  const { s } = useScale();
-  const isFull = access === 'Full Access';
-  return (
-    <TouchableOpacity style={[styles.lovedOneRow, { gap: s(10), borderRadius: s(10), padding: s(10) }]} activeOpacity={0.8}>
-      <View>
-        <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }}
-          style={{ width: s(46), height: s(46), borderRadius: s(23), backgroundColor: BORDER }} />
-        <View style={[styles.dot, { backgroundColor: dotColor, width: s(11), height: s(11), borderRadius: s(6) }]} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.lovedOneName, { fontSize: s(13) }]} numberOfLines={1}>{name}</Text>
-        <View style={[styles.accessBadge, { backgroundColor: isFull ? '#D1FAE5' : '#FEF3C7', borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2), marginBottom: s(3) }]}>
-          <Text style={[styles.accessText, { fontSize: s(10), color: isFull ? GREEN : ORANGE }]}>{access}</Text>
-        </View>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(11) }]}>{age} • {gender}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>Updated: {lastUpdated}</Text>
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: s(4) }}>
-        <View style={[styles.healthPill, { backgroundColor: health === 'Stable' ? '#D1FAE5' : '#FEF3C7', borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
-          <Text style={[{ fontSize: s(11), fontWeight: '600', color: health === 'Stable' ? GREEN : ORANGE }]}>{health}</Text>
-        </View>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>{lastVisit}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={s(14)} color={GRAY} />
-    </TouchableOpacity>
-  );
-}
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
@@ -181,8 +187,12 @@ function CareRow({ name, role, avatarId, s }: { name: string; role: string; avat
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function PatientProxyMainDashboardMobile() {
+const SHOW_LIMIT = 3;
+
+export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: any) => void }) {
   const { s, sh } = useScale();
+  const { dependents, loading: depsLoading } = useCaregiverDependents();
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(14), paddingBottom: sh(90) }} showsVerticalScrollIndicator={false}>
@@ -198,11 +208,107 @@ export function PatientProxyMainDashboardMobile() {
 
       {/* Loved One Overview */}
       <Card title="Loved One Overview" s={s}>
-        <LovedOneRow name="Mary Davis (Mom)"   access="Full Access" age="78 years" gender="Female" lastUpdated="2 hrs ago"  health="Stable"  lastVisit="24 May 2024" avatarId={47} dotColor={GREEN}  />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <LovedOneRow name="Robert Davis (Dad)" access="View Only"   age="82 years" gender="Male"   lastUpdated="1 day ago"  health="Monitor" lastVisit="18 May 2024" avatarId={15} dotColor={ORANGE} />
-        <TouchableOpacity style={[styles.viewAllBtn, { marginTop: s(12) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>View all loved ones →</Text>
+        {depsLoading ? (
+          <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: s(12) }} />
+        ) : dependents.length === 0 ? (
+          <Text style={{ fontSize: s(13), color: GRAY, textAlign: 'center', paddingVertical: s(12) }}>
+            No linked patients yet.
+          </Text>
+        ) : (
+          <>
+            {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => {
+              const name      = dep.patient_name ?? 'Unknown';
+              const dotColor  = healthDotColor(dep.patient_health_status);
+              const health    = healthLabel(dep.patient_health_status);
+              const access    = accessLabel(dep.access_level);
+              const age       = calcAge(dep.patient_date_of_birth);
+              const gender    = dep.patient_gender
+                ? dep.patient_gender.charAt(0) + dep.patient_gender.slice(1).toLowerCase()
+                : null;
+              const rel       = dep.relationship
+                ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                : '';
+
+              return (
+                <View key={dep.access_id}>
+                  {i > 0 && <View style={[styles.sep, { marginVertical: s(10) }]} />}
+                  <TouchableOpacity
+                    style={[styles.lovedOneRow, { gap: s(10), borderRadius: s(10), padding: s(10) }]}
+                    activeOpacity={0.8}
+                    onPress={() => onSelectPatient?.(dep)}
+                  >
+                    <View>
+                      {dep.patient_avatar ? (
+                        <Image
+                          source={{ uri: dep.patient_avatar }}
+                          style={{ width: s(46), height: s(46), borderRadius: s(23), backgroundColor: BORDER }}
+                        />
+                      ) : (
+                        <View style={{
+                          width: s(46), height: s(46), borderRadius: s(23),
+                          backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Text style={{ color: '#fff', fontSize: s(16), fontWeight: '700' }}>{initials(name)}</Text>
+                        </View>
+                      )}
+                      <View style={[styles.dot, { backgroundColor: dotColor, width: s(11), height: s(11), borderRadius: s(6) }]} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.lovedOneName, { fontSize: s(13) }]} numberOfLines={1}>{name}</Text>
+                      <Text style={{ fontSize: s(10), color: PURPLE, fontWeight: '500', marginBottom: s(2) }}>{rel}</Text>
+                      <View style={[styles.accessBadge, {
+                        backgroundColor: dep.access_level === 'FULL_ACCESS' ? '#D1FAE5' : '#FEF3C7',
+                        borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2), marginBottom: s(3),
+                      }]}>
+                        <Text style={[styles.accessText, {
+                          fontSize: s(10),
+                          color: dep.access_level === 'FULL_ACCESS' ? GREEN : ORANGE,
+                        }]}>{access}</Text>
+                      </View>
+                      {(age || gender) && (
+                        <Text style={[styles.lovedOneMeta, { fontSize: s(11) }]}>
+                          {[age, gender].filter(Boolean).join(' • ')}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: s(4) }}>
+                      <View style={[styles.healthPill, {
+                        backgroundColor: dep.patient_health_status === 'STABLE' ? '#D1FAE5'
+                          : dep.patient_health_status === 'CRITICAL' ? '#FEE2E2' : '#FEF3C7',
+                        borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(3),
+                      }]}>
+                        <Text style={{ fontSize: s(11), fontWeight: '600',
+                          color: dep.patient_health_status === 'STABLE' ? GREEN
+                            : dep.patient_health_status === 'CRITICAL' ? RED : ORANGE,
+                        }}>{health}</Text>
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={s(14)} color={GRAY} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            {dependents.length > SHOW_LIMIT && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: s(5), paddingVertical: s(10) }}
+                activeOpacity={0.7}
+                onPress={() => setExpanded(e => !e)}
+              >
+                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={PURPLE} />
+                <Text style={[styles.cardAction, { fontSize: s(12) }]}>
+                  {expanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+        <TouchableOpacity
+          style={[styles.addLovedOneBtn, { borderRadius: s(8), paddingVertical: s(9), paddingHorizontal: s(12), gap: s(6), marginTop: s(8) }]}
+          activeOpacity={0.8}
+          onPress={() => onNavigate?.('add-dependent')}
+        >
+          <Ionicons name="add" size={s(16)} color={PURPLE} />
+          <Text style={[styles.cardAction, { fontSize: s(13), fontWeight: '500' }]}>Add Another Loved One</Text>
         </TouchableOpacity>
       </Card>
 
@@ -293,6 +399,7 @@ const styles = StyleSheet.create({
 
   sep:        { height: StyleSheet.hairlineWidth, backgroundColor: BORDER },
   viewAllBtn: { alignItems: 'center' },
+  addLovedOneBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: PURPLE, backgroundColor: WHITE },
 
   lovedOneRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: BG },
   dot:           { position: 'absolute', bottom: 1, right: 1, borderWidth: 2, borderColor: BG },

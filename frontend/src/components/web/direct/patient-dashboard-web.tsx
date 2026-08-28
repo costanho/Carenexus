@@ -60,7 +60,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebAppointment onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -70,7 +70,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebAppointmentStatus />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -80,7 +80,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebConsultationHistory onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -90,7 +90,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebMedicalRecords onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -100,7 +100,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebPrescription onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -110,7 +110,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebLabResults onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -120,7 +120,7 @@ export function PatientDashboardWeb() {
           <Suspense fallback={loader}>
             <PatientWebImagingResults onBack={() => setActiveKey('dashboard')} />
           </Suspense>
-          {isLarge && <PatientRightSidebar />}
+          {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
         </>
       );
     }
@@ -138,7 +138,7 @@ export function PatientDashboardWeb() {
           onViewConsultations={() => setActiveKey('consultation-history')}
           onViewPrescriptions={() => setActiveKey('prescriptions')}
         />
-        {isLarge && <PatientRightSidebar />}
+        {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
       </>
     );
   }

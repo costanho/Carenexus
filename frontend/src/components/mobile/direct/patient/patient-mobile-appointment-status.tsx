@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert, Image, Linking, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
@@ -65,16 +65,16 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
   async function handleCancel() {
     Alert.alert(
       'Cancel Appointment',
-      `Cancel your appointment with ${appt.doctor_name}?`,
+      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)}? This cannot be undone.`,
       [
         { text: 'Keep it', style: 'cancel' },
         {
-          text: 'Yes, cancel',
+          text: 'Yes, delete it',
           style: 'destructive',
           onPress: async () => {
             setCancelling(true);
             try {
-              await api.patch(`/api/appointments/${appt.appointment_id}`, { status: 'CANCELLED' });
+              await api.delete(`/api/appointments/${appt.appointment_id}`);
               onRefetch();
             } catch {
               Alert.alert('Error', 'Failed to cancel appointment. Please try again.');
@@ -178,16 +178,16 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           </View>
         )}
 
-        {/* Cancel button */}
-        {canCancel && expanded && (
+        {/* Cancel button — always visible for cancellable appointments */}
+        {canCancel && (
           <TouchableOpacity
             style={[styles.cancelBtn, { borderRadius: s(10), paddingVertical: s(10), gap: s(6), marginBottom: s(8) }, cancelling && { opacity: 0.6 }]}
             onPress={handleCancel}
             disabled={cancelling}
             activeOpacity={0.8}
           >
-            <Ionicons name="close-circle-outline" size={s(15)} color={RED} />
-            <Text style={[styles.cancelBtnText, { fontSize: s(13) }]}>{cancelling ? 'Cancelling…' : 'Cancel Appointment'}</Text>
+            <Ionicons name="trash-outline" size={s(15)} color={RED} />
+            <Text style={[styles.cancelBtnText, { fontSize: s(13) }]}>{cancelling ? 'Cancelling…' : 'Cancel & Delete'}</Text>
           </TouchableOpacity>
         )}
 
@@ -216,12 +216,29 @@ export function PatientMobileAppointmentStatus({
   const insets  = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { appointments, loading, error, refetch } = useAppointments();
-  const [filter, setFilter] = useState<FilterKey>('ALL');
+  const [filter, setFilter]           = useState<FilterKey>('ALL');
+  const [visibleCount, setVisibleCount] = useState(5);
 
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
 
-  const filtered  = filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter);
+  useEffect(() => { setVisibleCount(5); }, [filter]);
+
+  const now = Date.now();
+  const sorted    = [...(filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter))]
+    .sort((a, b) => {
+      const ta = new Date(a.scheduled_at).getTime();
+      const tb = new Date(b.scheduled_at).getTime();
+      const aFuture = ta >= now;
+      const bFuture = tb >= now;
+      if (aFuture && bFuture) return ta - tb;   // both upcoming: soonest first
+      if (!aFuture && !bFuture) return tb - ta;  // both past: most recent first
+      return aFuture ? -1 : 1;                   // upcoming before past
+    });
+  const filtered  = sorted;
+  const visible   = sorted.slice(0, visibleCount);
+  const hasMore   = visibleCount < sorted.length;
+  const remaining = sorted.length - visibleCount;
   const upcoming  = appointments.filter(a => a.status === 'SCHEDULED' || a.status === 'RESCHEDULED').length;
   const completed = appointments.filter(a => a.status === 'COMPLETED').length;
   const cancelled = appointments.filter(a => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
@@ -343,7 +360,21 @@ export function PatientMobileAppointmentStatus({
             </Text>
           </View>
         ) : (
-          filtered.map(appt => <AppointmentCard key={appt.appointment_id} appt={appt} s={s} onRefetch={refetch} />)
+          <>
+            {visible.map(appt => <AppointmentCard key={appt.appointment_id} appt={appt} s={s} onRefetch={refetch} />)}
+            {hasMore && (
+              <TouchableOpacity
+                style={[styles.showMoreBtn, { borderRadius: s(12), paddingVertical: s(14), gap: s(8), marginBottom: s(4) }]}
+                onPress={() => setVisibleCount(c => c + 5)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chevron-down-circle-outline" size={s(18)} color={TEAL} />
+                <Text style={[styles.showMoreText, { fontSize: s(13) }]}>
+                  Show {remaining} more appointment{remaining !== 1 ? 's' : ''}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -425,8 +456,10 @@ const styles = StyleSheet.create({
 
   centerState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
   centerText:  { color: GRAY, textAlign: 'center' },
-  retryBtn:    { backgroundColor: TEAL },
-  retryBtnText:{ fontWeight: '700', color: WHITE },
+  retryBtn:     { backgroundColor: TEAL },
+  retryBtnText: { fontWeight: '700', color: WHITE },
+  showMoreBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  showMoreText: { fontWeight: '700', color: TEAL },
 
   fab: {
     position: 'absolute',

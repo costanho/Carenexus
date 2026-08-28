@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppointments, type Appointment } from '@/hooks/use-appointments';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 
 const TEAL   = '#0D9488';
@@ -77,16 +77,16 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
   async function handleCancel() {
     Alert.alert(
       'Cancel Appointment',
-      `Cancel your appointment with ${appt.doctor_name}?`,
+      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)}?`,
       [
         { text: 'Keep it', style: 'cancel' },
         {
-          text: 'Yes, cancel',
+          text: 'Yes, delete it',
           style: 'destructive',
           onPress: async () => {
             setCancelling(true);
             try {
-              await api.patch(`/api/appointments/${appt.appointment_id}`, { status: 'CANCELLED' });
+              await api.delete(`/api/appointments/${appt.appointment_id}`);
               onRefetch();
             } catch {
               Alert.alert('Error', 'Failed to cancel appointment. Please try again.');
@@ -195,16 +195,16 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         </View>
       )}
 
-      {/* Cancel button */}
-      {canCancel && expanded && (
+      {/* Cancel button — always visible for cancellable appointments */}
+      {canCancel && (
         <TouchableOpacity
           style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
           onPress={handleCancel}
           disabled={cancelling}
           activeOpacity={0.8}
         >
-          <Ionicons name="close-circle-outline" size={15} color={RED} />
-          <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling…' : 'Cancel Appointment'}</Text>
+          <Ionicons name="trash-outline" size={15} color={RED} />
+          <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling…' : 'Cancel & Delete'}</Text>
         </TouchableOpacity>
       )}
 
@@ -217,11 +217,30 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
   );
 }
 
+const PAGE_SIZE = 5;
+
 export function PatientWebAppointmentStatus() {
   const { appointments, loading, error, refetch } = useAppointments();
   const [filter, setFilter] = useState<FilterKey>('ALL');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const filtered = filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter]);
+
+  const now = Date.now();
+  const sorted   = [...(filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter))]
+    .sort((a, b) => {
+      const ta = new Date(a.scheduled_at).getTime();
+      const tb = new Date(b.scheduled_at).getTime();
+      const aFuture = ta >= now;
+      const bFuture = tb >= now;
+      if (aFuture && bFuture) return ta - tb;   // both upcoming: soonest first
+      if (!aFuture && !bFuture) return tb - ta;  // both past: most recent first
+      return aFuture ? -1 : 1;                   // upcoming before past
+    });
+  const filtered  = sorted;
+  const visible   = sorted.slice(0, visibleCount);
+  const hasMore   = visibleCount < sorted.length;
+  const remaining = sorted.length - visibleCount;
 
   const total      = appointments.length;
   const upcoming   = appointments.filter(a => a.status === 'SCHEDULED' || a.status === 'RESCHEDULED').length;
@@ -297,9 +316,19 @@ export function PatientWebAppointmentStatus() {
         </View>
       ) : (
         <View style={styles.cardList}>
-          {filtered.map(appt => (
+          {visible.map(appt => (
             <AppointmentCard key={appt.appointment_id} appt={appt} onRefetch={refetch} />
           ))}
+          {hasMore && (
+            <TouchableOpacity
+              style={styles.showMoreBtn}
+              onPress={() => setVisibleCount(c => c + PAGE_SIZE)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chevron-down-circle-outline" size={18} color={TEAL} />
+              <Text style={styles.showMoreText}>Show {remaining} more appointment{remaining !== 1 ? 's' : ''}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </ScrollView>
@@ -332,6 +361,8 @@ const styles = StyleSheet.create({
   filterCountText: { fontSize: 10, fontWeight: '700', color: WHITE },
 
   cardList: { gap: 14 },
+  showMoreBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  showMoreText: { fontSize: 14, fontWeight: '700', color: TEAL },
 
   card: { backgroundColor: CARD, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: BORDER, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 } as any,
 

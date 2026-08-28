@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { useLogout } from '@/hooks/use-logout';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
@@ -25,10 +26,11 @@ function BellIcon({ count }: { count: number }) {
 
 export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
   const { width } = useWindowDimensions();
-  const { user, loading } = useCurrentUser();
+  const { user, loading: userLoading } = useCurrentUser();
+  const { handleLogout, loading } = useLogout();
   const isSmall = width < 768;
 
-  const firstName = user?.first_name ?? (loading ? '...' : 'there');
+  const firstName = user?.first_name ?? (userLoading ? '...' : 'there');
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '';
   const avatarUri = user?.avatar_url ?? null;
 
@@ -52,6 +54,8 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
         <BellIcon count={3} />
         {!isSmall && <BellIcon count={2} />}
         <View style={styles.divider} />
+
+        {/* Profile */}
         <TouchableOpacity style={styles.userRow} activeOpacity={0.7}>
           {avatarUri ? (
             <Image source={{ uri: avatarUri }} style={styles.avatar} />
@@ -62,6 +66,25 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
           )}
           {!isSmall && fullName && <Text style={styles.userName}>{fullName}</Text>}
           <Ionicons name="chevron-down" size={16} color={GRAY} />
+        </TouchableOpacity>
+
+        <View style={styles.divider} />
+
+        {/* Sign Out */}
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+          disabled={loading}
+        >
+          <Ionicons
+            name={loading ? 'hourglass-outline' : 'log-out-outline'}
+            size={18}
+            color={RED}
+          />
+          {!isSmall && (
+            <Text style={styles.logoutText}>{loading ? '…' : 'Sign Out'}</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -102,7 +125,7 @@ const styles = StyleSheet.create({
   right: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   bellWrapper: {
     position: 'relative',
@@ -158,5 +181,21 @@ const styles = StyleSheet.create({
     color: WHITE,
     fontSize: 14,
     fontWeight: '700',
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FFF5F5',
+  },
+  logoutText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: RED,
   },
 });

@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -35,15 +37,15 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor = GRAY 
 
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
-function Card({ title, action, children, style }: {
-  title: string; action?: string; children: React.ReactNode; style?: object;
+function Card({ title, action, onAction, children, style }: {
+  title: string; action?: string; onAction?: () => void; children: React.ReactNode; style?: object;
 }) {
   return (
     <View style={[styles.card, style]}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>{title}</Text>
         {action && (
-          <TouchableOpacity activeOpacity={0.7}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onAction}>
             <Text style={styles.cardAction}>{action}</Text>
           </TouchableOpacity>
         )}
@@ -193,12 +195,116 @@ function CareTeamRow({ name, role, avatarId }: { name: string; role: string; ava
   );
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initials(name: string) {
+  return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+function healthDotColor(s: string | null) {
+  if (s === 'STABLE')   return GREEN;
+  if (s === 'MONITOR')  return ORANGE;
+  if (s === 'CRITICAL') return RED;
+  return '#9CA3AF';
+}
+function calcAge(dob: string | null) {
+  if (!dob) return '';
+  const diff = Date.now() - new Date(dob).getTime();
+  return `${Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000))} yrs`;
+}
+function accessLabel(level: string) {
+  if (level === 'FULL_ACCESS') return 'Full Access';
+  if (level === 'VIEW_ONLY')   return 'View Only';
+  if (level === 'EDIT_ONLY')   return 'Edit Only';
+  return 'Custom';
+}
+
+// ─── Live Loved One Row ───────────────────────────────────────────────────────
+
+function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?: (dep: CaregiverDependent) => void }) {
+  const name     = dep.patient_name ?? 'Unknown';
+  const dotColor = healthDotColor(dep.patient_health_status);
+  const access   = accessLabel(dep.access_level);
+  const isFullAccess = dep.access_level === 'FULL_ACCESS';
+  const age      = calcAge(dep.patient_date_of_birth);
+  const gender   = dep.patient_gender
+    ? dep.patient_gender.charAt(0) + dep.patient_gender.slice(1).toLowerCase()
+    : '';
+
+  return (
+    <TouchableOpacity style={styles.lovedOneRow} activeOpacity={0.8} onPress={() => onSelect?.(dep)}>
+      <View style={styles.lovedOneLeft}>
+        <View style={styles.lovedOneAvatarWrapper}>
+          {dep.patient_avatar ? (
+            <Image source={{ uri: dep.patient_avatar }} style={styles.lovedOneAvatar} />
+          ) : (
+            <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+            </View>
+          )}
+          <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
+        </View>
+        <View>
+          <Text style={styles.lovedOneName}>{name}</Text>
+          <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
+            <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
+          </View>
+          {(age || gender) && <Text style={styles.lovedOneMeta}>{[age, gender].filter(Boolean).join(' • ')}</Text>}
+        </View>
+      </View>
+      <View style={styles.lovedOneStats}>
+        <View style={styles.lovedOneStat}>
+          <Text style={styles.lovedOneStatLabel}>Health Status</Text>
+          <View style={styles.lovedOneStatVal}>
+            <Ionicons name="heart-outline" size={14} color={dotColor} />
+            <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
+              {dep.patient_health_status
+                ? dep.patient_health_status.charAt(0) + dep.patient_health_status.slice(1).toLowerCase()
+                : 'Unknown'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.lovedOneStat}>
+          <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
+          <View style={styles.lovedOneStatVal}>
+            <Ionicons name="water-outline" size={14} color={GRAY} />
+            <Text style={styles.lovedOneStatText}>{dep.patient_blood_type ?? '—'}</Text>
+          </View>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.lovedOneStat}>
+          <Text style={styles.lovedOneStatLabel}>Relationship</Text>
+          <View style={styles.lovedOneStatVal}>
+            <Ionicons name="people-outline" size={14} color={GRAY} />
+            <Text style={styles.lovedOneStatText}>
+              {dep.relationship
+                ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                : '—'}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />
+    </TouchableOpacity>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function PatientProxyMainDashboard() {
+const SHOW_LIMIT = 3;
+
+export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const isMedium = width >= 768;
+  const { dependents, loading: lovedLoading } = useCaregiverDependents();
+  const [lovedExpanded, setLovedExpanded] = useState(false);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -214,21 +320,36 @@ export function PatientProxyMainDashboard() {
 
       {/* Top row: Loved One Overview + Today's Schedule */}
       <View style={[styles.row, isLarge && styles.rowHorizontal]}>
-        {/* Loved One Overview */}
+        {/* Loved One Overview — live data */}
         <Card title="Loved One Overview" style={[styles.colWide, !isLarge && styles.colFull]}>
-          <LovedOneRow
-            name="Mary Davis (Mom)" access="Full Access" age="78 years" gender="Female"
-            lastUpdated="2 hrs ago" health="Stable" carePlan="Active"
-            lastVisit="24 May 2024" lastVisitDoc="with Dr. Matt" avatarId={47} dotColor={GREEN}
-          />
-          <View style={styles.sep} />
-          <LovedOneRow
-            name="Robert Davis (Dad)" access="View Only" age="82 years" gender="Male"
-            lastUpdated="1 day ago" health="Monitor" carePlan="Active"
-            lastVisit="18 May 2024" lastVisitDoc="with Dr. Matt" avatarId={15} dotColor={ORANGE}
-          />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
-            <Text style={styles.viewAllText}>View all loved ones →</Text>
+          {lovedLoading ? (
+            <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 16 }} />
+          ) : dependents.length === 0 ? (
+            <Text style={{ fontSize: 13, color: GRAY, padding: 8 }}>No linked patients yet.</Text>
+          ) : (
+            <>
+              {(lovedExpanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => (
+                <View key={dep.access_id}>
+                  {i > 0 && <View style={styles.sep} />}
+                  <LiveLovedOneRow dep={dep} onSelect={onSelectPatient} />
+                </View>
+              ))}
+              {dependents.length > SHOW_LIMIT && (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingTop: 12 }}
+                  activeOpacity={0.7}
+                  onPress={() => setLovedExpanded(e => !e)}
+                >
+                  <Ionicons name={lovedExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} />
+                  <Text style={styles.viewAllText}>
+                    {lovedExpanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')}>
+            <Text style={styles.viewAllText}>View appointments →</Text>
           </TouchableOpacity>
         </Card>
 
@@ -239,7 +360,7 @@ export function PatientProxyMainDashboard() {
           <ScheduleRow time="02:00 PM" timeColor={ORANGE} title="Lab Review"             person="Mary Davis (Mom)"  doctor="Dr. Matt (Physician)" avatarId={47} />
           <View style={styles.sep} />
           <ScheduleRow time="04:30 PM" title="Blood Pressure Check"   person="Robert Davis (Dad)" doctor="Care Nurse"          avatarId={15} />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')}>
             <Text style={styles.viewAllText}>View all appointments →</Text>
           </TouchableOpacity>
         </Card>
@@ -248,7 +369,7 @@ export function PatientProxyMainDashboard() {
       {/* Bottom row: Recent Updates + Medications + Care Team */}
       <View style={[styles.row, isMedium && styles.rowHorizontal]}>
         {/* Recent Updates */}
-        <Card title="Recent Updates" action="View all" style={[styles.colThird, !isMedium && styles.colFull]}>
+        <Card title="Recent Updates" action="View all" onAction={() => onNavigate?.('documents-results')} style={[styles.colThird, !isMedium && styles.colFull]}>
           <UpdateRow icon="document-text-outline" iconBg="#EDE9FE" iconColor={PURPLE} title="Dr. Matt sent consultation summary" sub="Mary Davis • 24 May 2024"    time="2 hrs ago"  />
           <View style={styles.sep} />
           <UpdateRow icon="medkit-outline"         iconBg="#FEF3C7" iconColor={ORANGE} title="New prescription issued"            sub="Mary Davis • Amlodipine 5mg"  time="3 hrs ago"  />
@@ -256,19 +377,19 @@ export function PatientProxyMainDashboard() {
           <UpdateRow icon="flask-outline"          iconBg="#D1FAE5" iconColor={GREEN}  title="Lab results uploaded"               sub="Mary Davis • Blood Test"       time="1 day ago"  />
           <View style={styles.sep} />
           <UpdateRow icon="chatbox-outline"        iconBg="#EDE9FE" iconColor={PURPLE} title="Message from Dr. Matt"              sub='"Please ensure medication is taken daily."' time="2 days ago" />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('documents-results')}>
             <Text style={styles.viewAllText}>View all updates →</Text>
           </TouchableOpacity>
         </Card>
 
         {/* Medications */}
-        <Card title="Medications" action="View all" style={[styles.colThird, !isMedium && styles.colFull]}>
+        <Card title="Medications" action="View all" onAction={() => onNavigate?.('medications')} style={[styles.colThird, !isMedium && styles.colFull]}>
           <MedRow name="Amlodipine 5mg"   dose="1 tablet • Once daily"   person="Mary Davis (Mom)" dueTime="08:00 AM" dueLabel="Today" dueColor={GREEN}  />
           <View style={styles.sep} />
           <MedRow name="Metformin 500mg"  dose="1 tablet • Twice daily"  person="Mary Davis (Mom)" dueTime="08:00 AM" dueLabel="Today" dueColor={GREEN}  />
           <View style={styles.sep} />
           <MedRow name="Atorvastatin 20mg" dose="1 tablet • At night"    person="Mary Davis (Mom)" dueTime="08:00 PM" dueLabel="Today" dueColor={PURPLE} />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('medications')}>
             <Text style={styles.viewAllText}>View all medications →</Text>
           </TouchableOpacity>
         </Card>
@@ -299,7 +420,7 @@ export function PatientProxyMainDashboard() {
             You can view health info, appointments, medications, results and communicate with the care team. You can also join consultations when permitted.
           </Text>
         </View>
-        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8} onPress={() => onNavigate?.('profile-settings')}>
           <Ionicons name="people-outline" size={15} color={PURPLE} />
           <Text style={styles.manageBtnText}>Manage Permissions</Text>
         </TouchableOpacity>
