@@ -6,7 +6,10 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "users")
+@Table(name = "users", uniqueConstraints = {
+    @UniqueConstraint(columnNames = "email"),
+    @UniqueConstraint(columnNames = "phone")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -28,14 +31,15 @@ public class User {
     @Column(name = "phone", length = 20)
     private String phone;
 
-    @Column(name = "email", length = 150)
+    @Column(name = "email", length = 150, unique = true)
     private String email;
 
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     @Column(name = "role", nullable = false, length = 20)
-    private String role;
+    @Builder.Default
+    private String role = "PATIENT";
 
     @Column(name = "is_active", nullable = false)
     @Builder.Default

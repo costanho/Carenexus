@@ -17,7 +17,7 @@ FROM amazoncorretto:17-alpine
 WORKDIR /app
 
 # Copy built application from builder stage
-COPY --from=builder /build/target/server-*.jar app.jar
+COPY --from=builder /build/target/carenexus-api-*.jar app.jar
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

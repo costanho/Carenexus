@@ -2,12 +2,14 @@ package com.carenexus.api.auth.controller;
 
 import com.carenexus.api.common.config.UserContext;
 import com.carenexus.api.auth.dto.request.LoginRequest;
+import com.carenexus.api.auth.dto.request.RegisterRequest;
 import com.carenexus.api.auth.dto.request.TokenRefreshRequest;
 import com.carenexus.api.auth.dto.response.AuthResponse;
 import com.carenexus.api.auth.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,6 +19,17 @@ public class AuthController {
 
     private final AuthService authService;
     private final UserContext userContext;
+
+    /**
+     * POST /api/auth/register
+     * Register new user account with role-based profile creation
+     * Returns JWT + Refresh token
+     */
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@RequestBody RegisterRequest request) {
+        AuthResponse response = authService.register(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
 
     /**
      * POST /api/auth/login

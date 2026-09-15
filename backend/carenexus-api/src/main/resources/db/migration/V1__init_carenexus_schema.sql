@@ -527,24 +527,21 @@ CREATE INDEX idx_rem_patient ON reminders(patient_id);
 CREATE INDEX idx_rem_active ON reminders(is_active);
 
 CREATE TABLE audit_log (
-  log_id        SERIAL PRIMARY KEY,
+  audit_id      SERIAL PRIMARY KEY,
   user_id       INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
-  action        VARCHAR(20) NOT NULL CHECK (action IN ('CREATE','READ','UPDATE','DELETE','LOGIN','LOGOUT','EXPORT','SHARE','REVOKE')),
-  resource_type VARCHAR(100) NOT NULL,
+  action        VARCHAR(50) NOT NULL,
+  resource_type VARCHAR(50),
   resource_id   INT,
-  old_value     JSONB,
-  new_value     JSONB,
+  status        VARCHAR(20) NOT NULL,
   ip_address    VARCHAR(45),
   user_agent    VARCHAR(500),
-  service_name  VARCHAR(100),
-  success       BOOLEAN NOT NULL DEFAULT TRUE,
-  error_message TEXT,
-  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  error_message VARCHAR(500),
+  timestamp     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE audit_log IS 'Audit trail of system actions';
 CREATE INDEX idx_audit_user ON audit_log(user_id);
 CREATE INDEX idx_audit_resource ON audit_log(resource_type, resource_id);
-CREATE INDEX idx_audit_created ON audit_log(created_at);
+CREATE INDEX idx_audit_timestamp ON audit_log(timestamp);
 
 -- ============================================================
 -- SECTION 6: PAYMENTS & BILLING

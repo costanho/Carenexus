@@ -2,12 +2,19 @@ package com.carenexus.api.auth.service;
 
 import com.carenexus.api.auth.config.JwtUtil;
 import com.carenexus.api.auth.dto.request.LoginRequest;
+import com.carenexus.api.auth.dto.request.RegisterRequest;
 import com.carenexus.api.auth.dto.request.TokenRefreshRequest;
 import com.carenexus.api.auth.dto.response.AuthResponse;
 import com.carenexus.api.auth.model.RefreshToken;
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.RefreshTokenRepository;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.core.model.Caregiver;
+import com.carenexus.api.core.model.Doctor;
+import com.carenexus.api.core.model.Patient;
+import com.carenexus.api.core.repository.CaregiverRepository;
+import com.carenexus.api.core.repository.DoctorRepository;
+import com.carenexus.api.core.repository.PatientRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,6 +34,103 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final AuditService auditService;
+    private final PatientRepository patientRepository;
+    private final DoctorRepository doctorRepository;
+    private final CaregiverRepository caregiverRepository;
+
+    /**
+     * Register a new user account with role-based cascading
+     * Creates user in users table and automatically cascades to create
+     * corresponding role-specific profile (patient/doctor/caregiver) with defaults
+     */
+    public AuthResponse register(RegisterRequest request) {
+        // Validate input
+        if (request.getFirstName() == null || request.getFirstName().isEmpty()) {
+            throw new RuntimeException("First name is required");
+        }
+        if (request.getLastName() == null || request.getLastName().isEmpty()) {
+            throw new RuntimeException("Last name is required");
+        }
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
+            throw new RuntimeException("Email is required");
+        }
+        if (request.getPassword() == null || request.getPassword().isEmpty()) {
+            throw new RuntimeException("Password is required");
+        }
+        if (request.getRole() == null || request.getRole().isEmpty()) {
+            throw new RuntimeException("Role is required");
+        }
+
+        // Check if email already exists
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new RuntimeException("Email already registered");
+        }
+
+        // Create user
+        String passwordHash = passwordEncoder.encode(request.getPassword());
+        User user = User.builder()
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .passwordHash(passwordHash)
+                .role(request.getRole())
+                .isActive(true)
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        // Auto-cascade: Create role-specific profile with defaults
+        switch (request.getRole().toUpperCase()) {
+            case "PATIENT":
+                Patient patient = Patient.builder()
+                        .userId(savedUser.getUserId())
+                        .healthStatus("STABLE")
+                        .build();
+                patientRepository.save(patient);
+                break;
+
+            case "DOCTOR":
+                Doctor doctor = Doctor.builder()
+                        .userId(savedUser.getUserId())
+                        .isActive(true)
+                        .build();
+                doctorRepository.save(doctor);
+                break;
+
+            case "CAREGIVER":
+                Caregiver caregiver = Caregiver.builder()
+                        .userId(savedUser.getUserId())
+                        .build();
+                caregiverRepository.save(caregiver);
+                break;
+
+            case "ADMIN":
+                // Admin users don't need additional profiles
+                break;
+
+            default:
+                throw new RuntimeException("Invalid role: " + request.getRole());
+        }
+
+        // Generate JWT token
+        String accessToken = jwtUtil.generateToken(savedUser.getUserId(), savedUser.getEmail(), savedUser.getRole());
+
+        // Create refresh token
+        RefreshToken refreshToken = createRefreshToken(savedUser, "web", "Registration");
+
+        // Return response
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken.getTokenHash())
+                .tokenType("Bearer")
+                .expiresIn(jwtUtil.getExpirationTimeInSeconds())
+                .userId(savedUser.getUserId())
+                .firstName(savedUser.getFirstName())
+                .lastName(savedUser.getLastName())
+                .role(savedUser.getRole())
+                .build();
+    }
 
     /**
      * Authenticate user with email/phone and password
