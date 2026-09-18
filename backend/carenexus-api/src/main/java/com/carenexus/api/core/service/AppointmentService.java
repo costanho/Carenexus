@@ -3,7 +3,11 @@ package com.carenexus.api.core.service;
 import com.carenexus.api.core.dto.request.CreateAppointmentRequest;
 import com.carenexus.api.core.dto.response.AppointmentResponse;
 import com.carenexus.api.core.model.Appointment;
+import com.carenexus.api.core.model.Doctor;
+import com.carenexus.api.core.model.Patient;
 import com.carenexus.api.core.repository.AppointmentRepository;
+import com.carenexus.api.core.repository.DoctorRepository;
+import com.carenexus.api.core.repository.PatientRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +22,8 @@ import java.util.stream.Collectors;
 public class AppointmentService {
 
     private final AppointmentRepository appointmentRepository;
+    private final PatientRepository patientRepository;
+    private final DoctorRepository doctorRepository;
 
     public AppointmentResponse createAppointment(CreateAppointmentRequest request) {
         // Validate required fields
@@ -161,6 +167,105 @@ public class AppointmentService {
         return appointmentRepository.findByDoctorIdAndScheduledAtBetween(doctorId, start, end).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    public List<AppointmentResponse> getAppointmentsByStatus(String status) {
+        return appointmentRepository.findByStatus(status).stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<AppointmentResponse> getUpcomingForUser(Integer userId, String userRole) {
+        if ("PATIENT".equals(userRole)) {
+            Patient patient = patientRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            return getUpcomingAppointments(patient.getPatientId());
+        } else if ("DOCTOR".equals(userRole)) {
+            Doctor doctor = doctorRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "SCHEDULED")
+                    .stream()
+                    .filter(a -> a.getScheduledAt().isAfter(LocalDateTime.now()))
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+        throw new RuntimeException("Unsupported user role");
+    }
+
+    public List<AppointmentResponse> getCompletedForUser(Integer userId, String userRole) {
+        if ("PATIENT".equals(userRole)) {
+            Patient patient = patientRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "COMPLETED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        } else if ("DOCTOR".equals(userRole)) {
+            Doctor doctor = doctorRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "COMPLETED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+        throw new RuntimeException("Unsupported user role");
+    }
+
+    public List<AppointmentResponse> getCancelledForUser(Integer userId, String userRole) {
+        if ("PATIENT".equals(userRole)) {
+            Patient patient = patientRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "CANCELLED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        } else if ("DOCTOR".equals(userRole)) {
+            Doctor doctor = doctorRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "CANCELLED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+        throw new RuntimeException("Unsupported user role");
+    }
+
+    public List<AppointmentResponse> getRescheduledForUser(Integer userId, String userRole) {
+        if ("PATIENT".equals(userRole)) {
+            Patient patient = patientRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "RESCHEDULED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        } else if ("DOCTOR".equals(userRole)) {
+            Doctor doctor = doctorRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "RESCHEDULED")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+        throw new RuntimeException("Unsupported user role");
+    }
+
+    public List<AppointmentResponse> getNoShowForUser(Integer userId, String userRole) {
+        if ("PATIENT".equals(userRole)) {
+            Patient patient = patientRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "NO_SHOW")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        } else if ("DOCTOR".equals(userRole)) {
+            Doctor doctor = doctorRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "NO_SHOW")
+                    .stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+        throw new RuntimeException("Unsupported user role");
     }
 
     private AppointmentResponse mapToResponse(Appointment appointment) {
