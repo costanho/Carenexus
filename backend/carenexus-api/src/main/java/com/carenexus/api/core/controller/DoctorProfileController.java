@@ -16,132 +16,120 @@ public class DoctorProfileController {
 
     private final DoctorProfileService doctorProfileService;
 
-    // Get My Profile
     @GetMapping
     public ResponseEntity<DoctorProfileResponse> getMyProfile(
-            @RequestAttribute("userId") Integer userId) {
-        DoctorProfileResponse profile = doctorProfileService.getDoctorProfile(userId);
+            @RequestAttribute("systemId") String systemId) {
+        DoctorProfileResponse profile = doctorProfileService.getDoctorProfile(systemId);
         return ResponseEntity.ok(profile);
     }
 
-    // Get Specific Doctor Profile
-    @GetMapping("/{doctorId}")
-    public ResponseEntity<DoctorProfileResponse> getDoctorProfile(@PathVariable Integer doctorId) {
-        DoctorProfileResponse profile = doctorProfileService.getDoctorProfileById(doctorId);
+    @GetMapping("/{doctorSystemId}")
+    public ResponseEntity<DoctorProfileResponse> getDoctorProfile(@PathVariable String doctorSystemId) {
+        DoctorProfileResponse profile = doctorProfileService.getDoctorProfileById(doctorSystemId);
         return ResponseEntity.ok(profile);
     }
 
-    // Update My Profile (Full Update)
     @PutMapping
     public ResponseEntity<DoctorProfileResponse> updateMyProfile(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateDoctorProfileRequest request) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(userId, request);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(systemId, request);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Update Specific Doctor Profile
-    @PutMapping("/{doctorId}")
+    @PutMapping("/{doctorSystemId}")
     public ResponseEntity<DoctorProfileResponse> updateDoctorProfile(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @RequestBody UpdateDoctorProfileRequest request) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(doctorId, request);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(doctorSystemId, request);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Update My Basic Information
     @PatchMapping("/basic-info")
     public ResponseEntity<DoctorProfileResponse> updateMyBasicInfo(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateDoctorProfileRequest request) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(userId, request);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorProfile(systemId, request);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Update My Specialization
     @PatchMapping("/specialization")
     public ResponseEntity<DoctorProfileResponse> updateMySpecialization(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam String specialization) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorSpecialization(userId, specialization);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorSpecialization(systemId, specialization);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PatchMapping("/{doctorId}/specialization")
+    @PatchMapping("/{doctorSystemId}/specialization")
     public ResponseEntity<DoctorProfileResponse> updateDoctorSpecialization(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @RequestParam String specialization) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorSpecialization(doctorId, specialization);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorSpecialization(doctorSystemId, specialization);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Update My Bio
     @PatchMapping("/bio")
     public ResponseEntity<DoctorProfileResponse> updateMyBio(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody String bio) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorBio(userId, bio);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorBio(systemId, bio);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PatchMapping("/{doctorId}/bio")
+    @PatchMapping("/{doctorSystemId}/bio")
     public ResponseEntity<DoctorProfileResponse> updateDoctorBio(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @RequestBody String bio) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorBio(doctorId, bio);
+        DoctorProfileResponse updatedProfile = doctorProfileService.updateDoctorBio(doctorSystemId, bio);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Toggle My Active Status
     @PatchMapping("/status/toggle")
     public ResponseEntity<DoctorProfileResponse> toggleMyStatus(
-            @RequestAttribute("userId") Integer userId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.toggleDoctorStatus(userId);
+            @RequestAttribute("systemId") String systemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.toggleDoctorStatus(systemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PatchMapping("/{doctorId}/status/toggle")
-    public ResponseEntity<DoctorProfileResponse> toggleDoctorStatus(@PathVariable Integer doctorId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.toggleDoctorStatus(doctorId);
+    @PatchMapping("/{doctorSystemId}/status/toggle")
+    public ResponseEntity<DoctorProfileResponse> toggleDoctorStatus(@PathVariable String doctorSystemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.toggleDoctorStatus(doctorSystemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Activate My Account
     @PatchMapping("/status/activate")
     public ResponseEntity<DoctorProfileResponse> activateMyAccount(
-            @RequestAttribute("userId") Integer userId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.activateDoctor(userId);
+            @RequestAttribute("systemId") String systemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.activateDoctor(systemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PatchMapping("/{doctorId}/status/activate")
-    public ResponseEntity<DoctorProfileResponse> activateDoctorAccount(@PathVariable Integer doctorId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.activateDoctor(doctorId);
+    @PatchMapping("/{doctorSystemId}/status/activate")
+    public ResponseEntity<DoctorProfileResponse> activateDoctorAccount(@PathVariable String doctorSystemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.activateDoctor(doctorSystemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Deactivate My Account
     @PatchMapping("/status/deactivate")
     public ResponseEntity<DoctorProfileResponse> deactivateMyAccount(
-            @RequestAttribute("userId") Integer userId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.deactivateDoctor(userId);
+            @RequestAttribute("systemId") String systemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.deactivateDoctor(systemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PatchMapping("/{doctorId}/status/deactivate")
-    public ResponseEntity<DoctorProfileResponse> deactivateDoctorAccount(@PathVariable Integer doctorId) {
-        DoctorProfileResponse updatedProfile = doctorProfileService.deactivateDoctor(doctorId);
+    @PatchMapping("/{doctorSystemId}/status/deactivate")
+    public ResponseEntity<DoctorProfileResponse> deactivateDoctorAccount(@PathVariable String doctorSystemId) {
+        DoctorProfileResponse updatedProfile = doctorProfileService.deactivateDoctor(doctorSystemId);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    // Get All Active Doctors
     @GetMapping("/list/active")
     public ResponseEntity<List<DoctorProfileResponse>> getAllActiveDoctors() {
         List<DoctorProfileResponse> doctors = doctorProfileService.getAllActiveDoctorsProfiles();
         return ResponseEntity.ok(doctors);
     }
 
-    // Search Doctors by Specialization
     @GetMapping("/search/specialization")
     public ResponseEntity<List<DoctorProfileResponse>> searchBySpecialization(
             @RequestParam String specialization) {
@@ -149,14 +137,12 @@ public class DoctorProfileController {
         return ResponseEntity.ok(doctors);
     }
 
-    // Search Doctors by Name/Email
     @GetMapping("/search/name")
     public ResponseEntity<List<DoctorProfileResponse>> searchByName(@RequestParam String query) {
         List<DoctorProfileResponse> doctors = doctorProfileService.searchDoctorsByName(query);
         return ResponseEntity.ok(doctors);
     }
 
-    // Get Doctors by Specialization with Filter
     @GetMapping("/filter/specialization")
     public ResponseEntity<List<DoctorProfileResponse>> filterBySpecialization(
             @RequestParam String specialization,
@@ -165,7 +151,6 @@ public class DoctorProfileController {
         return ResponseEntity.ok(doctors);
     }
 
-    // Get Doctors by Active Status
     @GetMapping("/filter/active")
     public ResponseEntity<List<DoctorProfileResponse>> filterByActiveStatus(
             @RequestParam Boolean isActive) {
@@ -173,24 +158,21 @@ public class DoctorProfileController {
         return ResponseEntity.ok(doctors);
     }
 
-    // Get Available Doctors (Active Only)
     @GetMapping("/available")
     public ResponseEntity<List<DoctorProfileResponse>> getAvailableDoctors() {
         List<DoctorProfileResponse> doctors = doctorProfileService.getDoctorsBySpecializationAndActive(null, true);
         return ResponseEntity.ok(doctors);
     }
 
-    // Get Unavailable Doctors (Inactive Only)
     @GetMapping("/unavailable")
     public ResponseEntity<List<DoctorProfileResponse>> getUnavailableDoctors() {
         List<DoctorProfileResponse> doctors = doctorProfileService.getDoctorsBySpecializationAndActive(null, false);
         return ResponseEntity.ok(doctors);
     }
 
-    // Public Endpoint - Get Doctor Info (without sensitive data)
-    @GetMapping("/public/{doctorId}")
-    public ResponseEntity<DoctorProfileResponse> getPublicDoctorProfile(@PathVariable Integer doctorId) {
-        DoctorProfileResponse profile = doctorProfileService.getDoctorProfileById(doctorId);
+    @GetMapping("/public/{doctorSystemId}")
+    public ResponseEntity<DoctorProfileResponse> getPublicDoctorProfile(@PathVariable String doctorSystemId) {
+        DoctorProfileResponse profile = doctorProfileService.getDoctorProfileById(doctorSystemId);
         return ResponseEntity.ok(profile);
     }
 }

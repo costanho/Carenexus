@@ -9,11 +9,11 @@ import java.util.Optional;
 
 @Repository
 public interface ConsultationRepository extends JpaRepository<Consultation, Integer> {
-    List<Consultation> findByPatientId(Integer patientId);
-    List<Consultation> findByDoctorId(Integer doctorId);
+    List<Consultation> findByPatientSystemId(String patientSystemId);
+    List<Consultation> findByDoctorSystemId(String doctorSystemId);
     List<Consultation> findByStatus(String status);
-    List<Consultation> findByPatientIdAndStatus(Integer patientId, String status);
-    List<Consultation> findByDoctorIdAndStatus(Integer doctorId, String status);
+    List<Consultation> findByPatientSystemIdAndStatus(String patientSystemId, String status);
+    List<Consultation> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<Consultation> findByAppointmentId(Integer appointmentId);
-    Optional<Consultation> findByAppointmentIdAndPatientId(Integer appointmentId, Integer patientId);
+    Optional<Consultation> findByAppointmentIdAndPatientSystemId(Integer appointmentId, String patientSystemId);
 }

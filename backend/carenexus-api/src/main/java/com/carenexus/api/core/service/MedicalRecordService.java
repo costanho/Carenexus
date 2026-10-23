@@ -26,10 +26,10 @@ public class MedicalRecordService {
     private final DoctorRepository doctorRepository;
 
     public MedicalRecordResponse createRecord(CreateMedicalRecordRequest request) {
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getRecordType() == null || request.getRecordType().isEmpty()) {
@@ -44,8 +44,8 @@ public class MedicalRecordService {
         }
 
         MedicalRecord record = MedicalRecord.builder()
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .consultationId(request.getConsultationId())
                 .recordType(request.getRecordType())
                 .title(request.getTitle())
@@ -66,14 +66,15 @@ public class MedicalRecordService {
         return mapToResponse(record);
     }
 
-    public List<MedicalRecordResponse> getPatientRecords(Integer patientId) {
-        return medicalRecordRepository.findByPatientIdAndIsDeletedFalse(patientId).stream()
+
+    public List<MedicalRecordResponse> getPatientRecords(String patientSystemId) {
+        return medicalRecordRepository.findByPatientSystemIdAndIsDeletedFalse(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<MedicalRecordResponse> getDoctorRecords(Integer doctorId) {
-        return medicalRecordRepository.findByDoctorIdAndIsDeletedFalse(doctorId).stream()
+    public List<MedicalRecordResponse> getDoctorRecords(String doctorSystemId) {
+        return medicalRecordRepository.findByDoctorSystemIdAndIsDeletedFalse(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -136,18 +137,16 @@ public class MedicalRecordService {
     }
 
     // Methods for filtering by record type for logged-in user
-    private List<MedicalRecordResponse> getRecordsByTypeForUser(Integer userId, String userRole, String recordType) {
+    private List<MedicalRecordResponse> getRecordsByTypeForUser(String userSystemId, String userRole, String recordType) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return medicalRecordRepository.findByPatientIdAndRecordTypeAndIsDeletedFalse(patient.getPatientId(), recordType)
+            return medicalRecordRepository.findByPatientSystemIdAndRecordTypeAndIsDeletedFalse(userSystemId, recordType)
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
+            Doctor doctor = doctorRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return medicalRecordRepository.findByDoctorIdAndRecordTypeAndIsDeletedFalse(doctor.getDoctorId(), recordType)
+            return medicalRecordRepository.findByDoctorSystemIdAndRecordTypeAndIsDeletedFalse(userSystemId, recordType)
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -155,43 +154,43 @@ public class MedicalRecordService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<MedicalRecordResponse> getConsultRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "CONSULT");
+    public List<MedicalRecordResponse> getConsultRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "CONSULT");
     }
 
-    public List<MedicalRecordResponse> getLabRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "LAB");
+    public List<MedicalRecordResponse> getLabRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "LAB");
     }
 
-    public List<MedicalRecordResponse> getImagingRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "IMAGING");
+    public List<MedicalRecordResponse> getImagingRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "IMAGING");
     }
 
-    public List<MedicalRecordResponse> getPrescriptionRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "PRESCRIPTION");
+    public List<MedicalRecordResponse> getPrescriptionRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "PRESCRIPTION");
     }
 
-    public List<MedicalRecordResponse> getReferralRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "REFERRAL");
+    public List<MedicalRecordResponse> getReferralRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "REFERRAL");
     }
 
-    public List<MedicalRecordResponse> getDischargeRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "DISCHARGE");
+    public List<MedicalRecordResponse> getDischargeRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "DISCHARGE");
     }
 
-    public List<MedicalRecordResponse> getNoteRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "NOTE");
+    public List<MedicalRecordResponse> getNoteRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "NOTE");
     }
 
-    public List<MedicalRecordResponse> getOperationRecordsForUser(Integer userId, String userRole) {
-        return getRecordsByTypeForUser(userId, userRole, "OPERATION");
+    public List<MedicalRecordResponse> getOperationRecordsForUser(String userSystemId, String userRole) {
+        return getRecordsByTypeForUser(userSystemId, userRole, "OPERATION");
     }
 
     private MedicalRecordResponse mapToResponse(MedicalRecord record) {
         return MedicalRecordResponse.builder()
                 .recordId(record.getRecordId())
-                .patientId(record.getPatientId())
-                .doctorId(record.getDoctorId())
+                .patientSystemId(record.getPatientSystemId())
+                .doctorSystemId(record.getDoctorSystemId())
                 .consultationId(record.getConsultationId())
                 .recordType(record.getRecordType())
                 .title(record.getTitle())

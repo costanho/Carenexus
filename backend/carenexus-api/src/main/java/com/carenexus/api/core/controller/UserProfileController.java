@@ -23,30 +23,30 @@ public class UserProfileController {
 
     @GetMapping
     public ResponseEntity<UserProfileResponse> getMyProfile(
-            @RequestAttribute("userId") Integer userId) {
-        UserProfileResponse profile = userProfileService.getUserProfile(userId);
+            @RequestAttribute("systemId") String systemId) {
+        UserProfileResponse profile = userProfileService.getUserProfile(systemId);
         return ResponseEntity.ok(profile);
     }
 
-    @GetMapping("/user/{userId}")
-    public ResponseEntity<UserProfileResponse> getUserProfile(@PathVariable Integer userId) {
-        UserProfileResponse profile = userProfileService.getUserProfile(userId);
+    @GetMapping("/user/{systemId}")
+    public ResponseEntity<UserProfileResponse> getUserProfile(@PathVariable String systemId) {
+        UserProfileResponse profile = userProfileService.getUserProfile(systemId);
         return ResponseEntity.ok(profile);
     }
 
     @PutMapping
     public ResponseEntity<UserProfileResponse> updateMyProfile(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateUserProfileRequest request) {
-        UserProfileResponse updatedProfile = userProfileService.updateUserProfile(userId, request);
+        UserProfileResponse updatedProfile = userProfileService.updateUserProfile(systemId, request);
         return ResponseEntity.ok(updatedProfile);
     }
 
-    @PutMapping("/user/{userId}")
+    @PutMapping("/user/{systemId}")
     public ResponseEntity<UserProfileResponse> updateUserProfile(
-            @PathVariable Integer userId,
+            @PathVariable String systemId,
             @RequestBody UpdateUserProfileRequest request) {
-        UserProfileResponse updatedProfile = userProfileService.updateUserProfile(userId, request);
+        UserProfileResponse updatedProfile = userProfileService.updateUserProfile(systemId, request);
         return ResponseEntity.ok(updatedProfile);
     }
 
@@ -59,19 +59,19 @@ public class UserProfileController {
 
     @GetMapping("/emergency-contacts")
     public ResponseEntity<List<EmergencyContactResponse>> getMyEmergencyContacts(
-            @RequestAttribute("userId") Integer userId) {
-        UserProfileResponse profile = userProfileService.getUserProfile(userId);
-        if (profile.getPatientId() == null) {
+            @RequestAttribute("systemId") String systemId) {
+        UserProfileResponse profile = userProfileService.getUserProfile(systemId);
+        if (profile.getPatientSystemId() == null) {
             throw new RuntimeException("Only patients can have emergency contacts");
         }
-        List<EmergencyContactResponse> contacts = userProfileService.getPatientEmergencyContacts(profile.getPatientId());
+        List<EmergencyContactResponse> contacts = userProfileService.getPatientEmergencyContacts(profile.getPatientSystemId());
         return ResponseEntity.ok(contacts);
     }
 
-    @GetMapping("/emergency-contacts/patient/{patientId}")
+    @GetMapping("/emergency-contacts/patient/{patientSystemId}")
     public ResponseEntity<List<EmergencyContactResponse>> getPatientEmergencyContacts(
-            @PathVariable Integer patientId) {
-        List<EmergencyContactResponse> contacts = userProfileService.getPatientEmergencyContacts(patientId);
+            @PathVariable String patientSystemId) {
+        List<EmergencyContactResponse> contacts = userProfileService.getPatientEmergencyContacts(patientSystemId);
         return ResponseEntity.ok(contacts);
     }
 
@@ -98,98 +98,98 @@ public class UserProfileController {
 
     @GetMapping("/settings")
     public ResponseEntity<UserSettingsResponse> getMySettings(
-            @RequestAttribute("userId") Integer userId) {
-        UserSettingsResponse settings = userProfileService.getUserSettings(userId);
+            @RequestAttribute("systemId") String systemId) {
+        UserSettingsResponse settings = userProfileService.getUserSettings(systemId);
         return ResponseEntity.ok(settings);
     }
 
-    @GetMapping("/settings/user/{userId}")
-    public ResponseEntity<UserSettingsResponse> getUserSettings(@PathVariable Integer userId) {
-        UserSettingsResponse settings = userProfileService.getUserSettings(userId);
+    @GetMapping("/settings/user/{systemId}")
+    public ResponseEntity<UserSettingsResponse> getUserSettings(@PathVariable String systemId) {
+        UserSettingsResponse settings = userProfileService.getUserSettings(systemId);
         return ResponseEntity.ok(settings);
     }
 
     @PutMapping("/settings")
     public ResponseEntity<UserSettingsResponse> updateMySettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateUserSettingsRequest request) {
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
-    @PutMapping("/settings/user/{userId}")
+    @PutMapping("/settings/user/{systemId}")
     public ResponseEntity<UserSettingsResponse> updateUserSettings(
-            @PathVariable Integer userId,
+            @PathVariable String systemId,
             @RequestBody UpdateUserSettingsRequest request) {
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/notifications")
     public ResponseEntity<UserSettingsResponse> updateNotificationSettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateUserSettingsRequest request) {
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/privacy")
     public ResponseEntity<UserSettingsResponse> updatePrivacySettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateUserSettingsRequest request) {
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/appearance")
     public ResponseEntity<UserSettingsResponse> updateAppearanceSettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestBody UpdateUserSettingsRequest request) {
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/language")
     public ResponseEntity<UserSettingsResponse> updateLanguageSettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam String language) {
         UpdateUserSettingsRequest request = UpdateUserSettingsRequest.builder()
                 .language(language)
                 .build();
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/timezone")
     public ResponseEntity<UserSettingsResponse> updateTimezoneSettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam String timezone) {
         UpdateUserSettingsRequest request = UpdateUserSettingsRequest.builder()
                 .timezone(timezone)
                 .build();
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/theme")
     public ResponseEntity<UserSettingsResponse> updateThemeSettings(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam String theme) {
         UpdateUserSettingsRequest request = UpdateUserSettingsRequest.builder()
                 .theme(theme)
                 .build();
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 
     @PatchMapping("/settings/two-factor")
     public ResponseEntity<UserSettingsResponse> toggleTwoFactorAuthentication(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam Boolean enabled) {
         UpdateUserSettingsRequest request = UpdateUserSettingsRequest.builder()
                 .twoFactorEnabled(enabled)
                 .build();
-        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(userId, request);
+        UserSettingsResponse updatedSettings = userProfileService.updateUserSettings(systemId, request);
         return ResponseEntity.ok(updatedSettings);
     }
 }

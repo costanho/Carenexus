@@ -18,6 +18,9 @@ public class UserSettingsResponse {
     @JsonProperty("userId")
     private Integer userId;
 
+    @JsonProperty("systemId")
+    private String systemId;
+
     @JsonProperty("emailNotifications")
     private Boolean emailNotifications;
 

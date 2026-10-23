@@ -21,6 +21,18 @@ public class UserContext {
     }
 
     /**
+     * Get current authenticated user's system ID
+     */
+    public String getCurrentUserSystemId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof CustomUserDetails) {
+            CustomUserDetails userDetails = (CustomUserDetails) auth.getPrincipal();
+            return userDetails.getSystemId();
+        }
+        return null;
+    }
+
+    /**
      * Get current authenticated user's email
      */
     public String getCurrentUserEmail() {

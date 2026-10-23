@@ -43,14 +43,11 @@ export function useDoctorPatients(): State {
     if (!user) return;
     setLoading(true);
 
-    api.get(`/api/doctors/user/${user.user_id}`)
-      .then(({ data: doctor }) => {
-        const doctor_id = doctor.doctor_id;
-        return Promise.all([
-          api.get<any[]>(`/api/appointments?doctor_id=${doctor_id}`),
-          api.get<any[]>('/api/patients'),
-        ]);
-      })
+    Promise.all([
+        api.get<any[]>(`/api/appointments/doctor/${user.system_id}`),
+        api.get<any[]>('/api/patients'),
+      ])
+      .then(([apptRes, patientsRes]) => [apptRes, patientsRes])
       .then(([apptRes, patientsRes]) => {
         // Build appointment stats per patient (patient_id = user_id in this schema)
         const countMap   = new Map<number, number>();
@@ -99,7 +96,7 @@ export function useDoctorPatients(): State {
       })
       .catch(() => setError('Failed to load patients.'))
       .finally(() => setLoading(false));
-  }, [user?.user_id, tick]);
+  }, [user?.system_id, tick]);
 
   return { patients, loading, error, refetch: () => setTick(t => t + 1) };
 }

@@ -21,8 +21,8 @@ public class AuditServiceTest extends BaseIntegrationTest {
 
     @BeforeEach
     public void setUp() {
-        linda = createAndSaveUser(1, "linda@example.com", "PATIENT");
-        drMatt = createAndSaveUser(2, "matt@hospital.com", "DOCTOR");
+        linda = createAndSaveUser(1, "PAT-00001", "linda@example.com", "PATIENT");
+        drMatt = createAndSaveUser(2, "DOC-00001", "matt@hospital.com", "DOCTOR");
     }
 
     /**
@@ -30,9 +30,9 @@ public class AuditServiceTest extends BaseIntegrationTest {
      */
     @Test
     public void testLogLogin() {
-        auditService.logLogin(linda.getUserId(), "192.168.1.100", "Mozilla/5.0...");
+        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla/5.0...");
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(linda.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
 
         assertEquals(1, logs.size());
         AuditLog log = logs.get(0);
@@ -62,9 +62,9 @@ public class AuditServiceTest extends BaseIntegrationTest {
      */
     @Test
     public void testLogLogout() {
-        auditService.logLogout(linda.getUserId(), "192.168.1.100");
+        auditService.logLogout(linda.getSystemId(), "192.168.1.100");
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(linda.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
 
         assertTrue(logs.stream().anyMatch(log ->
                 "LOGOUT".equals(log.getAction()) &&
@@ -78,13 +78,13 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testLogResourceAccess() {
         auditService.logResourceAccess(
-                drMatt.getUserId(),
+                drMatt.getSystemId(),
                 "MEDICAL_RECORDS",
                 linda.getUserId(),
                 "192.168.1.100"
         );
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(drMatt.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(drMatt.getSystemId());
 
         assertEquals(1, logs.size());
         AuditLog log = logs.get(0);
@@ -100,14 +100,14 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testLogResourceModification_Create() {
         auditService.logResourceModification(
-                drMatt.getUserId(),
+                drMatt.getSystemId(),
                 "CREATE",
                 "PRESCRIPTION",
                 1,
                 "192.168.1.100"
         );
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(drMatt.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(drMatt.getSystemId());
 
         AuditLog log = logs.stream()
                 .filter(l -> "CREATE".equals(l.getAction()))
@@ -124,14 +124,14 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testLogResourceModification_Update() {
         auditService.logResourceModification(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "UPDATE",
                 "PATIENT_PROFILE",
                 linda.getUserId(),
                 "192.168.1.100"
         );
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(linda.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
 
         AuditLog log = logs.stream()
                 .filter(l -> "UPDATE".equals(l.getAction()))
@@ -147,14 +147,14 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testLogAccessDenied() {
         auditService.logAccessDenied(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "MEDICAL_RECORDS",
                 999,
                 "192.168.1.100",
                 "Patient accessing other patient's data"
         );
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(linda.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
 
         AuditLog log = logs.stream()
                 .filter(l -> "ACCESS_DENIED".equals(l.getAction()))
@@ -171,13 +171,13 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testMultipleActionsLogged() {
         // Simulate user's journey
-        auditService.logLogin(linda.getUserId(), "192.168.1.100", "Mozilla...");
-        auditService.logResourceAccess(linda.getUserId(), "HEALTH_METRICS", linda.getUserId(), "192.168.1.100");
-        auditService.logResourceAccess(linda.getUserId(), "APPOINTMENTS", linda.getUserId(), "192.168.1.100");
-        auditService.logResourceModification(linda.getUserId(), "UPDATE", "APPOINTMENT", 1, "192.168.1.100");
-        auditService.logLogout(linda.getUserId(), "192.168.1.100");
+        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla...");
+        auditService.logResourceAccess(linda.getSystemId(), "HEALTH_METRICS", linda.getUserId(), "192.168.1.100");
+        auditService.logResourceAccess(linda.getSystemId(), "APPOINTMENTS", linda.getUserId(), "192.168.1.100");
+        auditService.logResourceModification(linda.getSystemId(), "UPDATE", "APPOINTMENT", 1, "192.168.1.100");
+        auditService.logLogout(linda.getSystemId(), "192.168.1.100");
 
-        List<AuditLog> logs = auditLogRepository.findByUserId(linda.getUserId());
+        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
 
         assertEquals(5, logs.size());
         assertTrue(logs.stream().anyMatch(l -> "LOGIN".equals(l.getAction())));
@@ -192,9 +192,9 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testAuditLogCapturesIpAddress() {
         String ipAddress = "203.0.113.42";
-        auditService.logLogin(linda.getUserId(), ipAddress, "Mozilla...");
+        auditService.logLogin(linda.getSystemId(), ipAddress, "Mozilla...");
 
-        AuditLog log = auditLogRepository.findByUserId(linda.getUserId()).get(0);
+        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
 
         assertEquals(ipAddress, log.getIpAddress());
     }
@@ -205,9 +205,9 @@ public class AuditServiceTest extends BaseIntegrationTest {
     @Test
     public void testAuditLogCapturesUserAgent() {
         String userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-        auditService.logLogin(linda.getUserId(), "192.168.1.100", userAgent);
+        auditService.logLogin(linda.getSystemId(), "192.168.1.100", userAgent);
 
-        AuditLog log = auditLogRepository.findByUserId(linda.getUserId()).get(0);
+        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
 
         assertEquals(userAgent, log.getUserAgent());
     }
@@ -217,9 +217,9 @@ public class AuditServiceTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuditLogsImmutable() {
-        auditService.logLogin(linda.getUserId(), "192.168.1.100", "Mozilla...");
+        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla...");
 
-        AuditLog log = auditLogRepository.findByUserId(linda.getUserId()).get(0);
+        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
         var createdAt = log.getTimestamp();
 
         // Simulate time passing (audit log should not be updated)

@@ -29,15 +29,15 @@ public class PrescriptionController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<PrescriptionResponse>> getPatientPrescriptions(@PathVariable Integer patientId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getPatientPrescriptions(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<PrescriptionResponse>> getPatientPrescriptions(@PathVariable String patientSystemId) {
+        List<PrescriptionResponse> prescriptions = prescriptionService.getPatientPrescriptions(patientSystemId);
         return ResponseEntity.ok(prescriptions);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<PrescriptionResponse>> getDoctorPrescriptions(@PathVariable Integer doctorId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<PrescriptionResponse>> getDoctorPrescriptions(@PathVariable String doctorSystemId) {
+        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(doctorSystemId);
         return ResponseEntity.ok(prescriptions);
     }
 
@@ -71,41 +71,41 @@ public class PrescriptionController {
 
     @GetMapping("/me/active")
     public ResponseEntity<List<PrescriptionResponse>> getMyActivePrescriptions(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getActiveForUser(userId, userRole);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getActiveForUser(systemId, userRole);
         return ResponseEntity.ok(prescriptions);
     }
 
     @GetMapping("/me/completed")
     public ResponseEntity<List<PrescriptionResponse>> getMyCompletedPrescriptions(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getCompletedForUser(userId, userRole);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getCompletedForUser(systemId, userRole);
         return ResponseEntity.ok(prescriptions);
     }
 
     @GetMapping("/me/cancelled")
     public ResponseEntity<List<PrescriptionResponse>> getMyCancelledPrescriptions(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getCancelledForUser(userId, userRole);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getCancelledForUser(systemId, userRole);
         return ResponseEntity.ok(prescriptions);
     }
 
     @GetMapping("/me/expired")
     public ResponseEntity<List<PrescriptionResponse>> getMyExpiredPrescriptions(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getExpiredForUser(userId, userRole);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getExpiredForUser(systemId, userRole);
         return ResponseEntity.ok(prescriptions);
     }
 
     @GetMapping("/me/on-hold")
     public ResponseEntity<List<PrescriptionResponse>> getMyOnHoldPrescriptions(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getOnHoldForUser(userId, userRole);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getOnHoldForUser(systemId, userRole);
         return ResponseEntity.ok(prescriptions);
     }
 }

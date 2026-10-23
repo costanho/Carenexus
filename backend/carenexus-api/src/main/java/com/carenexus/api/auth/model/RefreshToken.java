@@ -19,8 +19,8 @@ public class RefreshToken {
     @Column(name = "token_id")
     private Integer tokenId;
 
-    @Column(name = "user_id", nullable = false)
-    private Integer userId;
+    @Column(name = "system_id", nullable = false, length = 20)
+    private String systemId;
 
     @Column(name = "token_hash", nullable = false, length = 255, unique = true)
     private String tokenHash;

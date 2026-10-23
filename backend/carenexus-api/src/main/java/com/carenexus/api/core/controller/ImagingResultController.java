@@ -29,15 +29,15 @@ public class ImagingResultController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<ImagingResultResponse>> getPatientImagingResults(@PathVariable Integer patientId) {
-        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResults(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<ImagingResultResponse>> getPatientImagingResults(@PathVariable String patientSystemId) {
+        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResults(patientSystemId);
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<ImagingResultResponse>> getDoctorImagingResults(@PathVariable Integer doctorId) {
-        List<ImagingResultResponse> results = imagingResultService.getDoctorImagingResults(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<ImagingResultResponse>> getDoctorImagingResults(@PathVariable String doctorSystemId) {
+        List<ImagingResultResponse> results = imagingResultService.getDoctorImagingResults(doctorSystemId);
         return ResponseEntity.ok(results);
     }
 
@@ -101,19 +101,19 @@ public class ImagingResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/type/{imagingType}")
+    @GetMapping("/patient/{patientSystemId}/type/{imagingType}")
     public ResponseEntity<List<ImagingResultResponse>> getPatientImagingResultsByType(
-            @PathVariable Integer patientId,
+            @PathVariable String patientSystemId,
             @PathVariable String imagingType) {
-        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResultsByType(patientId, imagingType.toUpperCase());
+        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResultsByType(patientSystemId, imagingType.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/doctor/{doctorId}/type/{imagingType}")
+    @GetMapping("/doctor/{doctorSystemId}/type/{imagingType}")
     public ResponseEntity<List<ImagingResultResponse>> getDoctorImagingResultsByType(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable String imagingType) {
-        List<ImagingResultResponse> results = imagingResultService.getDoctorImagingResultsByType(doctorId, imagingType.toUpperCase());
+        List<ImagingResultResponse> results = imagingResultService.getDoctorImagingResultsByType(doctorSystemId, imagingType.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
@@ -123,11 +123,11 @@ public class ImagingResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/status/{status}")
+    @GetMapping("/patient/{patientSystemId}/status/{status}")
     public ResponseEntity<List<ImagingResultResponse>> getPatientImagingResultsByStatus(
-            @PathVariable Integer patientId,
+            @PathVariable String patientSystemId,
             @PathVariable String status) {
-        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResultsByStatus(patientId, status.toUpperCase());
+        List<ImagingResultResponse> results = imagingResultService.getPatientImagingResultsByStatus(patientSystemId, status.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
@@ -137,9 +137,9 @@ public class ImagingResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/critical")
-    public ResponseEntity<List<ImagingResultResponse>> getPatientCriticalImagingResults(@PathVariable Integer patientId) {
-        List<ImagingResultResponse> results = imagingResultService.getPatientCriticalImagingResults(patientId);
+    @GetMapping("/patient/{patientSystemId}/critical")
+    public ResponseEntity<List<ImagingResultResponse>> getPatientCriticalImagingResults(@PathVariable String patientSystemId) {
+        List<ImagingResultResponse> results = imagingResultService.getPatientCriticalImagingResults(patientSystemId);
         return ResponseEntity.ok(results);
     }
 
@@ -168,7 +168,7 @@ public class ImagingResultController {
     @PostMapping("/{id}/review")
     public ResponseEntity<ImagingResultResponse> reviewImagingResult(
             @PathVariable Integer id,
-            @RequestParam Integer reviewedBy,
+            @RequestParam String reviewedBy,
             @RequestParam String status) {
         ImagingResultResponse response = imagingResultService.reviewImagingResult(id, reviewedBy, status);
         return ResponseEntity.ok(response);
@@ -182,26 +182,26 @@ public class ImagingResultController {
 
     @GetMapping("/me")
     public ResponseEntity<List<ImagingResultResponse>> getMyImagingResults(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(userId, userRole);
+        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(systemId, userRole);
         return ResponseEntity.ok(results);
     }
 
     @GetMapping("/me/critical")
     public ResponseEntity<List<ImagingResultResponse>> getMyCriticalImagingResults(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ImagingResultResponse> results = imagingResultService.getCriticalImagingResultsForUser(userId, userRole);
+        List<ImagingResultResponse> results = imagingResultService.getCriticalImagingResultsForUser(systemId, userRole);
         return ResponseEntity.ok(results);
     }
 
     @GetMapping("/me/type/{imagingType}")
     public ResponseEntity<List<ImagingResultResponse>> getMyImagingResultsByType(
             @PathVariable String imagingType,
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(userId, userRole)
+        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(systemId, userRole)
                 .stream()
                 .filter(result -> result.getImagingType().equalsIgnoreCase(imagingType))
                 .toList();
@@ -211,9 +211,9 @@ public class ImagingResultController {
     @GetMapping("/me/status/{status}")
     public ResponseEntity<List<ImagingResultResponse>> getMyImagingResultsByStatus(
             @PathVariable String status,
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(userId, userRole)
+        List<ImagingResultResponse> results = imagingResultService.getImagingResultsForUser(systemId, userRole)
                 .stream()
                 .filter(result -> result.getStatus().equalsIgnoreCase(status))
                 .toList();

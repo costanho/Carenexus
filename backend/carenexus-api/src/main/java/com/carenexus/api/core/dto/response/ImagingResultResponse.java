@@ -16,11 +16,11 @@ public class ImagingResultResponse {
     @JsonProperty("imagingId")
     private Integer imagingId;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;
@@ -53,7 +53,7 @@ public class ImagingResultResponse {
     private LocalDate imageDate;
 
     @JsonProperty("reviewedBy")
-    private Integer reviewedBy;
+    private String reviewedBy;
 
     @JsonProperty("reviewedAt")
     private LocalDateTime reviewedAt;

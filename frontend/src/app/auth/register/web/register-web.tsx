@@ -13,8 +13,7 @@ import {
   View,
 } from 'react-native';
 import { PhoneInput } from '@/components/shared/phone-input';
-import { register } from '@/lib/auth/auth.service';
-import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { parseApiError, register } from '@/lib/auth/auth.service';
 import { registerSchema } from '@/lib/validation/register/register.schema';
 import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '@/lib/validation/register/register.types';
 import { getPasswordStrength } from '@/lib/validation/register/register.validators';
@@ -101,7 +100,7 @@ export default function RegisterWeb() {
     setAuthError('');
     setLoading(true);
     try {
-      const { user } = await register({
+      await register({
         firstName: data.firstName,
         lastName:  data.lastName,
         email:     data.email,
@@ -109,10 +108,9 @@ export default function RegisterWeb() {
         password:  data.password,
         role,
       });
-      router.replace(ROLE_HOME[user.role] as any);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Registration failed. Please try again.';
-      setAuthError(msg);
+      router.replace('/auth/login/web/login-web');
+    } catch (err) {
+      setAuthError(parseApiError(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }

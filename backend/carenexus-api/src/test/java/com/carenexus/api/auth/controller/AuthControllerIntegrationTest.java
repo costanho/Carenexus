@@ -25,6 +25,8 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
     public void setUp() {
         // Create test patient
         testPatient = new User();
+        testPatient.setUserId(1);
+        testPatient.setSystemId("PAT-00001");
         testPatient.setFirstName("Linda");
         testPatient.setLastName("Davis");
         testPatient.setEmail("linda@example.com");
@@ -50,12 +52,12 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken", notNullValue()))
-                .andExpect(jsonPath("$.refreshToken", notNullValue()))
-                .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.userId").value(testPatient.getUserId()))
-                .andExpect(jsonPath("$.firstName").value("Linda"))
-                .andExpect(jsonPath("$.role").value("PATIENT"));
+                .andExpect(jsonPath("$.tokens.accessToken", notNullValue()))
+                .andExpect(jsonPath("$.tokens.refreshToken", notNullValue()))
+                .andExpect(jsonPath("$.user.user_id").value(testPatient.getUserId()))
+                .andExpect(jsonPath("$.user.system_id").value("PAT-00001"))
+                .andExpect(jsonPath("$.user.email").value("linda@example.com"))
+                .andExpect(jsonPath("$.user.role").value("patient"));
     }
 
     @Test
@@ -123,7 +125,7 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .andReturn();
 
         String responseBody = loginResult.getResponse().getContentAsString();
-        String refreshToken = objectMapper.readTree(responseBody).get("refreshToken").asText();
+        String refreshToken = objectMapper.readTree(responseBody).get("tokens").get("refreshToken").asText();
 
         // Now test refresh
         String refreshRequestBody = objectMapper.writeValueAsString(
@@ -133,8 +135,8 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(refreshRequestBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken", notNullValue()))
-                .andExpect(jsonPath("$.tokenType").value("Bearer"));
+                .andExpect(jsonPath("$.tokens.accessToken", notNullValue()))
+                .andExpect(jsonPath("$.user.role", notNullValue()));
     }
 
     @Test
@@ -150,7 +152,7 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testLogout_Success() throws Exception {
-        String token = generateToken(testPatient.getUserId(), "linda@example.com", "PATIENT");
+        String token = generateToken(testPatient.getUserId(), "PAT-00001", "linda@example.com", "PATIENT");
 
         mockMvc.perform(post("/api/auth/logout")
                 .header("Authorization", bearerToken(token)))

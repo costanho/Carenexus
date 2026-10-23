@@ -15,8 +15,8 @@ public class EmergencyContactResponse {
     @JsonProperty("contactId")
     private Integer contactId;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
     @JsonProperty("name")
     private String name;

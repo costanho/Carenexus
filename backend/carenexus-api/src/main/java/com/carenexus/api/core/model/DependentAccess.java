@@ -19,23 +19,21 @@ public class DependentAccess {
     @Column(name = "access_id")
     private Integer accessId;
 
-    @Column(name = "dependent_id", nullable = false)
-    private Integer dependentId;  // The patient being cared for
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
-    @Column(name = "caregiver_id", nullable = false)
-    private Integer caregiverId;  // The caregiver
+    @Column(name = "caregiver_system_id", nullable = false, length = 20)
+    private String caregiverSystemId;
 
-    @Column(name = "guardian_id")
-    private Integer guardianId;  // Parent or legal guardian granting access
+    @Column(name = "authorized_by_system_id", length = 20)
+    private String authorizedBySystemId;
 
-    @Column(name = "permission_type", nullable = false, length = 50)
-    private String permissionType;  // "FULL", "HEALTH_RECORDS_ONLY", "ALERTS_ONLY", etc.
+    @Column(name = "access_level", nullable = false, length = 20)
+    @Builder.Default
+    private String accessLevel = "VIEW_ONLY";
 
     @Column(name = "authorized_at", nullable = false)
     private LocalDateTime authorizedAt;
-
-    @Column(name = "authorized_by", nullable = false)
-    private Integer authorizedBy;  // User ID who granted access
 
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;

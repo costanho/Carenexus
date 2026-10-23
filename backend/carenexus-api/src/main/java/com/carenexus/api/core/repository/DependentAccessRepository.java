@@ -15,33 +15,24 @@ public interface DependentAccessRepository extends JpaRepository<DependentAccess
     /**
      * Find if caregiver has active access to dependent
      */
-    @Query("SELECT d FROM DependentAccess d WHERE d.dependentId = :dependentId AND d.caregiverId = :caregiverId AND d.isActive = true")
-    Optional<DependentAccess> findActiveCaregiverAccessToDependents(@Param("caregiverId") Integer caregiverId, @Param("dependentId") Integer dependentId);
+    @Query("SELECT d FROM DependentAccess d WHERE d.patientSystemId = :patientSystemId AND d.caregiverSystemId = :caregiverSystemId AND d.isActive = true")
+    Optional<DependentAccess> findActiveCaregiverAccessToDependents(@Param("caregiverSystemId") String caregiverSystemId, @Param("patientSystemId") String patientSystemId);
 
     /**
      * Get all dependents a caregiver has access to
      */
-    @Query("SELECT d FROM DependentAccess d WHERE d.caregiverId = :caregiverId AND d.isActive = true")
-    List<DependentAccess> findAllDependentsForCaregiver(@Param("caregiverId") Integer caregiverId);
+    @Query("SELECT d FROM DependentAccess d WHERE d.caregiverSystemId = :caregiverSystemId AND d.isActive = true")
+    List<DependentAccess> findAllDependentsForCaregiver(@Param("caregiverSystemId") String caregiverSystemId);
 
     /**
      * Get all caregivers with access to a dependent
      */
-    @Query("SELECT d FROM DependentAccess d WHERE d.dependentId = :dependentId AND d.isActive = true")
-    List<DependentAccess> findAllCaregiversForDependent(@Param("dependentId") Integer dependentId);
+    @Query("SELECT d FROM DependentAccess d WHERE d.patientSystemId = :patientSystemId AND d.isActive = true")
+    List<DependentAccess> findAllCaregiversForDependent(@Param("patientSystemId") String patientSystemId);
 
     /**
-     * Check if caregiver has specific permission type
+     * Find caregiver access with specific access level
      */
-    @Query("SELECT d FROM DependentAccess d WHERE d.dependentId = :dependentId AND d.caregiverId = :caregiverId AND d.permissionType = :permissionType AND d.isActive = true")
-    Optional<DependentAccess> findAccessWithPermissionType(
-            @Param("caregiverId") Integer caregiverId,
-            @Param("dependentId") Integer dependentId,
-            @Param("permissionType") String permissionType);
-
-    /**
-     * Find access by guardian authorization
-     */
-    @Query("SELECT d FROM DependentAccess d WHERE d.dependentId = :dependentId AND d.guardianId = :guardianId AND d.isActive = true")
-    List<DependentAccess> findAccessByGuardian(@Param("dependentId") Integer dependentId, @Param("guardianId") Integer guardianId);
+    @Query("SELECT d FROM DependentAccess d WHERE d.caregiverSystemId = :caregiverSystemId AND d.patientSystemId = :patientSystemId AND d.accessLevel = :accessLevel AND d.isActive = true")
+    Optional<DependentAccess> findAccessWithPermissionType(@Param("caregiverSystemId") String caregiverSystemId, @Param("patientSystemId") String patientSystemId, @Param("accessLevel") String accessLevel);
 }

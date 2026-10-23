@@ -49,25 +49,16 @@ export function useDoctorMedicalRecords(): State {
     if (!user) return;
     setLoading(true);
 
-    api.get(`/api/doctors/user/${user.user_id}`)
-      .then(({ data: doctor }) => {
-        const doctor_id = doctor.doctor_id;
-        return Promise.all([
-          api.get<any[]>(`/api/appointments?doctor_id=${doctor_id}`),
-          api.get<any[]>('/api/medical-records'),
-          api.get<any[]>('/api/patients'),
-        ]);
-      })
+    Promise.all([
+        api.get<any[]>(`/api/medical-records/doctor/${user.system_id}`),
+        api.get<any[]>('/api/patients'),
+      ])
+      .then(([recordsRes, patientsRes]) => [{ data: [] }, recordsRes, patientsRes])
       .then(([apptRes, recordsRes, patientsRes]) => {
-        // build set of patient user_ids seen by this doctor
-        const seenIds = new Set<number>(apptRes.data.map((a: any) => a.patient_id));
-
-        // avatar lookup: user_id → avatar_url
         const avatarMap = new Map<number, string | null>();
         patientsRes.data.forEach((p: any) => avatarMap.set(p.user_id, p.avatar_url ?? null));
 
         const merged: DoctorMedicalRecord[] = recordsRes.data
-          .filter((r: any) => seenIds.has(r.patient_id))
           .map((r: any) => ({
             record_id:             r.record_id,
             patient_id:            r.patient_id,
@@ -96,7 +87,7 @@ export function useDoctorMedicalRecords(): State {
       })
       .catch(() => setError('Failed to load medical records.'))
       .finally(() => setLoading(false));
-  }, [user?.user_id, tick]);
+  }, [user?.system_id, tick]);
 
   return { records, loading, error, refetch: () => setTick(t => t + 1) };
 }

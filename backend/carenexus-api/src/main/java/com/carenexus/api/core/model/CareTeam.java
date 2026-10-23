@@ -19,14 +19,11 @@ public class CareTeam {
     @Column(name = "care_team_id")
     private Integer careTeamId;
 
-    @Column(name = "patient_id", nullable = false)
-    private Integer patientId;
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
-    @Column(name = "doctor_id")
-    private Integer doctorId;
-
-    @Column(name = "caregiver_id")
-    private Integer caregiverId;
+    @Column(name = "provider_system_id", length = 20)
+    private String providerSystemId;
 
     @Column(name = "facility_id")
     private Integer facilityId;

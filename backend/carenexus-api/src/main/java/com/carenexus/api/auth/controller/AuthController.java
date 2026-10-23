@@ -62,10 +62,10 @@ public class AuthController {
      */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest httpRequest) {
-        Integer userId = userContext.getCurrentUserId();
-        if (userId != null) {
+        String systemId = userContext.getCurrentUserSystemId();
+        if (systemId != null) {
             String ipAddress = getClientIpAddress(httpRequest);
-            authService.logout(userId, ipAddress);
+            authService.logout(systemId, ipAddress);
         }
         return ResponseEntity.ok().build();
     }

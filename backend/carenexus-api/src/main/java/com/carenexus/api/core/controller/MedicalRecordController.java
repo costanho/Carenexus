@@ -29,15 +29,15 @@ public class MedicalRecordController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<MedicalRecordResponse>> getPatientRecords(@PathVariable Integer patientId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<MedicalRecordResponse>> getPatientRecords(@PathVariable String patientSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorRecords(@PathVariable Integer doctorId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorSystemId);
         return ResponseEntity.ok(records);
     }
 
@@ -69,65 +69,65 @@ public class MedicalRecordController {
 
     @GetMapping("/me/consult")
     public ResponseEntity<List<MedicalRecordResponse>> getMyConsultRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/lab")
     public ResponseEntity<List<MedicalRecordResponse>> getMyLabRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/imaging")
     public ResponseEntity<List<MedicalRecordResponse>> getMyImagingRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/prescription")
     public ResponseEntity<List<MedicalRecordResponse>> getMyPrescriptionRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/referral")
     public ResponseEntity<List<MedicalRecordResponse>> getMyReferralRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/discharge")
     public ResponseEntity<List<MedicalRecordResponse>> getMyDischargeRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/note")
     public ResponseEntity<List<MedicalRecordResponse>> getMyNoteRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 
     @GetMapping("/me/operation")
     public ResponseEntity<List<MedicalRecordResponse>> getMyOperationRecords(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(userId, userRole);
+        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(systemId, userRole);
         return ResponseEntity.ok(records);
     }
 }

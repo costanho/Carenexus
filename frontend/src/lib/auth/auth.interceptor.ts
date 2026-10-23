@@ -8,8 +8,10 @@ import type { AuthTokens } from './auth.types';
 // so a physical device on the same network can reach the server.
 const BASE_URL =
   Platform.OS === 'web'
-    ? 'http://localhost:8080'
-    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.55:8080');
+    ? 'http://localhost:9000'
+    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.47:9000');
+
+console.log('API_BASE_URL:', BASE_URL);
 
 // ── Axios instance shared across the whole app ────────────────────────────────
 export const api: AxiosInstance = axios.create({
@@ -24,6 +26,7 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  console.log('API Request:', config.method?.toUpperCase(), config.url, '- hasToken:', !!token);
   return config;
 });
 
@@ -41,8 +44,16 @@ function drainQueue(token: string | null, error: unknown = null) {
 
 // ── Response interceptor: handle 401, auto-refresh ───────────────────────────
 api.interceptors.response.use(
-  response => response,
-  async error => {
+  response => {
+    console.log('API Response:', response.status, response.config.url);
+    console.log('Response Data:', JSON.stringify(response.data, null, 2));
+    return response;
+  },
+  async (error) => {
+    const isLogout = (error as any)?.config?.url?.includes('/api/auth/logout');
+    if ((error as any)?.response && !isLogout) {
+      console.error('API Error:', (error as any).response.status, (error as any).config?.url, (error as any).response.data);
+    }
     const original = error.config;
 
     // Only handle 401 that hasn't already been retried

@@ -21,28 +21,28 @@ public class RelationshipService {
      * Check if doctor is assigned to patient
      * Doctors can only see patients in their care_team
      */
-    public boolean isDoctorAssignedToPatient(Integer doctorId, Integer patientId) {
-        return careTeamRepository.findActiveDoctorPatientRelationship(doctorId, patientId).isPresent();
+    public boolean isDoctorAssignedToPatient(String doctorSystemId, String patientSystemId) {
+        return careTeamRepository.findActiveDoctorPatientRelationship(doctorSystemId, patientSystemId).isPresent();
     }
 
     /**
      * Get all patients assigned to a doctor
-     * Returns patient IDs that doctor can access
+     * Returns patient systemIds that doctor can access
      */
-    public List<Integer> getPatientsForDoctor(Integer doctorId) {
-        return careTeamRepository.findAllPatientsForDoctor(doctorId)
+    public List<String> getPatientsForDoctor(String doctorSystemId) {
+        return careTeamRepository.findAllPatientsForDoctor(doctorSystemId)
                 .stream()
-                .map(team -> team.getPatientId())
+                .map(team -> team.getPatientSystemId())
                 .collect(Collectors.toList());
     }
 
     /**
      * Get all doctors assigned to a patient
      */
-    public List<Integer> getDoctorsForPatient(Integer patientId) {
-        return careTeamRepository.findAllDoctorsForPatient(patientId)
+    public List<String> getDoctorsForPatient(String patientSystemId) {
+        return careTeamRepository.findAllDoctorsForPatient(patientSystemId)
                 .stream()
-                .map(team -> team.getDoctorId())
+                .map(team -> team.getProviderSystemId())
                 .collect(Collectors.toList());
     }
 
@@ -50,29 +50,29 @@ public class RelationshipService {
 
     /**
      * Check if caregiver is assigned to patient
-     * Caregivers can only see patients in care_team with their caregiverId
+     * Caregivers can only see patients in care_team with their caregiverSystemId
      */
-    public boolean isCaregiverAssignedToPatient(Integer caregiverId, Integer patientId) {
-        return careTeamRepository.findActiveCaregiverPatientRelationship(caregiverId, patientId).isPresent();
+    public boolean isCaregiverAssignedToPatient(String caregiverSystemId, String patientSystemId) {
+        return careTeamRepository.findActiveCaregiverPatientRelationship(caregiverSystemId, patientSystemId).isPresent();
     }
 
     /**
      * Get all patients assigned to a caregiver
      */
-    public List<Integer> getPatientsForCaregiver(Integer caregiverId) {
-        return careTeamRepository.findAllPatientsForCaregiver(caregiverId)
+    public List<String> getPatientsForCaregiver(String caregiverSystemId) {
+        return careTeamRepository.findAllPatientsForCaregiver(caregiverSystemId)
                 .stream()
-                .map(team -> team.getPatientId())
+                .map(team -> team.getPatientSystemId())
                 .collect(Collectors.toList());
     }
 
     /**
      * Get all caregivers assigned to a patient
      */
-    public List<Integer> getCaregiversForPatient(Integer patientId) {
-        return careTeamRepository.findAllCaregiversForPatient(patientId)
+    public List<String> getCaregiversForPatient(String patientSystemId) {
+        return careTeamRepository.findAllCaregiversForPatient(patientSystemId)
                 .stream()
-                .map(team -> team.getCaregiverId())
+                .map(team -> team.getProviderSystemId())
                 .collect(Collectors.toList());
     }
 
@@ -83,35 +83,35 @@ public class RelationshipService {
      * Different from care_team: used for informal caregivers, family members, parents
      * Parent (guardian) grants access to caregiver for dependent child
      */
-    public boolean hasAccessToDependent(Integer caregiverId, Integer dependentId) {
-        return dependentAccessRepository.findActiveCaregiverAccessToDependents(caregiverId, dependentId).isPresent();
+    public boolean hasAccessToDependent(String caregiverSystemId, String dependentSystemId) {
+        return dependentAccessRepository.findActiveCaregiverAccessToDependents(caregiverSystemId, dependentSystemId).isPresent();
     }
 
     /**
      * Check if caregiver has specific permission type for dependent
      * e.g., "FULL", "HEALTH_RECORDS_ONLY", "ALERTS_ONLY"
      */
-    public boolean hasPermissionTypeForDependent(Integer caregiverId, Integer dependentId, String permissionType) {
-        return dependentAccessRepository.findAccessWithPermissionType(caregiverId, dependentId, permissionType).isPresent();
+    public boolean hasPermissionTypeForDependent(String caregiverSystemId, String dependentSystemId, String permissionType) {
+        return dependentAccessRepository.findAccessWithPermissionType(caregiverSystemId, dependentSystemId, permissionType).isPresent();
     }
 
     /**
      * Get all dependents a caregiver has access to
      */
-    public List<Integer> getDependentsForCaregiver(Integer caregiverId) {
-        return dependentAccessRepository.findAllDependentsForCaregiver(caregiverId)
+    public List<String> getDependentsForCaregiver(String caregiverSystemId) {
+        return dependentAccessRepository.findAllDependentsForCaregiver(caregiverSystemId)
                 .stream()
-                .map(access -> access.getDependentId())
+                .map(access -> access.getPatientSystemId())
                 .collect(Collectors.toList());
     }
 
     /**
      * Get all caregivers with access to a dependent
      */
-    public List<Integer> getCaregiversForDependent(Integer dependentId) {
-        return dependentAccessRepository.findAllCaregiversForDependent(dependentId)
+    public List<String> getCaregiversForDependent(String dependentSystemId) {
+        return dependentAccessRepository.findAllCaregiversForDependent(dependentSystemId)
                 .stream()
-                .map(access -> access.getCaregiverId())
+                .map(access -> access.getCaregiverSystemId())
                 .collect(Collectors.toList());
     }
 
@@ -126,24 +126,24 @@ public class RelationshipService {
      * 3. Person is caregiver assigned in care_team
      * 4. Person is caregiver with dependent_access (family/informal caregiver)
      */
-    public boolean canAccessPatientData(Integer userId, Integer patientId) {
+    public boolean canAccessPatientData(String userSystemId, String patientSystemId) {
         // Rule 1: User IS the patient
-        if (userId.equals(patientId)) {
+        if (userSystemId.equals(patientSystemId)) {
             return true;
         }
 
         // Rule 2: User is doctor assigned to patient
-        if (isDoctorAssignedToPatient(userId, patientId)) {
+        if (isDoctorAssignedToPatient(userSystemId, patientSystemId)) {
             return true;
         }
 
         // Rule 3: User is caregiver assigned to patient (formal care_team)
-        if (isCaregiverAssignedToPatient(userId, patientId)) {
+        if (isCaregiverAssignedToPatient(userSystemId, patientSystemId)) {
             return true;
         }
 
         // Rule 4: User has dependent access (informal caregiver/parent)
-        if (hasAccessToDependent(userId, patientId)) {
+        if (hasAccessToDependent(userSystemId, patientSystemId)) {
             return true;
         }
 
@@ -154,8 +154,8 @@ public class RelationshipService {
      * Revoke doctor access to patient
      * Mark care_team relationship as inactive
      */
-    public void revokeDoctorAccessToPatient(Integer doctorId, Integer patientId) {
-        careTeamRepository.findActiveDoctorPatientRelationship(doctorId, patientId)
+    public void revokeDoctorAccessToPatient(String doctorSystemId, String patientSystemId) {
+        careTeamRepository.findActiveDoctorPatientRelationship(doctorSystemId, patientSystemId)
                 .ifPresent(relationship -> {
                     relationship.setIsActive(false);
                     relationship.setUnassignedAt(java.time.LocalDateTime.now());
@@ -166,8 +166,8 @@ public class RelationshipService {
     /**
      * Revoke caregiver access to dependent
      */
-    public void revokeCaregiverAccessToDependent(Integer caregiverId, Integer dependentId) {
-        dependentAccessRepository.findActiveCaregiverAccessToDependents(caregiverId, dependentId)
+    public void revokeCaregiverAccessToDependent(String caregiverSystemId, String dependentSystemId) {
+        dependentAccessRepository.findActiveCaregiverAccessToDependents(caregiverSystemId, dependentSystemId)
                 .ifPresent(access -> {
                     access.setIsActive(false);
                     access.setRevokedAt(java.time.LocalDateTime.now());

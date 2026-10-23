@@ -28,30 +28,30 @@ public class PatientDataService {
      * - Caregiver assigned to patient can view
      * - ADMIN can view all
      */
-    public Object getPatientHealthMetrics(Integer patientId) {
-        Integer userId = userContext.getCurrentUserId();
+    public Object getPatientHealthMetrics(String patientSystemId) {
+        String userSystemId = userContext.getCurrentUserSystemId();
         String userRole = userContext.getCurrentUserRole();
         String ipAddress = "0.0.0.0";
 
         // Use comprehensive authorization check
-        authorizationService.authorizePatientDataAccess(patientId, "HEALTH_METRICS", patientId);
+        authorizationService.authorizePatientDataAccess(patientSystemId, "HEALTH_METRICS", 0);
 
         // If we reach here, authorization passed
-        auditService.logResourceAccess(userId, "HEALTH_METRICS", patientId, ipAddress);
+        auditService.logResourceAccess(userSystemId, "HEALTH_METRICS", 0, ipAddress);
 
         // Fetch and return data (mock)
-        return "Health metrics for patient " + patientId;
+        return "Health metrics for patient " + patientSystemId;
     }
 
     /**
      * Get patient's medical records
      * Same authorization as health metrics
      */
-    public Object getPatientMedicalRecords(Integer patientId) {
-        Integer userId = userContext.getCurrentUserId();
-        authorizationService.authorizePatientDataAccess(patientId, "MEDICAL_RECORDS", patientId);
-        auditService.logResourceAccess(userId, "MEDICAL_RECORDS", patientId, "0.0.0.0");
-        return "Medical records for patient " + patientId;
+    public Object getPatientMedicalRecords(String patientSystemId) {
+        String userSystemId = userContext.getCurrentUserSystemId();
+        authorizationService.authorizePatientDataAccess(patientSystemId, "MEDICAL_RECORDS", 0);
+        auditService.logResourceAccess(userSystemId, "MEDICAL_RECORDS", 0, "0.0.0.0");
+        return "Medical records for patient " + patientSystemId;
     }
 
     /**
@@ -59,21 +59,21 @@ public class PatientDataService {
      * Only callable by doctors
      * Returns list of patients this specific doctor can access
      */
-    public Object getDoctorAssignedPatients(Integer doctorId) {
-        Integer currentUserId = userContext.getCurrentUserId();
+    public Object getDoctorAssignedPatients(String doctorSystemId) {
+        String currentUserSystemId = userContext.getCurrentUserSystemId();
         String userRole = userContext.getCurrentUserRole();
 
         // Only DOCTOR role can call this
         authorizationService.requireRole("DOCTOR");
 
         // Doctor can only view their own assignments
-        authorizationService.requireOwnership(doctorId, "DOCTOR_ASSIGNMENTS", doctorId);
+        authorizationService.requireOwnership(doctorSystemId, "DOCTOR_ASSIGNMENTS", 0);
 
         // Get all patients assigned to this doctor
-        var patientIds = relationshipService.getPatientsForDoctor(doctorId);
+        var patientSystemIds = relationshipService.getPatientsForDoctor(doctorSystemId);
 
-        auditService.logResourceAccess(currentUserId, "DOCTOR_ASSIGNMENTS", doctorId, "0.0.0.0");
-        return "Patients assigned to doctor " + doctorId + ": " + patientIds;
+        auditService.logResourceAccess(currentUserSystemId, "DOCTOR_ASSIGNMENTS", 0, "0.0.0.0");
+        return "Patients assigned to doctor " + doctorSystemId + ": " + patientSystemIds;
     }
 
     /**
@@ -81,73 +81,73 @@ public class PatientDataService {
      * Only callable by caregivers
      * Returns list of dependents this caregiver can access
      */
-    public Object getCaregiverAssignedDependents(Integer caregiverId) {
-        Integer currentUserId = userContext.getCurrentUserId();
+    public Object getCaregiverAssignedDependents(String caregiverSystemId) {
+        String currentUserSystemId = userContext.getCurrentUserSystemId();
         String userRole = userContext.getCurrentUserRole();
 
         // Only CAREGIVER role can call this
         authorizationService.requireRole("CAREGIVER");
 
         // Caregiver can only view their own assignments
-        authorizationService.requireOwnership(caregiverId, "CAREGIVER_ASSIGNMENTS", caregiverId);
+        authorizationService.requireOwnership(caregiverSystemId, "CAREGIVER_ASSIGNMENTS", 0);
 
         // Get all dependents assigned to this caregiver (from both care_team and dependent_access)
-        var dependentsFromCareTeam = relationshipService.getPatientsForCaregiver(caregiverId);
-        var dependentsFromAccess = relationshipService.getDependentsForCaregiver(caregiverId);
+        var dependentsFromCareTeam = relationshipService.getPatientsForCaregiver(caregiverSystemId);
+        var dependentsFromAccess = relationshipService.getDependentsForCaregiver(caregiverSystemId);
 
-        auditService.logResourceAccess(currentUserId, "CAREGIVER_ASSIGNMENTS", caregiverId, "0.0.0.0");
-        return "Dependents assigned to caregiver " + caregiverId;
+        auditService.logResourceAccess(currentUserSystemId, "CAREGIVER_ASSIGNMENTS", 0, "0.0.0.0");
+        return "Dependents assigned to caregiver " + caregiverSystemId;
     }
 
     /**
      * Get all people with access to patient's data
      * Only ADMIN or the patient themselves
      */
-    public Object getPatientAccessList(Integer patientId) {
-        Integer userId = userContext.getCurrentUserId();
+    public Object getPatientAccessList(String patientSystemId) {
+        String userSystemId = userContext.getCurrentUserSystemId();
         String userRole = userContext.getCurrentUserRole();
 
         // Either patient is viewing own access list, or admin viewing any
-        if (!userId.equals(patientId) && !"ADMIN".equals(userRole)) {
+        if (!userSystemId.equals(patientSystemId) && !"ADMIN".equals(userRole)) {
             throw new AuthorizationException("Only patient or admin can view access list");
         }
 
         // Get all with access
-        var doctors = relationshipService.getDoctorsForPatient(patientId);
-        var caregivers = relationshipService.getCaregiversForPatient(patientId);
+        var doctors = relationshipService.getDoctorsForPatient(patientSystemId);
+        var caregivers = relationshipService.getCaregiversForPatient(patientSystemId);
 
-        auditService.logResourceAccess(userId, "ACCESS_LIST", patientId, "0.0.0.0");
-        return "Access list for patient " + patientId;
+        auditService.logResourceAccess(userSystemId, "ACCESS_LIST", 0, "0.0.0.0");
+        return "Access list for patient " + patientSystemId;
     }
 
     /**
      * Revoke doctor access (admin only)
      * Critical operation - must audit
      */
-    public void revokeDoctorAccess(Integer doctorId, Integer patientId) {
-        Integer userId = userContext.getCurrentUserId();
+    public void revokeDoctorAccess(String doctorSystemId, String patientSystemId) {
+        String userSystemId = userContext.getCurrentUserSystemId();
 
         // Only ADMIN can revoke
         authorizationService.requireAdmin();
 
         // Perform revocation
-        relationshipService.revokeDoctorAccessToPatient(doctorId, patientId);
+        relationshipService.revokeDoctorAccessToPatient(doctorSystemId, patientSystemId);
 
         // Log critical action
-        auditService.logResourceModification(userId, "UPDATE", "CARE_TEAM", patientId, "0.0.0.0");
+        auditService.logResourceModification(userSystemId, "UPDATE", "CARE_TEAM", 0, "0.0.0.0");
     }
 
     /**
      * Comprehensive example: Get patient data with all checks
      * Shows the layered security approach
      */
-    public Object getPatientComprehensiveData(Integer patientId) {
-        Integer userId = userContext.getCurrentUserId();
+    public Object getPatientComprehensiveData(String patientSystemId) {
+        String userSystemId = userContext.getCurrentUserSystemId();
         String userRole = userContext.getCurrentUserRole();
         String ipAddress = "0.0.0.0";
 
         // Layer 1: Is user authenticated?
-        if (userId == null) {
+        if (userSystemId == null) {
             throw new AuthorizationException("User not authenticated");
         }
 
@@ -155,26 +155,26 @@ public class PatientDataService {
         authorizationService.requireAnyRole("PATIENT", "DOCTOR", "CAREGIVER", "ADMIN");
 
         // Layer 3: Does user have access to this specific patient?
-        authorizationService.authorizePatientDataAccess(patientId, "COMPREHENSIVE_DATA", patientId);
+        authorizationService.authorizePatientDataAccess(patientSystemId, "COMPREHENSIVE_DATA", 0);
 
         // Layer 4: Role-specific data filtering
         Object data = null;
         if ("PATIENT".equals(userRole)) {
             // Patient sees only their own data
-            data = "Patient comprehensive data: " + patientId;
+            data = "Patient comprehensive data: " + patientSystemId;
         } else if ("DOCTOR".equals(userRole)) {
             // Doctor sees patient data + treatment history
-            data = "Doctor view of patient " + patientId;
+            data = "Doctor view of patient " + patientSystemId;
         } else if ("CAREGIVER".equals(userRole)) {
             // Caregiver sees limited data based on permission type
-            data = "Caregiver view of patient " + patientId;
+            data = "Caregiver view of patient " + patientSystemId;
         } else if ("ADMIN".equals(userRole)) {
             // Admin sees everything
-            data = "Admin comprehensive view of patient " + patientId;
+            data = "Admin comprehensive view of patient " + patientSystemId;
         }
 
         // Layer 5: Audit the access
-        auditService.logResourceAccess(userId, "COMPREHENSIVE_DATA", patientId, ipAddress);
+        auditService.logResourceAccess(userSystemId, "COMPREHENSIVE_DATA", 0, ipAddress);
 
         return data;
     }

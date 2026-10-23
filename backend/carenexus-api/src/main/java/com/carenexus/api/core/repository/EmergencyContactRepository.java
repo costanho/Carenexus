@@ -9,9 +9,9 @@ import java.util.Optional;
 
 @Repository
 public interface EmergencyContactRepository extends JpaRepository<EmergencyContact, Integer> {
-    List<EmergencyContact> findByPatientId(Integer patientId);
-    Optional<EmergencyContact> findByPatientIdAndIsPrimaryTrue(Integer patientId);
-    List<EmergencyContact> findByPatientIdAndIsCaregiver(Integer patientId, Boolean isCaregiver);
-    List<EmergencyContact> findByPatientIdAndIsPrimary(Integer patientId, Boolean isPrimary);
-    Optional<EmergencyContact> findByContactIdAndPatientId(Integer contactId, Integer patientId);
+    List<EmergencyContact> findByPatientSystemId(String patientSystemId);
+    Optional<EmergencyContact> findByPatientSystemIdAndIsPrimaryTrue(String patientSystemId);
+    List<EmergencyContact> findByPatientSystemIdAndIsCaregiver(String patientSystemId, Boolean isCaregiver);
+    List<EmergencyContact> findByPatientSystemIdAndIsPrimary(String patientSystemId, Boolean isPrimary);
+    Optional<EmergencyContact> findByContactIdAndPatientSystemId(Integer contactId, String patientSystemId);
 }

@@ -18,9 +18,9 @@ public class AuditService {
     /**
      * Log successful login
      */
-    public void logLogin(Integer userId, String ipAddress, String userAgent) {
+    public void logLogin(String userSystemId, String ipAddress, String userAgent) {
         AuditLog log = AuditLog.builder()
-                .userId(userId)
+                .systemId(userSystemId)
                 .action("LOGIN")
                 .status("SUCCESS")
                 .ipAddress(ipAddress)
@@ -46,9 +46,9 @@ public class AuditService {
     /**
      * Log logout
      */
-    public void logLogout(Integer userId, String ipAddress) {
+    public void logLogout(String userSystemId, String ipAddress) {
         AuditLog log = AuditLog.builder()
-                .userId(userId)
+                .systemId(userSystemId)
                 .action("LOGOUT")
                 .status("SUCCESS")
                 .ipAddress(ipAddress)
@@ -59,9 +59,9 @@ public class AuditService {
     /**
      * Log resource access (READ)
      */
-    public void logResourceAccess(Integer userId, String resourceType, Integer resourceId, String ipAddress) {
+    public void logResourceAccess(String userSystemId, String resourceType, Integer resourceId, String ipAddress) {
         AuditLog log = AuditLog.builder()
-                .userId(userId)
+                .systemId(userSystemId)
                 .action("READ")
                 .resourceType(resourceType)
                 .resourceId(resourceId)
@@ -74,9 +74,9 @@ public class AuditService {
     /**
      * Log resource modification (CREATE, UPDATE, DELETE)
      */
-    public void logResourceModification(Integer userId, String action, String resourceType, Integer resourceId, String ipAddress) {
+    public void logResourceModification(String userSystemId, String action, String resourceType, Integer resourceId, String ipAddress) {
         AuditLog log = AuditLog.builder()
-                .userId(userId)
+                .systemId(userSystemId)
                 .action(action)  // CREATE, UPDATE, DELETE
                 .resourceType(resourceType)
                 .resourceId(resourceId)
@@ -89,9 +89,9 @@ public class AuditService {
     /**
      * Log access denied
      */
-    public void logAccessDenied(Integer userId, String resourceType, Integer resourceId, String ipAddress, String reason) {
+    public void logAccessDenied(String userSystemId, String resourceType, Integer resourceId, String ipAddress, String reason) {
         AuditLog log = AuditLog.builder()
-                .userId(userId)
+                .systemId(userSystemId)
                 .action("ACCESS_DENIED")
                 .resourceType(resourceType)
                 .resourceId(resourceId)

@@ -10,11 +10,11 @@ import lombok.*;
 @Builder
 public class CreateMedicalRecordRequest {
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;

@@ -25,9 +25,10 @@ type StatusFilter    = 'ALL' | ConsultStatus;
 
 function statusConfig(s: ConsultStatus) {
   switch (s) {
-    case 'DRAFT':       return { bg: '#FEF3C7', color: AMBER,  icon: 'document-outline'       as IoniconsName, label: 'Draft'       };
-    case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  icon: 'sync-outline'            as IoniconsName, label: 'In Progress' };
+    case 'DRAFT':       return { bg: '#FEF3C7', color: AMBER,  icon: 'document-outline'        as IoniconsName, label: 'Draft'       };
+    case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,   icon: 'sync-outline'            as IoniconsName, label: 'In Progress' };
     case 'COMPLETED':   return { bg: '#D1FAE5', color: GREEN,  icon: 'checkmark-circle-outline' as IoniconsName, label: 'Completed'   };
+    default:            return { bg: BG2,       color: GRAY,   icon: 'document-text-outline'   as IoniconsName, label: 'Unknown'     };
   }
 }
 

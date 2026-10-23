@@ -12,11 +12,11 @@ import java.time.LocalDate;
 @Builder
 public class CreatePrescriptionRequest {
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;

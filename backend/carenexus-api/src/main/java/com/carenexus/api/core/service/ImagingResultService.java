@@ -27,10 +27,10 @@ public class ImagingResultService {
     private final DoctorRepository doctorRepository;
 
     public ImagingResultResponse createImagingResult(CreateImagingResultRequest request) {
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getImagingType() == null || request.getImagingType().isEmpty()) {
@@ -47,8 +47,8 @@ public class ImagingResultService {
         }
 
         ImagingResult imagingResult = ImagingResult.builder()
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .consultationId(request.getConsultationId())
                 .imagingType(request.getImagingType())
                 .bodyPart(request.getBodyPart())
@@ -59,7 +59,7 @@ public class ImagingResultService {
                 .thumbnailUrl(request.getThumbnailUrl())
                 .status(status)
                 .imageDate(request.getImageDate() != null ? request.getImageDate() : LocalDate.now())
-                .reviewedBy(request.getReviewedBy())
+                .reviewedBySystemId(request.getReviewedBy())
                 .build();
 
         ImagingResult savedImagingResult = imagingResultRepository.save(imagingResult);
@@ -72,14 +72,14 @@ public class ImagingResultService {
         return mapToResponse(imagingResult);
     }
 
-    public List<ImagingResultResponse> getPatientImagingResults(Integer patientId) {
-        return imagingResultRepository.findByPatientId(patientId).stream()
+    public List<ImagingResultResponse> getPatientImagingResults(String patientSystemId) {
+        return imagingResultRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<ImagingResultResponse> getDoctorImagingResults(Integer doctorId) {
-        return imagingResultRepository.findByDoctorId(doctorId).stream()
+    public List<ImagingResultResponse> getDoctorImagingResults(String doctorSystemId) {
+        return imagingResultRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -99,20 +99,20 @@ public class ImagingResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<ImagingResultResponse> getPatientImagingResultsByType(Integer patientId, String imagingType) {
+    public List<ImagingResultResponse> getPatientImagingResultsByType(String patientSystemId, String imagingType) {
         if (!isValidImagingType(imagingType)) {
             throw new RuntimeException("Invalid imaging type");
         }
-        return imagingResultRepository.findByPatientIdAndImagingType(patientId, imagingType).stream()
+        return imagingResultRepository.findByPatientSystemIdAndImagingType(patientSystemId, imagingType).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<ImagingResultResponse> getDoctorImagingResultsByType(Integer doctorId, String imagingType) {
+    public List<ImagingResultResponse> getDoctorImagingResultsByType(String doctorSystemId, String imagingType) {
         if (!isValidImagingType(imagingType)) {
             throw new RuntimeException("Invalid imaging type");
         }
-        return imagingResultRepository.findByDoctorIdAndImagingType(doctorId, imagingType).stream()
+        return imagingResultRepository.findByDoctorSystemIdAndImagingType(doctorSystemId, imagingType).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -126,11 +126,11 @@ public class ImagingResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<ImagingResultResponse> getPatientImagingResultsByStatus(Integer patientId, String status) {
+    public List<ImagingResultResponse> getPatientImagingResultsByStatus(String patientSystemId, String status) {
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
         }
-        return imagingResultRepository.findByPatientIdAndStatus(patientId, status).stream()
+        return imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, status).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -141,14 +141,14 @@ public class ImagingResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<ImagingResultResponse> getPatientCriticalImagingResults(Integer patientId) {
-        return imagingResultRepository.findByPatientIdAndStatus(patientId, "CRITICAL").stream()
+    public List<ImagingResultResponse> getPatientCriticalImagingResults(String patientSystemId) {
+        return imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, "CRITICAL").stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     public List<ImagingResultResponse> getPendingReviewImagingResults() {
-        return imagingResultRepository.findByStatusAndReviewedByIsNull("REQUIRES_REVIEW").stream()
+        return imagingResultRepository.findByStatusAndReviewedBySystemIdIsNull("REQUIRES_REVIEW").stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -195,7 +195,7 @@ public class ImagingResultService {
         return mapToResponse(updatedImagingResult);
     }
 
-    public ImagingResultResponse reviewImagingResult(Integer imagingId, Integer reviewedBy, String status) {
+    public ImagingResultResponse reviewImagingResult(Integer imagingId, String reviewedBy, String status) {
         ImagingResult imagingResult = imagingResultRepository.findById(imagingId)
                 .orElseThrow(() -> new RuntimeException("Imaging result not found"));
 
@@ -203,7 +203,7 @@ public class ImagingResultService {
             throw new RuntimeException("Invalid status");
         }
 
-        imagingResult.setReviewedBy(reviewedBy);
+        imagingResult.setReviewedBySystemId(reviewedBy);
         imagingResult.setReviewedAt(LocalDateTime.now());
         imagingResult.setStatus(status);
 
@@ -230,24 +230,24 @@ public class ImagingResultService {
         imagingResultRepository.deleteById(imagingId);
     }
 
-    public List<ImagingResultResponse> getImagingResultsForUser(Integer userId, String userRole) {
+    public List<ImagingResultResponse> getImagingResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
+            Patient patient = patientRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return getPatientImagingResults(patient.getPatientId());
+            return getPatientImagingResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
+            Doctor doctor = doctorRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return getDoctorImagingResults(doctor.getDoctorId());
+            return getDoctorImagingResults(userSystemId);
         }
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<ImagingResultResponse> getCriticalImagingResultsForUser(Integer userId, String userRole) {
+    public List<ImagingResultResponse> getCriticalImagingResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
+            Patient patient = patientRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return getPatientCriticalImagingResults(patient.getPatientId());
+            return getPatientCriticalImagingResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
             return getCriticalImagingResults();
         }
@@ -257,8 +257,8 @@ public class ImagingResultService {
     private ImagingResultResponse mapToResponse(ImagingResult imagingResult) {
         return ImagingResultResponse.builder()
                 .imagingId(imagingResult.getImagingId())
-                .patientId(imagingResult.getPatientId())
-                .doctorId(imagingResult.getDoctorId())
+                .patientSystemId(imagingResult.getPatientSystemId())
+                .doctorSystemId(imagingResult.getDoctorSystemId())
                 .consultationId(imagingResult.getConsultationId())
                 .imagingType(imagingResult.getImagingType())
                 .bodyPart(imagingResult.getBodyPart())
@@ -269,7 +269,7 @@ public class ImagingResultService {
                 .thumbnailUrl(imagingResult.getThumbnailUrl())
                 .status(imagingResult.getStatus())
                 .imageDate(imagingResult.getImageDate())
-                .reviewedBy(imagingResult.getReviewedBy())
+                .reviewedBy(imagingResult.getReviewedBySystemId())
                 .reviewedAt(imagingResult.getReviewedAt())
                 .createdAt(imagingResult.getCreatedAt())
                 .build();

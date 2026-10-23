@@ -12,11 +12,11 @@ import java.time.LocalDate;
 @Builder
 public class CreateLabResultRequest {
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;
@@ -49,7 +49,7 @@ public class CreateLabResultRequest {
     private LocalDate testDate;
 
     @JsonProperty("reviewedBy")
-    private Integer reviewedBy;
+    private String reviewedBy;
 
     @JsonProperty("fileUrl")
     private String fileUrl;

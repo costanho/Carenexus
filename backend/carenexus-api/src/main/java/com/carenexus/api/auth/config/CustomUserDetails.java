@@ -10,17 +10,23 @@ import java.util.Collections;
 public class CustomUserDetails implements UserDetails {
 
     private final Integer userId;
+    private final String systemId;
     private final String email;
     private final String role;
 
-    public CustomUserDetails(Integer userId, String email, String role) {
+    public CustomUserDetails(Integer userId, String systemId, String email, String role) {
         this.userId = userId;
+        this.systemId = systemId;
         this.email = email;
         this.role = role;
     }
 
     public Integer getUserId() {
         return userId;
+    }
+
+    public String getSystemId() {
+        return systemId;
     }
 
     @Override

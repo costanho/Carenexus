@@ -10,8 +10,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class CreateAppointmentRequest {
-    private Integer patientId;           // Required
-    private Integer doctorId;             // Required
+    private String patientSystemId;      // Required
+    private String doctorSystemId;        // Required
     private Integer facilityId;           // Optional
     private LocalDateTime scheduledAt;    // Required: ISO 8601 format
     private Integer durationMinutes;      // Optional, default 30

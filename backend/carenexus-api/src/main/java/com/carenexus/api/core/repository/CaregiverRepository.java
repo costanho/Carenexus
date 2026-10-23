@@ -8,5 +8,5 @@ import java.util.Optional;
 
 @Repository
 public interface CaregiverRepository extends JpaRepository<Caregiver, Integer> {
-    Optional<Caregiver> findByUserId(Integer userId);
+    Optional<Caregiver> findBySystemId(String systemId);
 }

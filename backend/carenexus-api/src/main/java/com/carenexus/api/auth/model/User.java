@@ -45,6 +45,9 @@ public class User {
     @Builder.Default
     private Boolean isActive = true;
 
+    @Column(name = "system_id", nullable = false, length = 20, unique = true)
+    private String systemId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

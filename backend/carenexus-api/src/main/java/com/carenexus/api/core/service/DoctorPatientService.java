@@ -29,18 +29,18 @@ public class DoctorPatientService {
     private final UserRepository userRepository;
     private final AppointmentService appointmentService;
 
-    public List<DoctorPatientResponse> getDoctorPatients(Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
+    public List<DoctorPatientResponse> getDoctorPatients(String doctorSystemId) {
+        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorId(doctorId);
+        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
 
-        Set<Integer> patientIds = doctorAppointments.stream()
-                .map(Appointment::getPatientId)
+        Set<String> patientSystemIds = doctorAppointments.stream()
+                .map(Appointment::getPatientSystemId)
                 .collect(Collectors.toSet());
 
-        List<Patient> patients = patientIds.stream()
-                .map(patientId -> patientRepository.findById(patientId).orElse(null))
+        List<Patient> patients = patientSystemIds.stream()
+                .map(systemId -> patientRepository.findBySystemId(systemId).orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
@@ -49,21 +49,21 @@ public class DoctorPatientService {
                 .collect(Collectors.toList());
     }
 
-    public List<DoctorPatientResponse> getDoctorPatientsByStatus(Integer doctorId, String status) {
-        Doctor doctor = doctorRepository.findById(doctorId)
+    public List<DoctorPatientResponse> getDoctorPatientsByStatus(String doctorSystemId, String status) {
+        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorId(doctorId);
+        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
         List<Appointment> filteredAppointments = doctorAppointments.stream()
                 .filter(a -> a.getStatus().equalsIgnoreCase(status))
                 .collect(Collectors.toList());
 
-        Set<Integer> patientIds = filteredAppointments.stream()
-                .map(Appointment::getPatientId)
+        Set<String> patientSystemIds = filteredAppointments.stream()
+                .map(Appointment::getPatientSystemId)
                 .collect(Collectors.toSet());
 
-        List<Patient> patients = patientIds.stream()
-                .map(patientId -> patientRepository.findById(patientId).orElse(null))
+        List<Patient> patients = patientSystemIds.stream()
+                .map(systemId -> patientRepository.findBySystemId(systemId).orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
@@ -72,36 +72,36 @@ public class DoctorPatientService {
                 .collect(Collectors.toList());
     }
 
-    public List<DoctorPatientResponse> getDoctorScheduledPatients(Integer doctorId) {
-        return getDoctorPatientsByStatus(doctorId, "SCHEDULED");
+    public List<DoctorPatientResponse> getDoctorScheduledPatients(String doctorSystemId) {
+        return getDoctorPatientsByStatus(doctorSystemId, "SCHEDULED");
     }
 
-    public List<DoctorPatientResponse> getDoctorCompletedPatients(Integer doctorId) {
-        return getDoctorPatientsByStatus(doctorId, "COMPLETED");
+    public List<DoctorPatientResponse> getDoctorCompletedPatients(String doctorSystemId) {
+        return getDoctorPatientsByStatus(doctorSystemId, "COMPLETED");
     }
 
-    public List<DoctorPatientResponse> getDoctorCancelledPatients(Integer doctorId) {
-        return getDoctorPatientsByStatus(doctorId, "CANCELLED");
+    public List<DoctorPatientResponse> getDoctorCancelledPatients(String doctorSystemId) {
+        return getDoctorPatientsByStatus(doctorSystemId, "CANCELLED");
     }
 
-    public List<DoctorPatientResponse> getDoctorNoShowPatients(Integer doctorId) {
-        return getDoctorPatientsByStatus(doctorId, "NO_SHOW");
+    public List<DoctorPatientResponse> getDoctorNoShowPatients(String doctorSystemId) {
+        return getDoctorPatientsByStatus(doctorSystemId, "NO_SHOW");
     }
 
-    public List<DoctorPatientResponse> getDoctorRescheduledPatients(Integer doctorId) {
-        return getDoctorPatientsByStatus(doctorId, "RESCHEDULED");
+    public List<DoctorPatientResponse> getDoctorRescheduledPatients(String doctorSystemId) {
+        return getDoctorPatientsByStatus(doctorSystemId, "RESCHEDULED");
     }
 
-    public DoctorPatientResponse getDoctorPatientDetail(Integer doctorId, Integer patientId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
+    public DoctorPatientResponse getDoctorPatientDetail(String doctorSystemId, String patientSystemId) {
+        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        Patient patient = patientRepository.findById(patientId)
+        Patient patient = patientRepository.findBySystemId(patientSystemId)
                 .orElseThrow(() -> new RuntimeException("Patient not found"));
 
-        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorId(doctorId);
+        List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
         List<Appointment> patientWithDoctorAppointments = doctorAppointments.stream()
-                .filter(a -> a.getPatientId().equals(patientId))
+                .filter(a -> a.getPatientSystemId().equals(patientSystemId))
                 .collect(Collectors.toList());
 
         if (patientWithDoctorAppointments.isEmpty()) {
@@ -111,8 +111,8 @@ public class DoctorPatientService {
         return buildDoctorPatientResponse(patient, doctorAppointments);
     }
 
-    public List<DoctorPatientResponse> searchDoctorPatients(Integer doctorId, String searchTerm) {
-        List<DoctorPatientResponse> allPatients = getDoctorPatients(doctorId);
+    public List<DoctorPatientResponse> searchDoctorPatients(String doctorSystemId, String searchTerm) {
+        List<DoctorPatientResponse> allPatients = getDoctorPatients(doctorSystemId);
 
         String lowerSearchTerm = searchTerm.toLowerCase();
 
@@ -125,11 +125,11 @@ public class DoctorPatientService {
     }
 
     private DoctorPatientResponse buildDoctorPatientResponse(Patient patient, List<Appointment> doctorAppointments) {
-        User user = userRepository.findById(patient.getUserId())
+        User user = userRepository.findBySystemId(patient.getPatientSystemId())
                 .orElse(null);
 
         List<Appointment> patientAppointments = doctorAppointments.stream()
-                .filter(a -> a.getPatientId().equals(patient.getPatientId()))
+                .filter(a -> a.getPatientSystemId().equals(patient.getPatientSystemId()))
                 .collect(Collectors.toList());
 
         long scheduledCount = patientAppointments.stream()
@@ -164,8 +164,8 @@ public class DoctorPatientService {
                 .collect(Collectors.toList());
 
         return DoctorPatientResponse.builder()
-                .patientId(patient.getPatientId())
-                .userId(user != null ? user.getUserId() : null)
+                .patientSystemId(patient.getPatientSystemId())
+                .userSystemId(user != null ? user.getSystemId() : null)
                 .firstName(user != null ? user.getFirstName() : "Unknown")
                 .lastName(user != null ? user.getLastName() : "Unknown")
                 .email(user != null ? user.getEmail() : null)
@@ -191,8 +191,8 @@ public class DoctorPatientService {
     private AppointmentResponse mapAppointmentToResponse(Appointment appointment) {
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
-                .patientId(appointment.getPatientId())
-                .doctorId(appointment.getDoctorId())
+                .patientSystemId(appointment.getPatientSystemId())
+                .doctorSystemId(appointment.getDoctorSystemId())
                 .facilityId(appointment.getFacilityId())
                 .scheduledAt(appointment.getScheduledAt())
                 .durationMinutes(appointment.getDurationMinutes())

@@ -23,9 +23,9 @@ public class DoctorController {
     @GetMapping("/my-patients")
     @RequireRole("DOCTOR")
     public ResponseEntity<?> getMyPatients() {
-        Integer doctorId = userContext.getCurrentUserId();
+        String doctorSystemId = userContext.getCurrentUserSystemId();
         // Query only patients assigned to this doctor
-        return ResponseEntity.ok().body("Patients assigned to doctor " + doctorId);
+        return ResponseEntity.ok().body("Patients assigned to doctor " + doctorSystemId);
     }
 
     /**
@@ -35,38 +35,38 @@ public class DoctorController {
     @PostMapping("/prescriptions")
     @RequireRole("DOCTOR")
     public ResponseEntity<?> createPrescription(@RequestBody Object prescriptionData) {
-        Integer doctorId = userContext.getCurrentUserId();
-        // Create prescription with doctorId
-        return ResponseEntity.ok().body("Prescription created by doctor " + doctorId);
+        String doctorSystemId = userContext.getCurrentUserSystemId();
+        // Create prescription with doctorSystemId
+        return ResponseEntity.ok().body("Prescription created by doctor " + doctorSystemId);
     }
 
     /**
-     * GET /api/doctors/{patientId}/patient-history
+     * GET /api/doctors/{patientSystemId}/patient-history
      * Only DOCTOR role
      * Verify doctor is assigned to patient before returning history
      */
-    @GetMapping("/{patientId}/patient-history")
+    @GetMapping("/{patientSystemId}/patient-history")
     @RequireRole("DOCTOR")
-    public ResponseEntity<?> getPatientHistory(@PathVariable Integer patientId) {
-        Integer doctorId = userContext.getCurrentUserId();
+    public ResponseEntity<?> getPatientHistory(@PathVariable String patientSystemId) {
+        String doctorSystemId = userContext.getCurrentUserSystemId();
 
         // Check if doctor is assigned to this patient
-        authorizationService.authorizePatientDataAccess(patientId, "MEDICAL_HISTORY", null);
+        authorizationService.authorizePatientDataAccess(patientSystemId, "MEDICAL_HISTORY", null);
 
-        return ResponseEntity.ok().body("History for patient " + patientId);
+        return ResponseEntity.ok().body("History for patient " + patientSystemId);
     }
 
     /**
-     * PUT /api/doctors/{doctorId}/schedule
+     * PUT /api/doctors/{doctorSystemId}/schedule
      * Doctor can only update their own schedule
      */
-    @PutMapping("/{doctorId}/schedule")
-    public ResponseEntity<?> updateSchedule(@PathVariable Integer doctorId, @RequestBody Object scheduleData) {
-        Integer currentDoctorId = userContext.getCurrentUserId();
+    @PutMapping("/{doctorSystemId}/schedule")
+    public ResponseEntity<?> updateSchedule(@PathVariable String doctorSystemId, @RequestBody Object scheduleData) {
+        String currentDoctorSystemId = userContext.getCurrentUserSystemId();
 
         // Check ownership: doctor can only update their own schedule
-        authorizationService.requireOwnership(doctorId, "SCHEDULE", doctorId);
+        authorizationService.requireOwnership(doctorSystemId, "SCHEDULE", null);
 
-        return ResponseEntity.ok().body("Schedule updated for doctor " + doctorId);
+        return ResponseEntity.ok().body("Schedule updated for doctor " + doctorSystemId);
     }
 }

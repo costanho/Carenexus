@@ -20,162 +20,138 @@ public class DoctorMedicalRecordController {
     private final MedicalRecordService medicalRecordService;
     private final DoctorRepository doctorRepository;
 
-    private Integer getDoctorIdFromUserId(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-        return doctor.getDoctorId();
-    }
-
     // Get All Records
     @GetMapping
     public ResponseEntity<List<MedicalRecordResponse>> getMyMedicalRecords(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(systemId);
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorMedicalRecords(@PathVariable Integer doctorId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorId);
+    @GetMapping("/{doctorSystemId}")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorMedicalRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorSystemId);
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - CONSULT
     @GetMapping("/type/consult")
     public ResponseEntity<List<MedicalRecordResponse>> getMyConsultRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/consult")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorConsultRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/consult")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorConsultRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getConsultRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - LAB
     @GetMapping("/type/lab")
     public ResponseEntity<List<MedicalRecordResponse>> getMyLabRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/lab")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorLabRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/lab")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorLabRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getLabRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - IMAGING
     @GetMapping("/type/imaging")
     public ResponseEntity<List<MedicalRecordResponse>> getMyImagingRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/imaging")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorImagingRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/imaging")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorImagingRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getImagingRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - PRESCRIPTION
     @GetMapping("/type/prescription")
     public ResponseEntity<List<MedicalRecordResponse>> getMyPrescriptionRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/prescription")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorPrescriptionRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/prescription")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorPrescriptionRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPrescriptionRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - REFERRAL
     @GetMapping("/type/referral")
     public ResponseEntity<List<MedicalRecordResponse>> getMyReferralRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/referral")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorReferralRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/referral")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorReferralRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getReferralRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - DISCHARGE
     @GetMapping("/type/discharge")
     public ResponseEntity<List<MedicalRecordResponse>> getMyDischargeRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/discharge")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorDischargeRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/discharge")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorDischargeRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getDischargeRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - NOTE
     @GetMapping("/type/note")
     public ResponseEntity<List<MedicalRecordResponse>> getMyNoteRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/note")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorNoteRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/note")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorNoteRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getNoteRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Filter by Record Type - OPERATION
     @GetMapping("/type/operation")
     public ResponseEntity<List<MedicalRecordResponse>> getMyOperationRecords(
-            @RequestAttribute("userId") Integer userId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
-    @GetMapping("/{doctorId}/type/operation")
-    public ResponseEntity<List<MedicalRecordResponse>> getDoctorOperationRecords(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/type/operation")
+    public ResponseEntity<List<MedicalRecordResponse>> getDoctorOperationRecords(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getOperationRecordsForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(records);
     }
 
     // Generic Filter by Record Type
     @GetMapping("/type/{recordType}")
     public ResponseEntity<List<MedicalRecordResponse>> getMyRecordsByType(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @PathVariable String recordType) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorId);
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(systemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
@@ -185,11 +161,11 @@ public class DoctorMedicalRecordController {
         return ResponseEntity.ok(filtered);
     }
 
-    @GetMapping("/{doctorId}/type/{recordType}")
+    @GetMapping("/{doctorSystemId}/type/{recordType}")
     public ResponseEntity<List<MedicalRecordResponse>> getDoctorRecordsByType(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable String recordType) {
-        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorId);
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorRecords(doctorSystemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
@@ -200,60 +176,58 @@ public class DoctorMedicalRecordController {
     }
 
     // Get Records for Specific Patient
-    @GetMapping("/patient/{patientId}")
+    @GetMapping("/patient/{patientSystemId}")
     public ResponseEntity<List<MedicalRecordResponse>> getMyPatientRecords(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
 
         List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId))
+                .filter(r -> r.getDoctorSystemId().equals(systemId))
                 .toList();
 
         return ResponseEntity.ok(doctorRecords);
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<MedicalRecordResponse>> getDoctorPatientRecords(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
 
         List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId))
+                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId))
                 .toList();
 
         return ResponseEntity.ok(doctorRecords);
     }
 
     // Get Records for Specific Patient by Type
-    @GetMapping("/patient/{patientId}/type/{recordType}")
+    @GetMapping("/patient/{patientSystemId}/type/{recordType}")
     public ResponseEntity<List<MedicalRecordResponse>> getMyPatientRecordsByType(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId,
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId,
             @PathVariable String recordType) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId) && r.getRecordType().equalsIgnoreCase(upperType))
+                .filter(r -> r.getDoctorSystemId().equals(systemId) && r.getRecordType().equalsIgnoreCase(upperType))
                 .toList();
 
         return ResponseEntity.ok(filtered);
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}/type/{recordType}")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}/type/{recordType}")
     public ResponseEntity<List<MedicalRecordResponse>> getDoctorPatientRecordsByType(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId,
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId,
             @PathVariable String recordType) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId) && r.getRecordType().equalsIgnoreCase(upperType))
+                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId) && r.getRecordType().equalsIgnoreCase(upperType))
                 .toList();
 
         return ResponseEntity.ok(filtered);
@@ -262,25 +236,24 @@ public class DoctorMedicalRecordController {
     // Get Specific Record
     @GetMapping("/record/{recordId}")
     public ResponseEntity<MedicalRecordResponse> getMyRecord(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @PathVariable Integer recordId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
         MedicalRecordResponse record = medicalRecordService.getRecordById(recordId);
 
-        if (!record.getDoctorId().equals(doctorId)) {
+        if (!record.getDoctorSystemId().equals(systemId)) {
             throw new RuntimeException("You don't have access to this record");
         }
 
         return ResponseEntity.ok(record);
     }
 
-    @GetMapping("/{doctorId}/record/{recordId}")
+    @GetMapping("/{doctorSystemId}/record/{recordId}")
     public ResponseEntity<MedicalRecordResponse> getDoctorRecord(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable Integer recordId) {
         MedicalRecordResponse record = medicalRecordService.getRecordById(recordId);
 
-        if (!record.getDoctorId().equals(doctorId)) {
+        if (!record.getDoctorSystemId().equals(doctorSystemId)) {
             throw new RuntimeException("This record doesn't belong to this doctor");
         }
 
@@ -290,46 +263,44 @@ public class DoctorMedicalRecordController {
     // Medical Record Statistics
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getMyMedicalRecordStats(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> allRecords = medicalRecordService.getDoctorRecords(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        List<MedicalRecordResponse> allRecords = medicalRecordService.getDoctorRecords(systemId);
 
         Map<String, Object> stats = buildRecordStats(allRecords);
         return ResponseEntity.ok(stats);
     }
 
-    @GetMapping("/{doctorId}/stats")
-    public ResponseEntity<Map<String, Object>> getDoctorMedicalRecordStats(@PathVariable Integer doctorId) {
-        List<MedicalRecordResponse> allRecords = medicalRecordService.getDoctorRecords(doctorId);
+    @GetMapping("/{doctorSystemId}/stats")
+    public ResponseEntity<Map<String, Object>> getDoctorMedicalRecordStats(@PathVariable String doctorSystemId) {
+        List<MedicalRecordResponse> allRecords = medicalRecordService.getDoctorRecords(doctorSystemId);
 
         Map<String, Object> stats = buildRecordStats(allRecords);
         return ResponseEntity.ok(stats);
     }
 
     // Patient Medical Record Statistics
-    @GetMapping("/patient/{patientId}/stats")
+    @GetMapping("/patient/{patientSystemId}/stats")
     public ResponseEntity<Map<String, Object>> getMyPatientRecordStats(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
 
         List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId))
+                .filter(r -> r.getDoctorSystemId().equals(systemId))
                 .toList();
 
         Map<String, Object> stats = buildRecordStats(doctorRecords);
         return ResponseEntity.ok(stats);
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}/stats")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}/stats")
     public ResponseEntity<Map<String, Object>> getDoctorPatientRecordStats(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientId);
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId) {
+        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
 
         List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorId().equals(doctorId))
+                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId))
                 .toList();
 
         Map<String, Object> stats = buildRecordStats(doctorRecords);

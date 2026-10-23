@@ -27,10 +27,10 @@ public class AppointmentService {
 
     public AppointmentResponse createAppointment(CreateAppointmentRequest request) {
         // Validate required fields
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getScheduledAt() == null) {
@@ -53,8 +53,8 @@ public class AppointmentService {
 
         // Create appointment
         Appointment appointment = Appointment.builder()
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .facilityId(request.getFacilityId())
                 .scheduledAt(request.getScheduledAt())
                 .durationMinutes(request.getDurationMinutes() != null ? request.getDurationMinutes() : 30)
@@ -76,20 +76,20 @@ public class AppointmentService {
         return mapToResponse(appointment);
     }
 
-    public List<AppointmentResponse> getAppointmentsByPatientId(Integer patientId) {
-        return appointmentRepository.findByPatientId(patientId).stream()
+    public List<AppointmentResponse> getAppointmentsByPatientSystemId(String patientSystemId) {
+        return appointmentRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<AppointmentResponse> getAppointmentsByDoctorId(Integer doctorId) {
-        return appointmentRepository.findByDoctorId(doctorId).stream()
+    public List<AppointmentResponse> getAppointmentsByDoctorSystemId(String doctorSystemId) {
+        return appointmentRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<AppointmentResponse> getUpcomingAppointments(Integer patientId) {
-        List<Appointment> appointments = appointmentRepository.findByPatientIdAndStatus(patientId, "SCHEDULED");
+    public List<AppointmentResponse> getUpcomingAppointments(String patientSystemId) {
+        List<Appointment> appointments = appointmentRepository.findByPatientSystemIdAndStatus(patientSystemId, "SCHEDULED");
         return appointments.stream()
                 .filter(a -> a.getScheduledAt().isAfter(LocalDateTime.now()))
                 .map(this::mapToResponse)
@@ -163,8 +163,8 @@ public class AppointmentService {
         appointmentRepository.save(appointment);
     }
 
-    public List<AppointmentResponse> getDoctorSchedule(Integer doctorId, LocalDateTime start, LocalDateTime end) {
-        return appointmentRepository.findByDoctorIdAndScheduledAtBetween(doctorId, start, end).stream()
+    public List<AppointmentResponse> getDoctorSchedule(String doctorSystemId, LocalDateTime start, LocalDateTime end) {
+        return appointmentRepository.findByDoctorSystemIdAndScheduledAtBetween(doctorSystemId, start, end).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -175,15 +175,11 @@ public class AppointmentService {
                 .collect(Collectors.toList());
     }
 
-    public List<AppointmentResponse> getUpcomingForUser(Integer userId, String userRole) {
+    public List<AppointmentResponse> getUpcomingForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return getUpcomingAppointments(patient.getPatientId());
+            return getUpcomingAppointments(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "SCHEDULED")
+            return appointmentRepository.findByDoctorSystemIdAndStatus(userSystemId, "SCHEDULED")
                     .stream()
                     .filter(a -> a.getScheduledAt().isAfter(LocalDateTime.now()))
                     .map(this::mapToResponse)
@@ -192,18 +188,14 @@ public class AppointmentService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<AppointmentResponse> getCompletedForUser(Integer userId, String userRole) {
+    public List<AppointmentResponse> getCompletedForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "COMPLETED")
+            return appointmentRepository.findByPatientSystemIdAndStatus(userSystemId, "COMPLETED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "COMPLETED")
+            return appointmentRepository.findByDoctorSystemIdAndStatus(userSystemId, "COMPLETED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -211,18 +203,14 @@ public class AppointmentService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<AppointmentResponse> getCancelledForUser(Integer userId, String userRole) {
+    public List<AppointmentResponse> getCancelledForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "CANCELLED")
+            return appointmentRepository.findByPatientSystemIdAndStatus(userSystemId, "CANCELLED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "CANCELLED")
+            return appointmentRepository.findByDoctorSystemIdAndStatus(userSystemId, "CANCELLED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -230,18 +218,14 @@ public class AppointmentService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<AppointmentResponse> getRescheduledForUser(Integer userId, String userRole) {
+    public List<AppointmentResponse> getRescheduledForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "RESCHEDULED")
+            return appointmentRepository.findByPatientSystemIdAndStatus(userSystemId, "RESCHEDULED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "RESCHEDULED")
+            return appointmentRepository.findByDoctorSystemIdAndStatus(userSystemId, "RESCHEDULED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -249,18 +233,14 @@ public class AppointmentService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<AppointmentResponse> getNoShowForUser(Integer userId, String userRole) {
+    public List<AppointmentResponse> getNoShowForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return appointmentRepository.findByPatientIdAndStatus(patient.getPatientId(), "NO_SHOW")
+            return appointmentRepository.findByPatientSystemIdAndStatus(userSystemId, "NO_SHOW")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return appointmentRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "NO_SHOW")
+            return appointmentRepository.findByDoctorSystemIdAndStatus(userSystemId, "NO_SHOW")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -271,8 +251,8 @@ public class AppointmentService {
     private AppointmentResponse mapToResponse(Appointment appointment) {
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
-                .patientId(appointment.getPatientId())
-                .doctorId(appointment.getDoctorId())
+                .patientSystemId(appointment.getPatientSystemId())
+                .doctorSystemId(appointment.getDoctorSystemId())
                 .facilityId(appointment.getFacilityId())
                 .scheduledAt(appointment.getScheduledAt())
                 .durationMinutes(appointment.getDurationMinutes())

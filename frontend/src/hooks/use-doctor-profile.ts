@@ -3,19 +3,19 @@ import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
 
 export interface DoctorProfile {
-  doctor_id:      number;
-  user_id:        number;
-  first_name:     string;
-  last_name:      string;
-  full_name:      string;
-  email:          string;
-  phone:          string | null;
-  avatar_url:     string | null;
-  specialization: string;
-  license_no:     string;
-  bio:            string | null;
-  is_active:      number;
-  created_at:     string;
+  doctor_system_id: string;
+  user_id:          number;
+  first_name:       string;
+  last_name:        string;
+  full_name:        string;
+  email:            string;
+  phone:            string | null;
+  avatar_url:       string | null;
+  specialization:   string;
+  license_no:       string;
+  bio:              string | null;
+  is_active:        boolean;
+  created_at:       string;
 }
 
 export interface DoctorStats {
@@ -37,57 +37,44 @@ const EMPTY_STATS: DoctorStats = { appointments: 0, patients: 0, consultations: 
 
 export function useDoctorProfile(): State {
   const { user } = useCurrentUser();
-  const [profile,  setProfile]  = useState<DoctorProfile | null>(null);
-  const [stats,    setStats]    = useState<DoctorStats>(EMPTY_STATS);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [tick,     setTick]     = useState(0);
+  const [profile, setProfile] = useState<DoctorProfile | null>(null);
+  const [stats,   setStats]   = useState<DoctorStats>(EMPTY_STATS);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [tick,    setTick]    = useState(0);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
 
-    api.get(`/api/doctors/user/${user.user_id}`)
-      .then(({ data: doctor }) => {
-        const doctor_id = doctor.doctor_id;
-        return Promise.all([
-          Promise.resolve(doctor),
-          api.get<any[]>(`/api/appointments?doctor_id=${doctor_id}`),
-          api.get<any[]>(`/api/consultations?doctor_id=${doctor_id}`),
-          api.get<any[]>(`/api/prescriptions?doctor_id=${doctor_id}`),
-        ]);
-      })
-      .then(([doctor, apptRes, consultRes, rxRes]) => {
-        const uniquePatients = new Set<number>(apptRes.data.map((a: any) => a.patient_id));
-
+    api.get('/api/doctors/profile')
+      .then(({ data: d }) => {
         setProfile({
-          doctor_id:      doctor.doctor_id,
-          user_id:        doctor.user_id,
-          first_name:     doctor.first_name  ?? '',
-          last_name:      doctor.last_name   ?? '',
-          full_name:      doctor.full_name   ?? `Dr. ${doctor.first_name} ${doctor.last_name}`,
-          email:          doctor.email       ?? '',
-          phone:          doctor.phone       ?? null,
-          avatar_url:     doctor.avatar_url  ?? null,
-          specialization: doctor.specialization ?? '',
-          license_no:     doctor.license_no  ?? '',
-          bio:            doctor.bio         ?? null,
-          is_active:      doctor.is_active   ?? 1,
-          created_at:     doctor.created_at  ?? '',
+          doctor_system_id: d.doctorSystemId    ?? '',
+          user_id:          d.userId            ?? user.user_id,
+          first_name:       d.firstName         ?? user.first_name,
+          last_name:        d.lastName          ?? user.last_name,
+          full_name:        `Dr. ${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
+          email:            d.email             ?? user.email,
+          phone:            d.phone             ?? null,
+          avatar_url:       null,
+          specialization:   d.specialization    ?? '',
+          license_no:       d.licenseNo         ?? '',
+          bio:              d.bio               ?? null,
+          is_active:        d.isActive          ?? true,
+          created_at:       d.doctorCreatedAt   ?? '',
         });
-
         setStats({
-          appointments:  apptRes.data.length,
-          patients:      uniquePatients.size,
-          consultations: consultRes.data.length,
-          prescriptions: rxRes.data.length,
+          appointments:  d.totalAppointments  ?? 0,
+          patients:      d.totalPatients      ?? 0,
+          consultations: d.totalConsultations ?? 0,
+          prescriptions: d.totalPrescriptions ?? 0,
         });
-
         setError(null);
       })
       .catch(() => setError('Failed to load profile.'))
       .finally(() => setLoading(false));
-  }, [user?.user_id, tick]);
+  }, [user?.system_id, tick]);
 
   return { profile, stats, loading, error, refetch: () => setTick(t => t + 1) };
 }

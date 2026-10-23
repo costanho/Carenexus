@@ -12,11 +12,11 @@ import java.util.List;
 @Builder
 public class DoctorDashboardResponse {
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
-    @JsonProperty("userId")
-    private Integer userId;
+    @JsonProperty("userSystemId")
+    private String userSystemId;
 
     @JsonProperty("firstName")
     private String firstName;

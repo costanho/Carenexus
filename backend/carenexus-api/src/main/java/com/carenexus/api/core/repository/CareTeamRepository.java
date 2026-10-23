@@ -16,42 +16,37 @@ public interface CareTeamRepository extends JpaRepository<CareTeam, Integer> {
      * Find if doctor is assigned to patient
      * Doctor can access patient's data if this relationship exists and is active
      */
-    @Query("SELECT c FROM CareTeam c WHERE c.patientId = :patientId AND c.doctorId = :doctorId AND c.isActive = true")
-    Optional<CareTeam> findActiveDoctorPatientRelationship(@Param("doctorId") Integer doctorId, @Param("patientId") Integer patientId);
-
-    /**
-     * Find if caregiver is assigned to patient
-     */
-    @Query("SELECT c FROM CareTeam c WHERE c.patientId = :patientId AND c.caregiverId = :caregiverId AND c.isActive = true")
-    Optional<CareTeam> findActiveCaregiverPatientRelationship(@Param("caregiverId") Integer caregiverId, @Param("patientId") Integer patientId);
+    @Query("SELECT c FROM CareTeam c WHERE c.patientSystemId = :patientSystemId AND c.providerSystemId = :providerSystemId AND c.isActive = true")
+    Optional<CareTeam> findActiveDoctorPatientRelationship(@Param("providerSystemId") String providerSystemId, @Param("patientSystemId") String patientSystemId);
 
     /**
      * Get all patients assigned to a doctor
      */
-    @Query("SELECT c FROM CareTeam c WHERE c.doctorId = :doctorId AND c.isActive = true")
-    List<CareTeam> findAllPatientsForDoctor(@Param("doctorId") Integer doctorId);
-
-    /**
-     * Get all patients assigned to a caregiver
-     */
-    @Query("SELECT c FROM CareTeam c WHERE c.caregiverId = :caregiverId AND c.isActive = true")
-    List<CareTeam> findAllPatientsForCaregiver(@Param("caregiverId") Integer caregiverId);
+    @Query("SELECT c FROM CareTeam c WHERE c.providerSystemId = :providerSystemId AND c.isActive = true")
+    List<CareTeam> findAllPatientsForDoctor(@Param("providerSystemId") String providerSystemId);
 
     /**
      * Get all doctors assigned to a patient
      */
-    @Query("SELECT c FROM CareTeam c WHERE c.patientId = :patientId AND c.doctorId IS NOT NULL AND c.isActive = true")
-    List<CareTeam> findAllDoctorsForPatient(@Param("patientId") Integer patientId);
+    @Query("SELECT c FROM CareTeam c WHERE c.patientSystemId = :patientSystemId AND c.isActive = true")
+    List<CareTeam> findAllDoctorsForPatient(@Param("patientSystemId") String patientSystemId);
+
+    /**
+     * Find if caregiver is assigned to patient
+     * Caregivers can access patient's data if this relationship exists and is active
+     */
+    @Query("SELECT c FROM CareTeam c WHERE c.patientSystemId = :patientSystemId AND c.providerSystemId = :providerSystemId AND c.isActive = true")
+    Optional<CareTeam> findActiveCaregiverPatientRelationship(@Param("providerSystemId") String providerSystemId, @Param("patientSystemId") String patientSystemId);
+
+    /**
+     * Get all patients assigned to a caregiver
+     */
+    @Query("SELECT c FROM CareTeam c WHERE c.providerSystemId = :providerSystemId AND c.isActive = true")
+    List<CareTeam> findAllPatientsForCaregiver(@Param("providerSystemId") String providerSystemId);
 
     /**
      * Get all caregivers assigned to a patient
      */
-    @Query("SELECT c FROM CareTeam c WHERE c.patientId = :patientId AND c.caregiverId IS NOT NULL AND c.isActive = true")
-    List<CareTeam> findAllCaregiversForPatient(@Param("patientId") Integer patientId);
-
-    /**
-     * Check if any relationship exists between doctor and patient (by facility)
-     */
-    @Query("SELECT c FROM CareTeam c WHERE c.patientId = :patientId AND c.doctorId = :doctorId AND c.facilityId = :facilityId AND c.isActive = true")
-    Optional<CareTeam> findDoctorPatientByFacility(@Param("doctorId") Integer doctorId, @Param("patientId") Integer patientId, @Param("facilityId") Integer facilityId);
+    @Query("SELECT c FROM CareTeam c WHERE c.patientSystemId = :patientSystemId AND c.isActive = true")
+    List<CareTeam> findAllCaregiversForPatient(@Param("patientSystemId") String patientSystemId);
 }

@@ -29,15 +29,15 @@ public class LabResultController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<LabResultResponse>> getPatientLabResults(@PathVariable Integer patientId) {
-        List<LabResultResponse> results = labResultService.getPatientLabResults(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<LabResultResponse>> getPatientLabResults(@PathVariable String patientSystemId) {
+        List<LabResultResponse> results = labResultService.getPatientLabResults(patientSystemId);
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<LabResultResponse>> getDoctorLabResults(@PathVariable Integer doctorId) {
-        List<LabResultResponse> results = labResultService.getDoctorLabResults(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<LabResultResponse>> getDoctorLabResults(@PathVariable String doctorSystemId) {
+        List<LabResultResponse> results = labResultService.getDoctorLabResults(doctorSystemId);
         return ResponseEntity.ok(results);
     }
 
@@ -101,19 +101,19 @@ public class LabResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/type/{testType}")
+    @GetMapping("/patient/{patientSystemId}/type/{testType}")
     public ResponseEntity<List<LabResultResponse>> getPatientLabResultsByTestType(
-            @PathVariable Integer patientId,
+            @PathVariable String patientSystemId,
             @PathVariable String testType) {
-        List<LabResultResponse> results = labResultService.getPatientLabResultsByTestType(patientId, testType.toUpperCase());
+        List<LabResultResponse> results = labResultService.getPatientLabResultsByTestType(patientSystemId, testType.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/doctor/{doctorId}/type/{testType}")
+    @GetMapping("/doctor/{doctorSystemId}/type/{testType}")
     public ResponseEntity<List<LabResultResponse>> getDoctorLabResultsByTestType(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable String testType) {
-        List<LabResultResponse> results = labResultService.getDoctorLabResultsByTestType(doctorId, testType.toUpperCase());
+        List<LabResultResponse> results = labResultService.getDoctorLabResultsByTestType(doctorSystemId, testType.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
@@ -123,11 +123,11 @@ public class LabResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/status/{status}")
+    @GetMapping("/patient/{patientSystemId}/status/{status}")
     public ResponseEntity<List<LabResultResponse>> getPatientLabResultsByStatus(
-            @PathVariable Integer patientId,
+            @PathVariable String patientSystemId,
             @PathVariable String status) {
-        List<LabResultResponse> results = labResultService.getPatientLabResultsByStatus(patientId, status.toUpperCase());
+        List<LabResultResponse> results = labResultService.getPatientLabResultsByStatus(patientSystemId, status.toUpperCase());
         return ResponseEntity.ok(results);
     }
 
@@ -137,9 +137,9 @@ public class LabResultController {
         return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/patient/{patientId}/critical")
-    public ResponseEntity<List<LabResultResponse>> getPatientCriticalLabResults(@PathVariable Integer patientId) {
-        List<LabResultResponse> results = labResultService.getPatientCriticalLabResults(patientId);
+    @GetMapping("/patient/{patientSystemId}/critical")
+    public ResponseEntity<List<LabResultResponse>> getPatientCriticalLabResults(@PathVariable String patientSystemId) {
+        List<LabResultResponse> results = labResultService.getPatientCriticalLabResults(patientSystemId);
         return ResponseEntity.ok(results);
     }
 
@@ -168,7 +168,7 @@ public class LabResultController {
     @PostMapping("/{id}/review")
     public ResponseEntity<LabResultResponse> reviewLabResult(
             @PathVariable Integer id,
-            @RequestParam Integer reviewedBy,
+            @RequestParam String reviewedBy,
             @RequestParam String status) {
         LabResultResponse response = labResultService.reviewLabResult(id, reviewedBy, status);
         return ResponseEntity.ok(response);
@@ -182,26 +182,26 @@ public class LabResultController {
 
     @GetMapping("/me")
     public ResponseEntity<List<LabResultResponse>> getMyLabResults(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(userId, userRole);
+        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole);
         return ResponseEntity.ok(results);
     }
 
     @GetMapping("/me/critical")
     public ResponseEntity<List<LabResultResponse>> getMyCriticalLabResults(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getCriticalLabResultsForUser(userId, userRole);
+        List<LabResultResponse> results = labResultService.getCriticalLabResultsForUser(systemId, userRole);
         return ResponseEntity.ok(results);
     }
 
     @GetMapping("/me/type/{testType}")
     public ResponseEntity<List<LabResultResponse>> getMyLabResultsByTestType(
             @PathVariable String testType,
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(userId, userRole)
+        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole)
                 .stream()
                 .filter(result -> result.getTestType().equalsIgnoreCase(testType))
                 .toList();
@@ -211,9 +211,9 @@ public class LabResultController {
     @GetMapping("/me/status/{status}")
     public ResponseEntity<List<LabResultResponse>> getMyLabResultsByStatus(
             @PathVariable String status,
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(userId, userRole)
+        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole)
                 .stream()
                 .filter(result -> result.getStatus().equalsIgnoreCase(status))
                 .toList();

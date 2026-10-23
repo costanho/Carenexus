@@ -10,18 +10,18 @@ import java.util.Optional;
 
 @Repository
 public interface ImagingResultRepository extends JpaRepository<ImagingResult, Integer> {
-    List<ImagingResult> findByPatientId(Integer patientId);
-    List<ImagingResult> findByDoctorId(Integer doctorId);
+    List<ImagingResult> findByPatientSystemId(String patientSystemId);
+    List<ImagingResult> findByDoctorSystemId(String doctorSystemId);
     List<ImagingResult> findByImagingType(String imagingType);
     List<ImagingResult> findByStatus(String status);
-    List<ImagingResult> findByPatientIdAndStatus(Integer patientId, String status);
-    List<ImagingResult> findByDoctorIdAndStatus(Integer doctorId, String status);
+    List<ImagingResult> findByPatientSystemIdAndStatus(String patientSystemId, String status);
+    List<ImagingResult> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<ImagingResult> findByConsultationId(Integer consultationId);
-    List<ImagingResult> findByPatientIdAndImagingType(Integer patientId, String imagingType);
-    List<ImagingResult> findByDoctorIdAndImagingType(Integer doctorId, String imagingType);
+    List<ImagingResult> findByPatientSystemIdAndImagingType(String patientSystemId, String imagingType);
+    List<ImagingResult> findByDoctorSystemIdAndImagingType(String doctorSystemId, String imagingType);
     List<ImagingResult> findByImageDateBetween(LocalDate startDate, LocalDate endDate);
-    List<ImagingResult> findByPatientIdAndImageDateBetween(Integer patientId, LocalDate startDate, LocalDate endDate);
-    List<ImagingResult> findByStatusAndReviewedByIsNull(String status);
-    List<ImagingResult> findByPatientIdAndImagingTypeAndStatus(Integer patientId, String imagingType, String status);
-    Optional<ImagingResult> findByImagingIdAndPatientId(Integer imagingId, Integer patientId);
+    List<ImagingResult> findByPatientSystemIdAndImageDateBetween(String patientSystemId, LocalDate startDate, LocalDate endDate);
+    List<ImagingResult> findByStatusAndReviewedBySystemIdIsNull(String status);
+    List<ImagingResult> findByPatientSystemIdAndImagingTypeAndStatus(String patientSystemId, String imagingType, String status);
+    Optional<ImagingResult> findByImagingIdAndPatientSystemId(Integer imagingId, String patientSystemId);
 }

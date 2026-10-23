@@ -15,29 +15,49 @@ export default function RootLayout() {
   const didRedirect = useRef(false);
 
   useEffect(() => {
-    isAuthenticated().then(setAuthed);
-  }, []);
+    console.log('🔄 Checking auth status due to segments change:', segments);
+    isAuthenticated().then(auth => {
+      console.log('✅ isAuthenticated returned:', auth);
+      setAuthed(auth);
+    });
+  }, [segments]);
 
   useEffect(() => {
-    if (authed === null) return;
-    if (didRedirect.current) return;
+    console.log('🛡️ Auth guard effect running:', { authed, segments, didRedirect: didRedirect.current });
+    if (authed === null) {
+      console.log('⏳ authed is null, waiting...');
+      return;
+    }
+    if (didRedirect.current) {
+      console.log('⏭️ Already redirected, skipping');
+      return;
+    }
 
     const inAuthGroup      = segments[0] === 'auth';
     const inDashboardGroup = segments[0] === 'dashboard';
+    console.log('📍 Route check:', { inAuthGroup, inDashboardGroup, currentSegments: segments });
 
     if (!authed && !inAuthGroup) {
+      console.log('🔴 Not authenticated and not in auth group → going to login');
       didRedirect.current = true;
       router.replace(LOGIN_ROUTE as any);
     } else if (authed && (inAuthGroup || !inDashboardGroup)) {
+      console.log('🟡 Authenticated but in auth group or not on dashboard → fetching user...');
       // Authenticated but not yet on a dashboard — send to role dashboard
       getUser().then(user => {
+        console.log('👤 User from storage:', user);
         if (!user) {
+          console.log('❌ No user found → going to login');
           router.replace(LOGIN_ROUTE as any);
           return;
         }
+        const targetRoute = ROLE_HOME[user.role];
+        console.log('🟢 Redirecting to role dashboard:', targetRoute);
         didRedirect.current = true;
-        router.replace(ROLE_HOME[user.role] as any);
+        router.replace(targetRoute as any);
       });
+    } else {
+      console.log('✅ No redirect needed');
     }
   }, [authed, segments]);
 

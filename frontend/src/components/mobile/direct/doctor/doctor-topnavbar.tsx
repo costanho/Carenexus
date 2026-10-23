@@ -40,7 +40,7 @@ export function DoctorTopNavbarMobile({ onMenuPress }: DoctorTopNavbarMobileProp
   const { handleLogout, loading } = useLogout();
 
   const avatarUri = user?.avatar_url ?? null;
-  const initials  = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'DR';
+  const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));

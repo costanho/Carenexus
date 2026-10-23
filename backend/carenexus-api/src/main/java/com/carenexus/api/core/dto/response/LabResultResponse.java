@@ -16,11 +16,11 @@ public class LabResultResponse {
     @JsonProperty("resultId")
     private Integer resultId;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;
@@ -53,7 +53,7 @@ public class LabResultResponse {
     private LocalDate testDate;
 
     @JsonProperty("reviewedBy")
-    private Integer reviewedBy;
+    private String reviewedBy;
 
     @JsonProperty("reviewedAt")
     private LocalDateTime reviewedAt;

@@ -6,7 +6,9 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "doctors")
+@Table(name = "doctors", uniqueConstraints = {
+    @UniqueConstraint(columnNames = "system_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,8 +21,8 @@ public class Doctor {
     @Column(name = "doctor_id")
     private Integer doctorId;
 
-    @Column(name = "user_id", nullable = false, unique = true)
-    private Integer userId;
+    @Column(name = "system_id", nullable = false, unique = true, length = 20)
+    private String systemId;
 
     @Column(name = "specialization", length = 150)
     private String specialization;
@@ -41,5 +43,12 @@ public class Doctor {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    /**
+     * Convenience method for accessing systemId as doctorSystemId
+     */
+    public String getDoctorSystemId() {
+        return this.systemId;
     }
 }

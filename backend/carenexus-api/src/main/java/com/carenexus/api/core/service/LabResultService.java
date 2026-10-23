@@ -27,10 +27,10 @@ public class LabResultService {
     private final DoctorRepository doctorRepository;
 
     public LabResultResponse createLabResult(CreateLabResultRequest request) {
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getTestName() == null || request.getTestName().isEmpty()) {
@@ -50,8 +50,8 @@ public class LabResultService {
         }
 
         LabResult labResult = LabResult.builder()
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .consultationId(request.getConsultationId())
                 .testName(request.getTestName())
                 .testType(request.getTestType())
@@ -62,7 +62,7 @@ public class LabResultService {
                 .status(status)
                 .isCritical(request.getIsCritical() != null ? request.getIsCritical() : false)
                 .testDate(request.getTestDate() != null ? request.getTestDate() : LocalDate.now())
-                .reviewedBy(request.getReviewedBy())
+                .reviewedBySystemId(request.getReviewedBy())
                 .fileUrl(request.getFileUrl())
                 .build();
 
@@ -76,14 +76,14 @@ public class LabResultService {
         return mapToResponse(labResult);
     }
 
-    public List<LabResultResponse> getPatientLabResults(Integer patientId) {
-        return labResultRepository.findByPatientId(patientId).stream()
+    public List<LabResultResponse> getPatientLabResults(String patientSystemId) {
+        return labResultRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<LabResultResponse> getDoctorLabResults(Integer doctorId) {
-        return labResultRepository.findByDoctorId(doctorId).stream()
+    public List<LabResultResponse> getDoctorLabResults(String doctorSystemId) {
+        return labResultRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -103,20 +103,20 @@ public class LabResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<LabResultResponse> getPatientLabResultsByTestType(Integer patientId, String testType) {
+    public List<LabResultResponse> getPatientLabResultsByTestType(String patientSystemId, String testType) {
         if (!isValidTestType(testType)) {
             throw new RuntimeException("Invalid test type");
         }
-        return labResultRepository.findByPatientIdAndTestType(patientId, testType).stream()
+        return labResultRepository.findByPatientSystemIdAndTestType(patientSystemId, testType).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<LabResultResponse> getDoctorLabResultsByTestType(Integer doctorId, String testType) {
+    public List<LabResultResponse> getDoctorLabResultsByTestType(String doctorSystemId, String testType) {
         if (!isValidTestType(testType)) {
             throw new RuntimeException("Invalid test type");
         }
-        return labResultRepository.findByDoctorIdAndTestType(doctorId, testType).stream()
+        return labResultRepository.findByDoctorSystemIdAndTestType(doctorSystemId, testType).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -130,11 +130,11 @@ public class LabResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<LabResultResponse> getPatientLabResultsByStatus(Integer patientId, String status) {
+    public List<LabResultResponse> getPatientLabResultsByStatus(String patientSystemId, String status) {
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
         }
-        return labResultRepository.findByPatientIdAndStatus(patientId, status).stream()
+        return labResultRepository.findByPatientSystemIdAndStatus(patientSystemId, status).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -145,14 +145,14 @@ public class LabResultService {
                 .collect(Collectors.toList());
     }
 
-    public List<LabResultResponse> getPatientCriticalLabResults(Integer patientId) {
-        return labResultRepository.findByPatientIdAndIsCriticalTrue(patientId).stream()
+    public List<LabResultResponse> getPatientCriticalLabResults(String patientSystemId) {
+        return labResultRepository.findByPatientSystemIdAndIsCriticalTrue(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     public List<LabResultResponse> getPendingReviewLabResults() {
-        return labResultRepository.findByStatusAndReviewedByIsNull("REQUIRES_REVIEW").stream()
+        return labResultRepository.findByStatusAndReviewedBySystemIdIsNull("REQUIRES_REVIEW").stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -202,7 +202,7 @@ public class LabResultService {
         return mapToResponse(updatedLabResult);
     }
 
-    public LabResultResponse reviewLabResult(Integer resultId, Integer reviewedBy, String status) {
+    public LabResultResponse reviewLabResult(Integer resultId, String reviewedBySystemId, String status) {
         LabResult labResult = labResultRepository.findById(resultId)
                 .orElseThrow(() -> new RuntimeException("Lab result not found"));
 
@@ -210,13 +210,14 @@ public class LabResultService {
             throw new RuntimeException("Invalid status");
         }
 
-        labResult.setReviewedBy(reviewedBy);
+        labResult.setReviewedBySystemId(reviewedBySystemId);
         labResult.setReviewedAt(LocalDateTime.now());
         labResult.setStatus(status);
 
         LabResult updatedLabResult = labResultRepository.save(labResult);
         return mapToResponse(updatedLabResult);
     }
+
 
     public LabResultResponse updateLabResultStatus(Integer resultId, String status) {
         LabResult labResult = labResultRepository.findById(resultId)
@@ -237,24 +238,24 @@ public class LabResultService {
         labResultRepository.deleteById(resultId);
     }
 
-    public List<LabResultResponse> getLabResultsForUser(Integer userId, String userRole) {
+    public List<LabResultResponse> getLabResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
+            patientRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return getPatientLabResults(patient.getPatientId());
+            return getPatientLabResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
+            doctorRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return getDoctorLabResults(doctor.getDoctorId());
+            return getDoctorLabResults(userSystemId);
         }
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<LabResultResponse> getCriticalLabResultsForUser(Integer userId, String userRole) {
+    public List<LabResultResponse> getCriticalLabResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
+            patientRepository.findBySystemId(userSystemId)
                     .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return getPatientCriticalLabResults(patient.getPatientId());
+            return getPatientCriticalLabResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
             return getCriticalLabResults();
         }
@@ -264,8 +265,8 @@ public class LabResultService {
     private LabResultResponse mapToResponse(LabResult labResult) {
         return LabResultResponse.builder()
                 .resultId(labResult.getResultId())
-                .patientId(labResult.getPatientId())
-                .doctorId(labResult.getDoctorId())
+                .patientSystemId(labResult.getPatientSystemId())
+                .doctorSystemId(labResult.getDoctorSystemId())
                 .consultationId(labResult.getConsultationId())
                 .testName(labResult.getTestName())
                 .testType(labResult.getTestType())
@@ -276,7 +277,7 @@ public class LabResultService {
                 .status(labResult.getStatus())
                 .isCritical(labResult.getIsCritical())
                 .testDate(labResult.getTestDate())
-                .reviewedBy(labResult.getReviewedBy())
+                .reviewedBy(labResult.getReviewedBySystemId())
                 .reviewedAt(labResult.getReviewedAt())
                 .fileUrl(labResult.getFileUrl())
                 .createdAt(labResult.getCreatedAt())

@@ -35,11 +35,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (token != null && jwtUtil.validateToken(token)) {
                 // Extract user details from token
                 Integer userId = jwtUtil.getUserIdFromToken(token);
+                String systemId = jwtUtil.getSystemIdFromToken(token);
                 String email = jwtUtil.getEmailFromToken(token);
                 String role = jwtUtil.getRoleFromToken(token);
 
                 // Create CustomUserDetails
-                CustomUserDetails userDetails = new CustomUserDetails(userId, email, role);
+                CustomUserDetails userDetails = new CustomUserDetails(userId, systemId, email, role);
 
                 // Create authentication token
                 UsernamePasswordAuthenticationToken authentication =
@@ -48,8 +49,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // Set authentication in Spring Security context
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
-                // Add userId to request attributes so controllers can access it
+                // Add userId and systemId to request attributes so controllers can access it
                 request.setAttribute("userId", userId);
+                request.setAttribute("systemId", systemId);
                 request.setAttribute("userRole", role);
             }
 

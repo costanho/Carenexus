@@ -26,10 +26,10 @@ public class PrescriptionService {
     private final DoctorRepository doctorRepository;
 
     public PrescriptionResponse createPrescription(CreatePrescriptionRequest request) {
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getMedicationName() == null || request.getMedicationName().isEmpty()) {
@@ -53,8 +53,8 @@ public class PrescriptionService {
         }
 
         Prescription prescription = Prescription.builder()
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .consultationId(request.getConsultationId())
                 .medicationName(request.getMedicationName())
                 .genericName(request.getGenericName())
@@ -79,14 +79,14 @@ public class PrescriptionService {
         return mapToResponse(prescription);
     }
 
-    public List<PrescriptionResponse> getPatientPrescriptions(Integer patientId) {
-        return prescriptionRepository.findByPatientId(patientId).stream()
+    public List<PrescriptionResponse> getPatientPrescriptions(String patientSystemId) {
+        return prescriptionRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<PrescriptionResponse> getDoctorPrescriptions(Integer doctorId) {
-        return prescriptionRepository.findByDoctorId(doctorId).stream()
+    public List<PrescriptionResponse> getDoctorPrescriptions(String doctorSystemId) {
+        return prescriptionRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -161,38 +161,34 @@ public class PrescriptionService {
         prescriptionRepository.deleteById(prescriptionId);
     }
 
-    public List<PrescriptionResponse> getActiveForUser(Integer userId, String userRole) {
-        return getPrescriptionsByStatusForUser(userId, userRole, "ACTIVE");
+    public List<PrescriptionResponse> getActiveForUser(String userSystemId, String userRole) {
+        return getPrescriptionsByStatusForUser(userSystemId, userRole, "ACTIVE");
     }
 
-    public List<PrescriptionResponse> getCompletedForUser(Integer userId, String userRole) {
-        return getPrescriptionsByStatusForUser(userId, userRole, "COMPLETED");
+    public List<PrescriptionResponse> getCompletedForUser(String userSystemId, String userRole) {
+        return getPrescriptionsByStatusForUser(userSystemId, userRole, "COMPLETED");
     }
 
-    public List<PrescriptionResponse> getCancelledForUser(Integer userId, String userRole) {
-        return getPrescriptionsByStatusForUser(userId, userRole, "CANCELLED");
+    public List<PrescriptionResponse> getCancelledForUser(String userSystemId, String userRole) {
+        return getPrescriptionsByStatusForUser(userSystemId, userRole, "CANCELLED");
     }
 
-    public List<PrescriptionResponse> getExpiredForUser(Integer userId, String userRole) {
-        return getPrescriptionsByStatusForUser(userId, userRole, "EXPIRED");
+    public List<PrescriptionResponse> getExpiredForUser(String userSystemId, String userRole) {
+        return getPrescriptionsByStatusForUser(userSystemId, userRole, "EXPIRED");
     }
 
-    public List<PrescriptionResponse> getOnHoldForUser(Integer userId, String userRole) {
-        return getPrescriptionsByStatusForUser(userId, userRole, "ON_HOLD");
+    public List<PrescriptionResponse> getOnHoldForUser(String userSystemId, String userRole) {
+        return getPrescriptionsByStatusForUser(userSystemId, userRole, "ON_HOLD");
     }
 
-    private List<PrescriptionResponse> getPrescriptionsByStatusForUser(Integer userId, String userRole, String status) {
+    private List<PrescriptionResponse> getPrescriptionsByStatusForUser(String userSystemId, String userRole, String status) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return prescriptionRepository.findByPatientIdAndStatus(patient.getPatientId(), status)
+            return prescriptionRepository.findByPatientSystemIdAndStatus(userSystemId, status)
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return prescriptionRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), status)
+            return prescriptionRepository.findByDoctorSystemIdAndStatus(userSystemId, status)
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -203,8 +199,8 @@ public class PrescriptionService {
     private PrescriptionResponse mapToResponse(Prescription prescription) {
         return PrescriptionResponse.builder()
                 .prescriptionId(prescription.getPrescriptionId())
-                .patientId(prescription.getPatientId())
-                .doctorId(prescription.getDoctorId())
+                .patientSystemId(prescription.getPatientSystemId())
+                .doctorSystemId(prescription.getDoctorSystemId())
                 .consultationId(prescription.getConsultationId())
                 .medicationName(prescription.getMedicationName())
                 .genericName(prescription.getGenericName())

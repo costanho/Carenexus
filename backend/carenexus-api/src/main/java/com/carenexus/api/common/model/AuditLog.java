@@ -19,8 +19,8 @@ public class AuditLog {
     @Column(name = "audit_id")
     private Long auditId;
 
-    @Column(name = "user_id")
-    private Integer userId;
+    @Column(name = "system_id", length = 20)
+    private String systemId;
 
     @Column(name = "action", nullable = false, length = 50)
     private String action;  // "LOGIN", "READ", "CREATE", "UPDATE", "DELETE", "ACCESS_DENIED"

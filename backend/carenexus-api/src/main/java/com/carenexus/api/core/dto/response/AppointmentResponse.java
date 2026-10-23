@@ -11,8 +11,8 @@ import java.time.LocalDateTime;
 @Builder
 public class AppointmentResponse {
     private Integer appointmentId;
-    private Integer patientId;
-    private Integer doctorId;
+    private String patientSystemId;
+    private String doctorSystemId;
     private Integer facilityId;
     private LocalDateTime scheduledAt;
     private Integer durationMinutes;

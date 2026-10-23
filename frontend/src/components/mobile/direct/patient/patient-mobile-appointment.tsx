@@ -371,7 +371,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
 
   const watchedType   = watch('type');
   const watchedDoctor = watch('doctor_id');
-  const selectedDoctor = doctors.find(d => String(d.doctor_id) === watchedDoctor);
+  const selectedDoctor = doctors.find(d => d.doctor_system_id === watchedDoctor);
 
   const activeDoctors = doctors.filter(d => d.is_active === 1);
   const filteredDoctors = doctorSearch.trim()
@@ -387,13 +387,13 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
     setLoading(true);
     try {
       await api.post('/api/appointments', {
-        patient_id:       user?.user_id,
-        doctor_id:        parseInt(data.doctor_id),
-        facility_id:      data.facility_id ? parseInt(data.facility_id) : null,
-        scheduled_at:     `${data.scheduled_date}T${data.scheduled_time}:00Z`,
-        duration_minutes: parseInt(data.duration_minutes),
+        patientSystemId:  user?.system_id,
+        doctorSystemId:   data.doctor_id,
+        facilityId:       data.facility_id ? parseInt(data.facility_id) : null,
+        scheduledAt:      `${data.scheduled_date}T${data.scheduled_time}:00`,
+        durationMinutes:  parseInt(data.duration_minutes),
         type:             data.type,
-        reason_for_visit: data.reason_for_visit,
+        reasonForVisit:   data.reason_for_visit,
         notes:            data.notes ?? null,
       });
       setSuccess(true);
@@ -526,7 +526,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                 render={({ field: { onChange, value } }) => (
                   <View style={{ gap: s(8) }}>
                     {visibleDoctors.map(d => {
-                      const id = String(d.doctor_id);
+                      const id = d.doctor_system_id;
                       const on = value === id;
                       return (
                         <TouchableOpacity

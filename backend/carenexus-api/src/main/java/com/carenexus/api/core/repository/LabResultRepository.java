@@ -10,19 +10,19 @@ import java.util.Optional;
 
 @Repository
 public interface LabResultRepository extends JpaRepository<LabResult, Integer> {
-    List<LabResult> findByPatientId(Integer patientId);
-    List<LabResult> findByDoctorId(Integer doctorId);
+    List<LabResult> findByPatientSystemId(String patientSystemId);
+    List<LabResult> findByDoctorSystemId(String doctorSystemId);
     List<LabResult> findByTestType(String testType);
     List<LabResult> findByStatus(String status);
-    List<LabResult> findByPatientIdAndStatus(Integer patientId, String status);
-    List<LabResult> findByDoctorIdAndStatus(Integer doctorId, String status);
+    List<LabResult> findByPatientSystemIdAndStatus(String patientSystemId, String status);
+    List<LabResult> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<LabResult> findByConsultationId(Integer consultationId);
-    List<LabResult> findByPatientIdAndTestType(Integer patientId, String testType);
-    List<LabResult> findByDoctorIdAndTestType(Integer doctorId, String testType);
+    List<LabResult> findByPatientSystemIdAndTestType(String patientSystemId, String testType);
+    List<LabResult> findByDoctorSystemIdAndTestType(String doctorSystemId, String testType);
     List<LabResult> findByTestDateBetween(LocalDate startDate, LocalDate endDate);
-    List<LabResult> findByPatientIdAndTestDateBetween(Integer patientId, LocalDate startDate, LocalDate endDate);
+    List<LabResult> findByPatientSystemIdAndTestDateBetween(String patientSystemId, LocalDate startDate, LocalDate endDate);
     List<LabResult> findByIsCriticalTrue();
-    List<LabResult> findByPatientIdAndIsCriticalTrue(Integer patientId);
-    List<LabResult> findByStatusAndReviewedByIsNull(String status);
-    Optional<LabResult> findByResultIdAndPatientId(Integer resultId, Integer patientId);
+    List<LabResult> findByPatientSystemIdAndIsCriticalTrue(String patientSystemId);
+    List<LabResult> findByStatusAndReviewedBySystemIdIsNull(String status);
+    Optional<LabResult> findByResultIdAndPatientSystemId(Integer resultId, String patientSystemId);
 }

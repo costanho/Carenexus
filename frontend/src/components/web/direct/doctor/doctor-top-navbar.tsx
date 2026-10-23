@@ -32,9 +32,9 @@ export interface DoctorTopNavbarProps {
 export function DoctorTopNavbar({ onMenuPress }: DoctorTopNavbarProps) {
   const { user } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
-  const fullName  = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
+  const fullName  = user ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Doctor';
   const avatarUri = user?.avatar_url ?? null;
-  const initials  = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'DR';
+  const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
 
   return (
     <View style={styles.navbar}>

@@ -26,123 +26,123 @@ public class RelationshipServiceTest extends BaseIntegrationTest {
 
     @BeforeEach
     public void setUp() {
-        drMatt = createAndSaveUser(1, "matt@hospital.com", "DOCTOR");
-        linda = createAndSaveUser(2, "linda@example.com", "PATIENT");
-        mary = createAndSaveUser(3, "mary@example.com", "PATIENT");
-        sarah = createAndSaveUser(4, "sarah@example.com", "CAREGIVER");
+        drMatt = createAndSaveUser(1, "DOC-00001", "matt@hospital.com", "DOCTOR");
+        linda = createAndSaveUser(2, "PAT-00001", "linda@example.com", "PATIENT");
+        mary = createAndSaveUser(3, "PAT-00002", "mary@example.com", "PATIENT");
+        sarah = createAndSaveUser(4, "CGV-00001", "sarah@example.com", "CAREGIVER");
     }
 
     // ==================== DOCTOR-PATIENT TESTS ====================
 
     @Test
     public void testIsDoctorAssignedToPatient_True() {
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
 
         assertTrue(relationshipService.isDoctorAssignedToPatient(
-                drMatt.getUserId(),
-                linda.getUserId()
+                drMatt.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testIsDoctorAssignedToPatient_False() {
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
 
         assertFalse(relationshipService.isDoctorAssignedToPatient(
-                drMatt.getUserId(),
-                mary.getUserId()  // Mary, not Linda
+                drMatt.getSystemId(),
+                mary.getSystemId()  // Mary, not Linda
         ));
     }
 
     @Test
     public void testGetPatientsForDoctor() {
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
-        createCareTeamRelationship(drMatt.getUserId(), mary.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), mary.getSystemId(), null);
 
-        List<Integer> patients = relationshipService.getPatientsForDoctor(drMatt.getUserId());
+        List<String> patients = relationshipService.getPatientsForDoctor(drMatt.getSystemId());
 
         assertEquals(2, patients.size());
-        assertTrue(patients.contains(linda.getUserId()));
-        assertTrue(patients.contains(mary.getUserId()));
+        assertTrue(patients.contains(linda.getSystemId()));
+        assertTrue(patients.contains(mary.getSystemId()));
     }
 
     @Test
     public void testGetDoctorsForPatient() {
-        User doctor2 = createAndSaveUser(5, "specialist@hospital.com", "DOCTOR");
+        User doctor2 = createAndSaveUser(5, "DOC-00002", "specialist@hospital.com", "DOCTOR");
 
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
-        createCareTeamRelationship(doctor2.getUserId(), linda.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
+        createCareTeamRelationship(doctor2.getSystemId(), linda.getSystemId(), null);
 
-        List<Integer> doctors = relationshipService.getDoctorsForPatient(linda.getUserId());
+        List<String> doctors = relationshipService.getDoctorsForPatient(linda.getSystemId());
 
         assertEquals(2, doctors.size());
-        assertTrue(doctors.contains(drMatt.getUserId()));
-        assertTrue(doctors.contains(doctor2.getUserId()));
+        assertTrue(doctors.contains(drMatt.getSystemId()));
+        assertTrue(doctors.contains(doctor2.getSystemId()));
     }
 
     // ==================== CAREGIVER-PATIENT TESTS ====================
 
     @Test
     public void testIsCaregiverAssignedToPatient_True() {
-        createCareTeamRelationship(null, linda.getUserId(), sarah.getUserId());
+        createCareTeamRelationship(null, linda.getSystemId(), sarah.getSystemId());
 
         assertTrue(relationshipService.isCaregiverAssignedToPatient(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testIsCaregiverAssignedToPatient_False() {
-        createCareTeamRelationship(null, linda.getUserId(), sarah.getUserId());
+        createCareTeamRelationship(null, linda.getSystemId(), sarah.getSystemId());
 
         assertFalse(relationshipService.isCaregiverAssignedToPatient(
-                sarah.getUserId(),
-                mary.getUserId()
+                sarah.getSystemId(),
+                mary.getSystemId()
         ));
     }
 
     @Test
     public void testGetPatientsForCaregiver() {
-        createCareTeamRelationship(null, linda.getUserId(), sarah.getUserId());
-        createCareTeamRelationship(null, mary.getUserId(), sarah.getUserId());
+        createCareTeamRelationship(null, linda.getSystemId(), sarah.getSystemId());
+        createCareTeamRelationship(null, mary.getSystemId(), sarah.getSystemId());
 
-        List<Integer> patients = relationshipService.getPatientsForCaregiver(sarah.getUserId());
+        List<String> patients = relationshipService.getPatientsForCaregiver(sarah.getSystemId());
 
         assertEquals(2, patients.size());
-        assertTrue(patients.contains(linda.getUserId()));
-        assertTrue(patients.contains(mary.getUserId()));
+        assertTrue(patients.contains(linda.getSystemId()));
+        assertTrue(patients.contains(mary.getSystemId()));
     }
 
     // ==================== DEPENDENT ACCESS TESTS ====================
 
     @Test
     public void testHasAccessToDependent_True() {
-        createDependentAccess(linda.getUserId(), sarah.getUserId(), linda.getUserId());
+        createDependentAccess(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId());
 
         assertTrue(relationshipService.hasAccessToDependent(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testHasAccessToDependent_False() {
-        createDependentAccess(linda.getUserId(), sarah.getUserId(), linda.getUserId());
+        createDependentAccess(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId());
 
         assertFalse(relationshipService.hasAccessToDependent(
-                sarah.getUserId(),
-                mary.getUserId()
+                sarah.getSystemId(),
+                mary.getSystemId()
         ));
     }
 
     @Test
     public void testHasPermissionTypeForDependent_Full() {
-        createDependentAccessWithPermission(linda.getUserId(), sarah.getUserId(), linda.getUserId(), "FULL");
+        createDependentAccessWithPermission(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId(), "FULL");
 
         assertTrue(relationshipService.hasPermissionTypeForDependent(
-                sarah.getUserId(),
-                linda.getUserId(),
+                sarah.getSystemId(),
+                linda.getSystemId(),
                 "FULL"
         ));
     }
@@ -150,76 +150,76 @@ public class RelationshipServiceTest extends BaseIntegrationTest {
     @Test
     public void testHasPermissionTypeForDependent_LimitedPermission() {
         createDependentAccessWithPermission(
-                linda.getUserId(),
-                sarah.getUserId(),
-                linda.getUserId(),
+                linda.getSystemId(),
+                sarah.getSystemId(),
+                linda.getSystemId(),
                 "HEALTH_RECORDS_ONLY"
         );
 
         assertTrue(relationshipService.hasPermissionTypeForDependent(
-                sarah.getUserId(),
-                linda.getUserId(),
+                sarah.getSystemId(),
+                linda.getSystemId(),
                 "HEALTH_RECORDS_ONLY"
         ));
 
         assertFalse(relationshipService.hasPermissionTypeForDependent(
-                sarah.getUserId(),
-                linda.getUserId(),
+                sarah.getSystemId(),
+                linda.getSystemId(),
                 "FULL"
         ));
     }
 
     @Test
     public void testGetDependentsForCaregiver() {
-        createDependentAccess(linda.getUserId(), sarah.getUserId(), linda.getUserId());
-        createDependentAccess(mary.getUserId(), sarah.getUserId(), mary.getUserId());
+        createDependentAccess(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId());
+        createDependentAccess(mary.getSystemId(), sarah.getSystemId(), mary.getSystemId());
 
-        List<Integer> dependents = relationshipService.getDependentsForCaregiver(sarah.getUserId());
+        List<String> dependents = relationshipService.getDependentsForCaregiver(sarah.getSystemId());
 
         assertEquals(2, dependents.size());
-        assertTrue(dependents.contains(linda.getUserId()));
-        assertTrue(dependents.contains(mary.getUserId()));
+        assertTrue(dependents.contains(linda.getSystemId()));
+        assertTrue(dependents.contains(mary.getSystemId()));
     }
 
     // ==================== REVOCATION TESTS ====================
 
     @Test
     public void testRevokeDoctorAccessToPatient() {
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
 
         // Verify access exists
         assertTrue(relationshipService.isDoctorAssignedToPatient(
-                drMatt.getUserId(),
-                linda.getUserId()
+                drMatt.getSystemId(),
+                linda.getSystemId()
         ));
 
         // Revoke
-        relationshipService.revokeDoctorAccessToPatient(drMatt.getUserId(), linda.getUserId());
+        relationshipService.revokeDoctorAccessToPatient(drMatt.getSystemId(), linda.getSystemId());
 
         // Verify access is gone
         assertFalse(relationshipService.isDoctorAssignedToPatient(
-                drMatt.getUserId(),
-                linda.getUserId()
+                drMatt.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testRevokeCaregiverAccessToDependent() {
-        createDependentAccess(linda.getUserId(), sarah.getUserId(), linda.getUserId());
+        createDependentAccess(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId());
 
         // Verify access exists
         assertTrue(relationshipService.hasAccessToDependent(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
 
         // Revoke
-        relationshipService.revokeCaregiverAccessToDependent(sarah.getUserId(), linda.getUserId());
+        relationshipService.revokeCaregiverAccessToDependent(sarah.getSystemId(), linda.getSystemId());
 
         // Verify access is gone
         assertFalse(relationshipService.hasAccessToDependent(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
@@ -228,86 +228,83 @@ public class RelationshipServiceTest extends BaseIntegrationTest {
     @Test
     public void testCanAccessPatientData_UserIsPatient() {
         assertTrue(relationshipService.canAccessPatientData(
-                linda.getUserId(),
-                linda.getUserId()  // Linda accessing her own data
+                linda.getSystemId(),
+                linda.getSystemId()  // Linda accessing her own data
         ));
     }
 
     @Test
     public void testCanAccessPatientData_DoctorAssigned() {
-        createCareTeamRelationship(drMatt.getUserId(), linda.getUserId(), null);
+        createCareTeamRelationship(drMatt.getSystemId(), linda.getSystemId(), null);
 
         assertTrue(relationshipService.canAccessPatientData(
-                drMatt.getUserId(),
-                linda.getUserId()
+                drMatt.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testCanAccessPatientData_CaregiverAssigned() {
-        createCareTeamRelationship(null, linda.getUserId(), sarah.getUserId());
+        createCareTeamRelationship(null, linda.getSystemId(), sarah.getSystemId());
 
         assertTrue(relationshipService.canAccessPatientData(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testCanAccessPatientData_FamilyAccess() {
-        createDependentAccess(linda.getUserId(), sarah.getUserId(), linda.getUserId());
+        createDependentAccess(linda.getSystemId(), sarah.getSystemId(), linda.getSystemId());
 
         assertTrue(relationshipService.canAccessPatientData(
-                sarah.getUserId(),
-                linda.getUserId()
+                sarah.getSystemId(),
+                linda.getSystemId()
         ));
     }
 
     @Test
     public void testCanAccessPatientData_NoAccess() {
         assertFalse(relationshipService.canAccessPatientData(
-                sarah.getUserId(),
-                linda.getUserId()  // No relationship between them
+                sarah.getSystemId(),
+                linda.getSystemId()  // No relationship between them
         ));
     }
 
     // ==================== HELPER METHODS ====================
 
-    private void createCareTeamRelationship(Integer doctorId, Integer patientId, Integer caregiverId) {
+    private void createCareTeamRelationship(String providerSystemId, String patientSystemId, String caregiverSystemId) {
         CareTeam careTeam = CareTeam.builder()
-                .patientId(patientId)
-                .doctorId(doctorId)
-                .caregiverId(caregiverId)
+                .patientSystemId(patientSystemId)
+                .providerSystemId(providerSystemId != null ? providerSystemId : caregiverSystemId)
                 .facilityId(1)
-                .role("PRIMARY_DOCTOR")
+                .role(providerSystemId != null ? "PRIMARY_DOCTOR" : "CAREGIVER")
                 .assignedAt(LocalDateTime.now())
                 .isActive(true)
                 .build();
         careTeamRepository.save(careTeam);
     }
 
-    private void createDependentAccess(Integer dependentId, Integer caregiverId, Integer guardianId) {
+    private void createDependentAccess(String patientSystemId, String caregiverSystemId, String authorizedBySystemId) {
         DependentAccess access = DependentAccess.builder()
-                .dependentId(dependentId)
-                .caregiverId(caregiverId)
-                .guardianId(guardianId)
-                .permissionType("FULL")
+                .patientSystemId(patientSystemId)
+                .caregiverSystemId(caregiverSystemId)
+                .authorizedBySystemId(authorizedBySystemId)
+                .accessLevel("FULL")
                 .authorizedAt(LocalDateTime.now())
-                .authorizedBy(guardianId)
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);
     }
 
     private void createDependentAccessWithPermission(
-            Integer dependentId, Integer caregiverId, Integer guardianId, String permissionType) {
+            String patientSystemId, String caregiverSystemId, String authorizedBySystemId, String accessLevel) {
         DependentAccess access = DependentAccess.builder()
-                .dependentId(dependentId)
-                .caregiverId(caregiverId)
-                .guardianId(guardianId)
-                .permissionType(permissionType)
+                .patientSystemId(patientSystemId)
+                .caregiverSystemId(caregiverSystemId)
+                .authorizedBySystemId(authorizedBySystemId)
+                .accessLevel(accessLevel)
                 .authorizedAt(LocalDateTime.now())
-                .authorizedBy(guardianId)
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);

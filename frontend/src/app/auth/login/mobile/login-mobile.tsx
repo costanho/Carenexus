@@ -61,16 +61,39 @@ export default function LoginMobile() {
     setAuthError('');
     setLoading(true);
     try {
-      const { user } = await login({ ...data, role });
+      console.log('🔐 Login attempt:', { email: data.email, selectedRole: role });
+      const response = await login({ ...data, role });
+      console.log('✅ Full response:', JSON.stringify(response, null, 2));
+      console.log('Response type:', typeof response);
+      console.log('Response keys:', Object.keys(response));
+      const { user } = response;
+      console.log('User extracted:', user);
+      console.log('User role:', user?.role, 'Selected role:', role, 'Match:', user?.role === role);
+
+      if (!user) {
+        console.error('❌ No user in response!');
+        setAuthError('Login failed: no user data returned');
+        return;
+      }
+
       if (user.role !== role) {
         await logout();
         const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };
-        setAuthError(`This account is registered as a ${labels[user.role]}. Please select the correct role.`);
+        const msg = `This account is registered as a ${labels[user.role]}. Please select the correct role.`;
+        console.error('Role mismatch:', msg);
+        setAuthError(msg);
         return;
       }
-      router.replace(ROLE_HOME[user.role] as any);
+
+      console.log('✅ Role check passed');
+      console.log('🚀 About to navigate to:', ROLE_HOME[user.role]);
+      await router.replace(ROLE_HOME[user.role] as any);
+      console.log('✅ Navigation complete');
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Invalid email or password.';
+      console.error('❌ Login failed:', err);
+      console.error('Error stack:', err?.stack);
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Invalid email or password.';
+      console.error('📌 Error message:', msg);
       setAuthError(msg);
     } finally {
       setLoading(false);

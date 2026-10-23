@@ -24,8 +24,8 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
 
     @BeforeEach
     public void setUp() {
-        linda = createAndSaveUser(1, "linda@example.com", "PATIENT");
-        mary = createAndSaveUser(2, "mary@example.com", "PATIENT");
+        linda = createAndSaveUser(1, "PAT-00001", "linda@example.com", "PATIENT");
+        mary = createAndSaveUser(2, "PAT-00002", "mary@example.com", "PATIENT");
     }
 
     /**
@@ -33,12 +33,12 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireOwnership_PatientOwnsTheirOwnData() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         // Linda is owner, Linda is accessing → should pass
         assertDoesNotThrow(() ->
             authorizationService.requireOwnership(
-                linda.getUserId(), // ownerId
+                linda.getSystemId(), // ownerId
                 "PATIENT",
                 1
             )
@@ -50,12 +50,12 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireOwnership_PatientCannotAccessOtherPatient() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         // Mary is owner, Linda is accessing → should fail
         assertThrows(AuthorizationException.class, () ->
             authorizationService.requireOwnership(
-                mary.getUserId(), // ownerId (Mary)
+                mary.getSystemId(), // ownerId (Mary)
                 "PATIENT",
                 2
             )
@@ -67,12 +67,12 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireOwnershipOrRole_UserIsOwner() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         // Linda is owner → should pass (doesn't matter if role matches)
         assertDoesNotThrow(() ->
             authorizationService.requireOwnershipOrRole(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "DOCTOR",
                 "PATIENT",
                 1
@@ -85,13 +85,13 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireOwnershipOrRole_UserHasRequiredRole() {
-        User doctor = createAndSaveUser(3, "doctor@example.com", "DOCTOR");
-        setSecurityContext(doctor.getUserId(), "doctor@example.com", "DOCTOR");
+        User doctor = createAndSaveUser(3, "DOC-00001", "doctor@example.com", "DOCTOR");
+        setSecurityContext(doctor.getUserId(), doctor.getSystemId(), "doctor@example.com", "DOCTOR");
 
         // Doctor is not owner, but has DOCTOR role → should pass
         assertDoesNotThrow(() ->
             authorizationService.requireOwnershipOrRole(
-                linda.getUserId(), // owner
+                linda.getSystemId(), // owner
                 "DOCTOR", // required role
                 "PATIENT",
                 1
@@ -104,12 +104,12 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireOwnershipOrRole_UserDenied() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         // Linda is not owner, doesn't have DOCTOR role → should fail
         assertThrows(AuthorizationException.class, () ->
             authorizationService.requireOwnershipOrRole(
-                mary.getUserId(), // owner is Mary
+                mary.getSystemId(), // owner is Mary
                 "DOCTOR", // required role
                 "PATIENT",
                 2
@@ -119,8 +119,8 @@ public class AuthorizationServiceOwnershipTest extends BaseIntegrationTest {
 
     // ==================== HELPER METHODS ====================
 
-    private void setSecurityContext(Integer userId, String email, String role) {
-        var userDetails = new com.carenexus.api.auth.config.CustomUserDetails(userId, email, role);
+    private void setSecurityContext(Integer userId, String systemId, String email, String role) {
+        var userDetails = new com.carenexus.api.auth.config.CustomUserDetails(userId, systemId, email, role);
         var authentication = new UsernamePasswordAuthenticationToken(
                 userDetails,
                 null,

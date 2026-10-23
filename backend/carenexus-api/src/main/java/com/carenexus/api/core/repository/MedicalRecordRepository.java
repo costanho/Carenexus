@@ -9,11 +9,11 @@ import java.util.Optional;
 
 @Repository
 public interface MedicalRecordRepository extends JpaRepository<MedicalRecord, Integer> {
-    List<MedicalRecord> findByPatientIdAndIsDeletedFalse(Integer patientId);
-    List<MedicalRecord> findByDoctorIdAndIsDeletedFalse(Integer doctorId);
+    List<MedicalRecord> findByPatientSystemIdAndIsDeletedFalse(String patientSystemId);
+    List<MedicalRecord> findByDoctorSystemIdAndIsDeletedFalse(String doctorSystemId);
     List<MedicalRecord> findByRecordTypeAndIsDeletedFalse(String recordType);
-    List<MedicalRecord> findByPatientIdAndRecordTypeAndIsDeletedFalse(Integer patientId, String recordType);
-    List<MedicalRecord> findByDoctorIdAndRecordTypeAndIsDeletedFalse(Integer doctorId, String recordType);
+    List<MedicalRecord> findByPatientSystemIdAndRecordTypeAndIsDeletedFalse(String patientSystemId, String recordType);
+    List<MedicalRecord> findByDoctorSystemIdAndRecordTypeAndIsDeletedFalse(String doctorSystemId, String recordType);
     List<MedicalRecord> findByConsultationIdAndIsDeletedFalse(Integer consultationId);
     Optional<MedicalRecord> findByRecordIdAndIsDeletedFalse(Integer recordId);
 }

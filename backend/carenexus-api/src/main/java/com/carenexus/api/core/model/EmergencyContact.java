@@ -19,8 +19,8 @@ public class EmergencyContact {
     @Column(name = "contact_id")
     private Integer contactId;
 
-    @Column(name = "patient_id", nullable = false)
-    private Integer patientId;
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
     @Column(name = "name", nullable = false, length = 150)
     private String name;

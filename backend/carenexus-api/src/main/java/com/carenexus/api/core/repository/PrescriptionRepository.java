@@ -10,12 +10,12 @@ import java.util.Optional;
 
 @Repository
 public interface PrescriptionRepository extends JpaRepository<Prescription, Integer> {
-    List<Prescription> findByPatientId(Integer patientId);
-    List<Prescription> findByDoctorId(Integer doctorId);
+    List<Prescription> findByPatientSystemId(String patientSystemId);
+    List<Prescription> findByDoctorSystemId(String doctorSystemId);
     List<Prescription> findByStatus(String status);
-    List<Prescription> findByPatientIdAndStatus(Integer patientId, String status);
-    List<Prescription> findByDoctorIdAndStatus(Integer doctorId, String status);
+    List<Prescription> findByPatientSystemIdAndStatus(String patientSystemId, String status);
+    List<Prescription> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<Prescription> findByConsultationId(Integer consultationId);
     List<Prescription> findByExpiryDateBeforeAndStatus(LocalDate date, String status);
-    Optional<Prescription> findByPrescriptionIdAndPatientId(Integer prescriptionId, Integer patientId);
+    Optional<Prescription> findByPrescriptionIdAndPatientSystemId(Integer prescriptionId, String patientSystemId);
 }

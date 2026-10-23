@@ -54,16 +54,17 @@ public class BaseIntegrationTest {
     /**
      * Generate JWT token for testing
      */
-    protected String generateToken(Integer userId, String email, String role) {
-        return jwtUtil.generateToken(userId, email, role);
+    protected String generateToken(Integer userId, String systemId, String email, String role) {
+        return jwtUtil.generateToken(userId, systemId, email, role);
     }
 
     /**
      * Create and save a user
      */
-    protected User createAndSaveUser(Integer userId, String email, String role) {
+    protected User createAndSaveUser(Integer userId, String systemId, String email, String role) {
         User user = new User();
         user.setUserId(userId);
+        user.setSystemId(systemId);
         user.setFirstName(role);
         user.setLastName("User" + userId);
         user.setEmail(email);

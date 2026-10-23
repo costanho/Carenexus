@@ -19,11 +19,11 @@ public class ConsultationResponse {
     @JsonProperty("appointmentId")
     private Integer appointmentId;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("chiefComplaint")
     private String chiefComplaint;

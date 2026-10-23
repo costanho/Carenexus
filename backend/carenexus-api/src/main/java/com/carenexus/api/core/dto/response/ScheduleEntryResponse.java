@@ -25,14 +25,14 @@ public class ScheduleEntryResponse {
     @JsonProperty("consultationId")
     private Integer consultationId;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
     @JsonProperty("patientName")
     private String patientName;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("scheduledAt")
     private LocalDateTime scheduledAt;

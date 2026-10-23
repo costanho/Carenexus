@@ -29,15 +29,15 @@ public class ConsultationController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<ConsultationResponse>> getPatientConsultations(@PathVariable Integer patientId) {
-        List<ConsultationResponse> consultations = consultationService.getConsultationsByPatientId(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<ConsultationResponse>> getPatientConsultations(@PathVariable String patientSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getConsultationsByPatientSystemId(patientSystemId);
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorConsultations(@PathVariable Integer doctorId) {
-        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorId(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(consultations);
     }
 
@@ -71,33 +71,33 @@ public class ConsultationController {
 
     @GetMapping("/me/completed")
     public ResponseEntity<List<ConsultationResponse>> getMyCompletedConsultations(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(userId, userRole);
+        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(systemId, userRole);
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/me/in-progress")
     public ResponseEntity<List<ConsultationResponse>> getMyInProgressConsultations(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(userId, userRole);
+        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(systemId, userRole);
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/me/cancelled")
     public ResponseEntity<List<ConsultationResponse>> getMyCancelledConsultations(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(userId, userRole);
+        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(systemId, userRole);
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/me/draft")
     public ResponseEntity<List<ConsultationResponse>> getMyDraftConsultations(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<ConsultationResponse> consultations = consultationService.getDraftForUser(userId, userRole);
+        List<ConsultationResponse> consultations = consultationService.getDraftForUser(systemId, userRole);
         return ResponseEntity.ok(consultations);
     }
 }

@@ -21,11 +21,11 @@ public class MedicalRecord {
     @Column(name = "record_id")
     private Integer recordId;
 
-    @Column(name = "patient_id", nullable = false)
-    private Integer patientId;
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
-    @Column(name = "doctor_id", nullable = false)
-    private Integer doctorId;
+    @Column(name = "doctor_system_id", nullable = false, length = 20)
+    private String doctorSystemId;
 
     @Column(name = "consultation_id")
     private Integer consultationId;

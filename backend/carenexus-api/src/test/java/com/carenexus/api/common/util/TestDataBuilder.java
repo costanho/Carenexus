@@ -16,9 +16,10 @@ public class TestDataBuilder {
 
     // ==================== USERS ====================
 
-    public static User createPatient(Integer userId, String email) {
+    public static User createPatient(Integer userId, String systemId, String email) {
         return User.builder()
                 .userId(userId)
+                .systemId(systemId)
                 .firstName("Patient")
                 .lastName("User" + userId)
                 .email(email)
@@ -31,9 +32,10 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static User createDoctor(Integer userId, String email) {
+    public static User createDoctor(Integer userId, String systemId, String email) {
         return User.builder()
                 .userId(userId)
+                .systemId(systemId)
                 .firstName("Dr")
                 .lastName("Doctor" + userId)
                 .email(email)
@@ -46,9 +48,10 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static User createCaregiver(Integer userId, String email) {
+    public static User createCaregiver(Integer userId, String systemId, String email) {
         return User.builder()
                 .userId(userId)
+                .systemId(systemId)
                 .firstName("Caregiver")
                 .lastName("User" + userId)
                 .email(email)
@@ -61,9 +64,10 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static User createAdmin(Integer userId, String email) {
+    public static User createAdmin(Integer userId, String systemId, String email) {
         return User.builder()
                 .userId(userId)
+                .systemId(systemId)
                 .firstName("Admin")
                 .lastName("User" + userId)
                 .email(email)
@@ -76,9 +80,10 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static User createUser(Integer userId, String email, String role) {
+    public static User createUser(Integer userId, String systemId, String email, String role) {
         return User.builder()
                 .userId(userId)
+                .systemId(systemId)
                 .firstName(role)
                 .lastName("User" + userId)
                 .email(email)
@@ -93,11 +98,10 @@ public class TestDataBuilder {
 
     // ==================== RELATIONSHIPS ====================
 
-    public static CareTeam createDoctorPatientRelationship(Integer doctorId, Integer patientId) {
+    public static CareTeam createDoctorPatientRelationship(String doctorSystemId, String patientSystemId) {
         return CareTeam.builder()
-                .patientId(patientId)
-                .doctorId(doctorId)
-                .caregiverId(null)
+                .patientSystemId(patientSystemId)
+                .providerSystemId(doctorSystemId)
                 .facilityId(1)
                 .role("PRIMARY_DOCTOR")
                 .assignedAt(LocalDateTime.now())
@@ -105,11 +109,10 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static CareTeam createCaregiverPatientRelationship(Integer caregiverId, Integer patientId) {
+    public static CareTeam createCaregiverPatientRelationship(String caregiverSystemId, String patientSystemId) {
         return CareTeam.builder()
-                .patientId(patientId)
-                .doctorId(null)
-                .caregiverId(caregiverId)
+                .patientSystemId(patientSystemId)
+                .providerSystemId(caregiverSystemId)
                 .facilityId(1)
                 .role("ASSIGNED_CAREGIVER")
                 .assignedAt(LocalDateTime.now())
@@ -117,37 +120,35 @@ public class TestDataBuilder {
                 .build();
     }
 
-    public static DependentAccess createDependentAccess(Integer dependentId, Integer caregiverId, Integer guardianId) {
+    public static DependentAccess createDependentAccess(String patientSystemId, String caregiverSystemId, String authorizedBySystemId) {
         return DependentAccess.builder()
-                .dependentId(dependentId)
-                .caregiverId(caregiverId)
-                .guardianId(guardianId)
-                .permissionType("FULL")
+                .patientSystemId(patientSystemId)
+                .caregiverSystemId(caregiverSystemId)
+                .authorizedBySystemId(authorizedBySystemId)
+                .accessLevel("FULL")
                 .authorizedAt(LocalDateTime.now())
-                .authorizedBy(guardianId)
                 .isActive(true)
                 .build();
     }
 
     public static DependentAccess createDependentAccessWithPermission(
-            Integer dependentId, Integer caregiverId, Integer guardianId, String permissionType) {
+            String patientSystemId, String caregiverSystemId, String authorizedBySystemId, String accessLevel) {
         return DependentAccess.builder()
-                .dependentId(dependentId)
-                .caregiverId(caregiverId)
-                .guardianId(guardianId)
-                .permissionType(permissionType)
+                .patientSystemId(patientSystemId)
+                .caregiverSystemId(caregiverSystemId)
+                .authorizedBySystemId(authorizedBySystemId)
+                .accessLevel(accessLevel)
                 .authorizedAt(LocalDateTime.now())
-                .authorizedBy(guardianId)
                 .isActive(true)
                 .build();
     }
 
     // ==================== TOKENS ====================
 
-    public static RefreshToken createRefreshToken(Integer userId) {
+    public static RefreshToken createRefreshToken(String systemId) {
         return RefreshToken.builder()
-                .userId(userId)
-                .tokenHash("refresh-token-" + userId)
+                .systemId(systemId)
+                .tokenHash("refresh-token-" + systemId)
                 .expiresAt(LocalDateTime.now().plusDays(7))
                 .isRevoked(false)
                 .deviceType("iOS")
@@ -158,9 +159,9 @@ public class TestDataBuilder {
 
     // ==================== AUDIT ====================
 
-    public static AuditLog createAuditLog(Integer userId, String action, String resourceType, Integer resourceId) {
+    public static AuditLog createAuditLog(String systemId, String action, String resourceType, Integer resourceId) {
         return AuditLog.builder()
-                .userId(userId)
+                .systemId(systemId)
                 .action(action)
                 .resourceType(resourceType)
                 .resourceId(resourceId)

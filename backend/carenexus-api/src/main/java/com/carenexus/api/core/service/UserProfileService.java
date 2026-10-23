@@ -32,8 +32,8 @@ public class UserProfileService {
     private final EmergencyContactRepository emergencyContactRepository;
     private final UserSettingsRepository userSettingsRepository;
 
-    public UserProfileResponse getUserProfile(Integer userId) {
-        User user = userRepository.findById(userId)
+    public UserProfileResponse getUserProfile(String systemId) {
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         UserProfileResponse.UserProfileResponseBuilder builder = UserProfileResponse.builder()
@@ -48,10 +48,10 @@ public class UserProfileService {
                 .updatedAt(user.getUpdatedAt());
 
         if ("PATIENT".equals(user.getRole())) {
-            Patient patient = patientRepository.findByUserId(userId)
+            Patient patient = patientRepository.findBySystemId(systemId)
                     .orElse(null);
             if (patient != null) {
-                builder.patientId(patient.getPatientId())
+                builder.patientSystemId(patient.getSystemId())
                         .dateOfBirth(patient.getDateOfBirth())
                         .gender(patient.getGender())
                         .bloodType(patient.getBloodType())
@@ -60,7 +60,7 @@ public class UserProfileService {
                         .healthStatus(patient.getHealthStatus());
 
                 List<EmergencyContactResponse> emergencyContacts = emergencyContactRepository
-                        .findByPatientId(patient.getPatientId())
+                        .findByPatientSystemId(systemId)
                         .stream()
                         .map(this::mapEmergencyContactToResponse)
                         .collect(Collectors.toList());
@@ -71,8 +71,8 @@ public class UserProfileService {
         return builder.build();
     }
 
-    public UserProfileResponse updateUserProfile(Integer userId, UpdateUserProfileRequest request) {
-        User user = userRepository.findById(userId)
+    public UserProfileResponse updateUserProfile(String systemId, UpdateUserProfileRequest request) {
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         if (request.getFirstName() != null && !request.getFirstName().isEmpty()) {
@@ -91,7 +91,7 @@ public class UserProfileService {
         User updatedUser = userRepository.save(user);
 
         if ("PATIENT".equals(user.getRole())) {
-            Patient patient = patientRepository.findByUserId(userId)
+            Patient patient = patientRepository.findBySystemId(systemId)
                     .orElse(null);
             if (patient != null) {
                 if (request.getDateOfBirth() != null) {
@@ -119,12 +119,12 @@ public class UserProfileService {
             }
         }
 
-        return getUserProfile(userId);
+        return getUserProfile(systemId);
     }
 
     public EmergencyContactResponse createEmergencyContact(CreateEmergencyContactRequest request) {
-        if (request.getPatientId() == null) {
-            throw new RuntimeException("Patient ID is required");
+        if (request.getPatientSystemId() == null) {
+            throw new RuntimeException("Patient System ID is required");
         }
         if (request.getName() == null || request.getName().isEmpty()) {
             throw new RuntimeException("Contact name is required");
@@ -135,7 +135,7 @@ public class UserProfileService {
 
         if (request.getIsPrimary() != null && request.getIsPrimary()) {
             EmergencyContact existing = emergencyContactRepository
-                    .findByPatientIdAndIsPrimaryTrue(request.getPatientId())
+                    .findByPatientSystemIdAndIsPrimaryTrue(request.getPatientSystemId())
                     .orElse(null);
             if (existing != null) {
                 existing.setIsPrimary(false);
@@ -144,7 +144,7 @@ public class UserProfileService {
         }
 
         EmergencyContact contact = EmergencyContact.builder()
-                .patientId(request.getPatientId())
+                .patientSystemId(request.getPatientSystemId())
                 .name(request.getName())
                 .relationship(request.getRelationship())
                 .phone(request.getPhone())
@@ -157,8 +157,8 @@ public class UserProfileService {
         return mapEmergencyContactToResponse(savedContact);
     }
 
-    public List<EmergencyContactResponse> getPatientEmergencyContacts(Integer patientId) {
-        return emergencyContactRepository.findByPatientId(patientId).stream()
+    public List<EmergencyContactResponse> getPatientEmergencyContacts(String patientSystemId) {
+        return emergencyContactRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapEmergencyContactToResponse)
                 .collect(Collectors.toList());
     }
@@ -187,7 +187,7 @@ public class UserProfileService {
         }
         if (request.getIsPrimary() != null && request.getIsPrimary()) {
             EmergencyContact existing = emergencyContactRepository
-                    .findByPatientIdAndIsPrimaryTrue(contact.getPatientId())
+                    .findByPatientSystemIdAndIsPrimaryTrue(contact.getPatientSystemId())
                     .orElse(null);
             if (existing != null && !existing.getContactId().equals(contactId)) {
                 existing.setIsPrimary(false);
@@ -211,22 +211,22 @@ public class UserProfileService {
         emergencyContactRepository.deleteById(contactId);
     }
 
-    public UserSettingsResponse getUserSettings(Integer userId) {
-        UserSettings settings = userSettingsRepository.findByUserId(userId)
+    public UserSettingsResponse getUserSettings(String systemId) {
+        UserSettings settings = userSettingsRepository.findBySystemId(systemId)
                 .orElseGet(() -> {
                     UserSettings newSettings = UserSettings.builder()
-                            .userId(userId)
+                            .systemId(systemId)
                             .build();
                     return userSettingsRepository.save(newSettings);
                 });
         return mapUserSettingsToResponse(settings);
     }
 
-    public UserSettingsResponse updateUserSettings(Integer userId, UpdateUserSettingsRequest request) {
-        UserSettings settings = userSettingsRepository.findByUserId(userId)
+    public UserSettingsResponse updateUserSettings(String systemId, UpdateUserSettingsRequest request) {
+        UserSettings settings = userSettingsRepository.findBySystemId(systemId)
                 .orElseGet(() -> {
                     UserSettings newSettings = UserSettings.builder()
-                            .userId(userId)
+                            .systemId(systemId)
                             .build();
                     return userSettingsRepository.save(newSettings);
                 });
@@ -287,7 +287,7 @@ public class UserProfileService {
     private EmergencyContactResponse mapEmergencyContactToResponse(EmergencyContact contact) {
         return EmergencyContactResponse.builder()
                 .contactId(contact.getContactId())
-                .patientId(contact.getPatientId())
+                .patientSystemId(contact.getPatientSystemId())
                 .name(contact.getName())
                 .relationship(contact.getRelationship())
                 .phone(contact.getPhone())
@@ -301,7 +301,7 @@ public class UserProfileService {
     private UserSettingsResponse mapUserSettingsToResponse(UserSettings settings) {
         return UserSettingsResponse.builder()
                 .settingId(settings.getSettingId())
-                .userId(settings.getUserId())
+                .systemId(settings.getSystemId())
                 .emailNotifications(settings.getEmailNotifications())
                 .smsNotifications(settings.getSmsNotifications())
                 .pushNotifications(settings.getPushNotifications())

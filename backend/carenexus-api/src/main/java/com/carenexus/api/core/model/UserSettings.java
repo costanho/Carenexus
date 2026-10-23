@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "user_settings", uniqueConstraints = {
-    @UniqueConstraint(columnNames = "user_id")
+    @UniqueConstraint(columnNames = "system_id")
 })
 @Getter
 @Setter
@@ -21,8 +21,8 @@ public class UserSettings {
     @Column(name = "setting_id")
     private Integer settingId;
 
-    @Column(name = "user_id", nullable = false, unique = true)
-    private Integer userId;
+    @Column(name = "system_id", nullable = false, unique = true, length = 20)
+    private String systemId;
 
     @Column(name = "email_notifications", nullable = false)
     @Builder.Default

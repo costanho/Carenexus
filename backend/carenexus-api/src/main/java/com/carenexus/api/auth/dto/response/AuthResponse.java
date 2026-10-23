@@ -8,12 +8,31 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class AuthResponse {
-    private String accessToken;     // JWT token (short-lived)
-    private String refreshToken;    // Refresh token (long-lived)
-    private String tokenType;       // "Bearer"
-    private Long expiresIn;         // Seconds until JWT expires
-    private Integer userId;
-    private String firstName;
-    private String lastName;
-    private String role;
+    private String message;
+    private AuthTokens tokens;
+    private AuthUser user;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class AuthTokens {
+        private String accessToken;
+        private String refreshToken;
+        private Long expiresIn;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class AuthUser {
+        private Integer user_id;
+        private String system_id;
+        private String name;
+        private String email;
+        private String role;
+    }
 }

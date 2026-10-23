@@ -8,11 +8,19 @@ const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
   : '/auth/login/mobile/login-mobile';
 
-// Extract user_id from token: "access-{role}-{user_id}-{timestamp}"
+// Extract userId from JWT payload
 function getUserIdFromToken(token: string): number | null {
-  const parts = token.split('-');
-  const id    = parseInt(parts[2]);
-  return isNaN(id) ? null : id;
+  try {
+    // JWT format: header.payload.signature
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+
+    // Decode base64 payload
+    const decoded = JSON.parse(atob(payload));
+    return decoded.userId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export default function DashboardLayout() {
@@ -23,17 +31,22 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     async function verify() {
+      console.log('🔐 Dashboard guard: verifying access');
       const [token, user] = await Promise.all([getAccessToken(), getUser()]);
+      console.log('📦 Dashboard guard: token:', token ? 'exists' : 'missing', 'user:', user);
 
       // No token or user → back to login
       if (!token || !user) {
+        console.log('❌ No token or user, redirecting to login');
         router.replace(LOGIN_ROUTE as any);
         return;
       }
 
       // Extract user_id from token and verify it matches stored user
       const tokenUserId = getUserIdFromToken(token);
+      console.log('🔍 Token userId:', tokenUserId, 'Stored user_id:', user.user_id, 'Match:', tokenUserId === user.user_id);
       if (tokenUserId !== user.user_id) {
+        console.log('❌ UserId mismatch, redirecting to login');
         router.replace(LOGIN_ROUTE as any);
         return;
       }
@@ -41,6 +54,7 @@ export default function DashboardLayout() {
       // Check the current dashboard segment matches the user's role
       // segments = ['dashboard', 'patient'] for /dashboard/patient
       const dashboardSegment = segments[1] as string;
+      console.log('📍 Dashboard segment:', dashboardSegment, 'User role:', user.role);
 
       // Map route segment → role (proxy route = caregiver role)
       const segmentToRole: Record<string, Role> = {
@@ -50,6 +64,7 @@ export default function DashboardLayout() {
       };
 
       const expectedRole = segmentToRole[dashboardSegment];
+      console.log('✔️ Expected role:', expectedRole);
 
       if (expectedRole && user.role !== expectedRole && !didRedirect.current) {
         didRedirect.current = true;
@@ -58,6 +73,7 @@ export default function DashboardLayout() {
         return;
       }
 
+      console.log('✅ Dashboard guard passed!');
       setChecking(false);
     }
 

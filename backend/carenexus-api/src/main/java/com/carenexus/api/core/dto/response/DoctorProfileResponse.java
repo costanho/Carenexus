@@ -12,8 +12,8 @@ import java.time.LocalDateTime;
 @Builder
 public class DoctorProfileResponse {
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("userId")
     private Integer userId;

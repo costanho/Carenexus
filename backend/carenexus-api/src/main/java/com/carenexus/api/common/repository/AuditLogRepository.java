@@ -9,7 +9,7 @@ import java.util.List;
 
 @Repository
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
-    List<AuditLog> findByUserId(Integer userId);
+    List<AuditLog> findBySystemId(String systemId);
     List<AuditLog> findByResourceTypeAndResourceId(String resourceType, Integer resourceId);
     List<AuditLog> findByTimestampBetween(LocalDateTime start, LocalDateTime end);
 }

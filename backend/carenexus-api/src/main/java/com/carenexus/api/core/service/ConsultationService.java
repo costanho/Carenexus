@@ -26,10 +26,10 @@ public class ConsultationService {
     private final DoctorRepository doctorRepository;
 
     public ConsultationResponse createConsultation(CreateConsultationRequest request) {
-        if (request.getPatientId() == null) {
+        if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
         }
-        if (request.getDoctorId() == null) {
+        if (request.getDoctorSystemId() == null) {
             throw new RuntimeException("Doctor ID is required");
         }
         if (request.getAppointmentId() == null) {
@@ -43,8 +43,8 @@ public class ConsultationService {
 
         Consultation consultation = Consultation.builder()
                 .appointmentId(request.getAppointmentId())
-                .patientId(request.getPatientId())
-                .doctorId(request.getDoctorId())
+                .patientSystemId(request.getPatientSystemId())
+                .doctorSystemId(request.getDoctorSystemId())
                 .chiefComplaint(request.getChiefComplaint())
                 .historyOfPresentIllness(request.getHistoryOfPresentIllness())
                 .physicalExamination(request.getPhysicalExamination())
@@ -68,14 +68,14 @@ public class ConsultationService {
         return mapToResponse(consultation);
     }
 
-    public List<ConsultationResponse> getConsultationsByPatientId(Integer patientId) {
-        return consultationRepository.findByPatientId(patientId).stream()
+    public List<ConsultationResponse> getConsultationsByPatientSystemId(String patientSystemId) {
+        return consultationRepository.findByPatientSystemId(patientSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
-    public List<ConsultationResponse> getConsultationsByDoctorId(Integer doctorId) {
-        return consultationRepository.findByDoctorId(doctorId).stream()
+    public List<ConsultationResponse> getConsultationsByDoctorSystemId(String doctorSystemId) {
+        return consultationRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -157,18 +157,14 @@ public class ConsultationService {
         consultationRepository.deleteById(consultationId);
     }
 
-    public List<ConsultationResponse> getCompletedForUser(Integer userId, String userRole) {
+    public List<ConsultationResponse> getCompletedForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return consultationRepository.findByPatientIdAndStatus(patient.getPatientId(), "COMPLETED")
+            return consultationRepository.findByPatientSystemIdAndStatus(userSystemId, "COMPLETED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return consultationRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "COMPLETED")
+            return consultationRepository.findByDoctorSystemIdAndStatus(userSystemId, "COMPLETED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -176,18 +172,14 @@ public class ConsultationService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<ConsultationResponse> getInProgressForUser(Integer userId, String userRole) {
+    public List<ConsultationResponse> getInProgressForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return consultationRepository.findByPatientIdAndStatus(patient.getPatientId(), "IN_PROGRESS")
+            return consultationRepository.findByPatientSystemIdAndStatus(userSystemId, "IN_PROGRESS")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return consultationRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "IN_PROGRESS")
+            return consultationRepository.findByDoctorSystemIdAndStatus(userSystemId, "IN_PROGRESS")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -195,18 +187,14 @@ public class ConsultationService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<ConsultationResponse> getCancelledForUser(Integer userId, String userRole) {
+    public List<ConsultationResponse> getCancelledForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return consultationRepository.findByPatientIdAndStatus(patient.getPatientId(), "CANCELLED")
+            return consultationRepository.findByPatientSystemIdAndStatus(userSystemId, "CANCELLED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return consultationRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "CANCELLED")
+            return consultationRepository.findByDoctorSystemIdAndStatus(userSystemId, "CANCELLED")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -214,18 +202,14 @@ public class ConsultationService {
         throw new RuntimeException("Unsupported user role");
     }
 
-    public List<ConsultationResponse> getDraftForUser(Integer userId, String userRole) {
+    public List<ConsultationResponse> getDraftForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
-            return consultationRepository.findByPatientIdAndStatus(patient.getPatientId(), "DRAFT")
+            return consultationRepository.findByPatientSystemIdAndStatus(userSystemId, "DRAFT")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-            return consultationRepository.findByDoctorIdAndStatus(doctor.getDoctorId(), "DRAFT")
+            return consultationRepository.findByDoctorSystemIdAndStatus(userSystemId, "DRAFT")
                     .stream()
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -237,8 +221,8 @@ public class ConsultationService {
         return ConsultationResponse.builder()
                 .consultationId(consultation.getConsultationId())
                 .appointmentId(consultation.getAppointmentId())
-                .patientId(consultation.getPatientId())
-                .doctorId(consultation.getDoctorId())
+                .patientSystemId(consultation.getPatientSystemId())
+                .doctorSystemId(consultation.getDoctorSystemId())
                 .chiefComplaint(consultation.getChiefComplaint())
                 .historyOfPresentIllness(consultation.getHistoryOfPresentIllness())
                 .physicalExamination(consultation.getPhysicalExamination())

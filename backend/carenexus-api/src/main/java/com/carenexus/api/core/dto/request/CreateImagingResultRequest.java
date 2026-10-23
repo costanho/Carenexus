@@ -12,11 +12,11 @@ import java.time.LocalDate;
 @Builder
 public class CreateImagingResultRequest {
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("doctorId")
-    private Integer doctorId;
+    @JsonProperty("doctorSystemId")
+    private String doctorSystemId;
 
     @JsonProperty("consultationId")
     private Integer consultationId;
@@ -49,5 +49,5 @@ public class CreateImagingResultRequest {
     private LocalDate imageDate;
 
     @JsonProperty("reviewedBy")
-    private Integer reviewedBy;
+    private String reviewedBy;
 }

@@ -20,18 +20,12 @@ public class DoctorConsultationController {
     private final ConsultationService consultationService;
     private final DoctorRepository doctorRepository;
 
-    private Integer getDoctorIdFromUserId(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-        return doctor.getDoctorId();
-    }
-
     @GetMapping
     public ResponseEntity<List<ConsultationResponse>> getMyConsultations(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(userId, "DOCTOR");
-        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(userId, "DOCTOR");
-        List<ConsultationResponse> draft = consultationService.getDraftForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> draft = consultationService.getDraftForUser(systemId, "DOCTOR");
 
         List<ConsultationResponse> all = new java.util.ArrayList<>();
         all.addAll(inProgress);
@@ -41,79 +35,71 @@ public class DoctorConsultationController {
         return ResponseEntity.ok(all);
     }
 
-    @GetMapping("/{doctorId}")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorConsultations(@PathVariable Integer doctorId) {
-        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorId(doctorId);
+    @GetMapping("/{doctorSystemId}")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/draft")
     public ResponseEntity<List<ConsultationResponse>> getMyDraftConsultations(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> consultations = consultationService.getDraftForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> consultations = consultationService.getDraftForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/{doctorId}/draft")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorDraftConsultations(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<ConsultationResponse> consultations = consultationService.getDraftForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/draft")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorDraftConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getDraftForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/in-progress")
     public ResponseEntity<List<ConsultationResponse>> getMyInProgressConsultations(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/{doctorId}/in-progress")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorInProgressConsultations(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/in-progress")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorInProgressConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getInProgressForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/completed")
     public ResponseEntity<List<ConsultationResponse>> getMyCompletedConsultations(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/{doctorId}/completed")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorCompletedConsultations(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/completed")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorCompletedConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getCompletedForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
     @GetMapping("/cancelled")
     public ResponseEntity<List<ConsultationResponse>> getMyCancelledConsultations(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/{doctorId}/cancelled")
-    public ResponseEntity<List<ConsultationResponse>> getDoctorCancelledConsultations(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/cancelled")
+    public ResponseEntity<List<ConsultationResponse>> getDoctorCancelledConsultations(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getCancelledForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(consultations);
     }
 
-    @GetMapping("/patient/{patientId}")
+    @GetMapping("/patient/{patientSystemId}")
     public ResponseEntity<List<ConsultationResponse>> getMyConsultationsWithPatient(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId) {
-        List<ConsultationResponse> allConsultations = consultationService.getCompletedForUser(userId, "DOCTOR");
-        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(userId, "DOCTOR");
-        List<ConsultationResponse> draft = consultationService.getDraftForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId) {
+        List<ConsultationResponse> allConsultations = consultationService.getCompletedForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> draft = consultationService.getDraftForUser(systemId, "DOCTOR");
 
         List<ConsultationResponse> all = new java.util.ArrayList<>();
         all.addAll(inProgress);
@@ -121,27 +107,27 @@ public class DoctorConsultationController {
         all.addAll(allConsultations);
 
         return ResponseEntity.ok(all.stream()
-                .filter(c -> c.getPatientId().equals(patientId))
+                .filter(c -> c.getPatientSystemId().equals(patientSystemId))
                 .toList());
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<ConsultationResponse>> getDoctorConsultationsWithPatient(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId) {
-        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorId(doctorId);
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId) {
+        List<ConsultationResponse> consultations = consultationService.getConsultationsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(consultations.stream()
-                .filter(c -> c.getPatientId().equals(patientId))
+                .filter(c -> c.getPatientSystemId().equals(patientSystemId))
                 .toList());
     }
 
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getMyConsultationStats(
-            @RequestAttribute("userId") Integer userId) {
-        List<ConsultationResponse> draft = consultationService.getDraftForUser(userId, "DOCTOR");
-        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(userId, "DOCTOR");
-        List<ConsultationResponse> completed = consultationService.getCompletedForUser(userId, "DOCTOR");
-        List<ConsultationResponse> cancelled = consultationService.getCancelledForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<ConsultationResponse> draft = consultationService.getDraftForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> completed = consultationService.getCompletedForUser(systemId, "DOCTOR");
+        List<ConsultationResponse> cancelled = consultationService.getCancelledForUser(systemId, "DOCTOR");
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalConsultations", draft.size() + inProgress.size() + completed.size() + cancelled.size());
@@ -155,15 +141,12 @@ public class DoctorConsultationController {
         return ResponseEntity.ok(stats);
     }
 
-    @GetMapping("/{doctorId}/stats")
-    public ResponseEntity<Map<String, Object>> getDoctorConsultationStats(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-
-        List<ConsultationResponse> draft = consultationService.getDraftForUser(doctor.getUserId(), "DOCTOR");
-        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(doctor.getUserId(), "DOCTOR");
-        List<ConsultationResponse> completed = consultationService.getCompletedForUser(doctor.getUserId(), "DOCTOR");
-        List<ConsultationResponse> cancelled = consultationService.getCancelledForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/stats")
+    public ResponseEntity<Map<String, Object>> getDoctorConsultationStats(@PathVariable String doctorSystemId) {
+        List<ConsultationResponse> draft = consultationService.getDraftForUser(doctorSystemId, "DOCTOR");
+        List<ConsultationResponse> inProgress = consultationService.getInProgressForUser(doctorSystemId, "DOCTOR");
+        List<ConsultationResponse> completed = consultationService.getCompletedForUser(doctorSystemId, "DOCTOR");
+        List<ConsultationResponse> cancelled = consultationService.getCancelledForUser(doctorSystemId, "DOCTOR");
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalConsultations", draft.size() + inProgress.size() + completed.size() + cancelled.size());

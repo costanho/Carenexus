@@ -30,32 +30,32 @@ public class AppointmentController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<AppointmentResponse>> getPatientAppointments(@PathVariable Integer patientId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByPatientId(patientId);
+    @GetMapping("/patient/{patientSystemId}")
+    public ResponseEntity<List<AppointmentResponse>> getPatientAppointments(@PathVariable String patientSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByPatientSystemId(patientSystemId);
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(@PathVariable Integer doctorId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+    @GetMapping("/doctor/{doctorSystemId}")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/patient/{patientId}/upcoming")
-    public ResponseEntity<List<AppointmentResponse>> getUpcomingAppointments(@PathVariable Integer patientId) {
-        List<AppointmentResponse> appointments = appointmentService.getUpcomingAppointments(patientId);
+    @GetMapping("/patient/{patientSystemId}/upcoming")
+    public ResponseEntity<List<AppointmentResponse>> getUpcomingAppointments(@PathVariable String patientSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getUpcomingAppointments(patientSystemId);
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/doctor/{doctorId}/schedule")
+    @GetMapping("/doctor/{doctorSystemId}/schedule")
     public ResponseEntity<List<AppointmentResponse>> getDoctorSchedule(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @RequestParam String start,
             @RequestParam String end) {
         LocalDateTime startTime = LocalDateTime.parse(start);
         LocalDateTime endTime = LocalDateTime.parse(end);
-        List<AppointmentResponse> appointments = appointmentService.getDoctorSchedule(doctorId, startTime, endTime);
+        List<AppointmentResponse> appointments = appointmentService.getDoctorSchedule(doctorSystemId, startTime, endTime);
         return ResponseEntity.ok(appointments);
     }
 
@@ -83,41 +83,41 @@ public class AppointmentController {
 
     @GetMapping("/me/upcoming")
     public ResponseEntity<List<AppointmentResponse>> getMyUpcomingAppointments(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(userId, userRole);
+        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(systemId, userRole);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/me/completed")
     public ResponseEntity<List<AppointmentResponse>> getMyCompletedAppointments(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(userId, userRole);
+        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(systemId, userRole);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/me/cancelled")
     public ResponseEntity<List<AppointmentResponse>> getMyCancelledAppointments(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(userId, userRole);
+        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(systemId, userRole);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/me/rescheduled")
     public ResponseEntity<List<AppointmentResponse>> getMyRescheduledAppointments(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(userId, userRole);
+        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(systemId, userRole);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/me/no-show")
     public ResponseEntity<List<AppointmentResponse>> getMyNoShowAppointments(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestAttribute("userRole") String userRole) {
-        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(userId, userRole);
+        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(systemId, userRole);
         return ResponseEntity.ok(appointments);
     }
 }

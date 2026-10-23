@@ -14,11 +14,11 @@ import java.util.List;
 @Builder
 public class DoctorPatientResponse {
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
-    @JsonProperty("userId")
-    private Integer userId;
+    @JsonProperty("userSystemId")
+    private String userSystemId;
 
     @JsonProperty("firstName")
     private String firstName;

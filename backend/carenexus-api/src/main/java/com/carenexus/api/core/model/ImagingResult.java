@@ -20,11 +20,11 @@ public class ImagingResult {
     @Column(name = "imaging_id")
     private Integer imagingId;
 
-    @Column(name = "patient_id", nullable = false)
-    private Integer patientId;
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
-    @Column(name = "doctor_id", nullable = false)
-    private Integer doctorId;
+    @Column(name = "doctor_system_id", nullable = false, length = 20)
+    private String doctorSystemId;
 
     @Column(name = "consultation_id")
     private Integer consultationId;
@@ -57,8 +57,8 @@ public class ImagingResult {
     @Column(name = "image_date", nullable = false)
     private LocalDate imageDate;
 
-    @Column(name = "reviewed_by")
-    private Integer reviewedBy;
+    @Column(name = "reviewed_by_system_id", length = 20)
+    private String reviewedBySystemId;
 
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;

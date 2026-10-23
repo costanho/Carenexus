@@ -19,11 +19,11 @@ public class Appointment {
     @Column(name = "appointment_id")
     private Integer appointmentId;
 
-    @Column(name = "patient_id", nullable = false)
-    private Integer patientId;
+    @Column(name = "patient_system_id", nullable = false, length = 20)
+    private String patientSystemId;
 
-    @Column(name = "doctor_id", nullable = false)
-    private Integer doctorId;
+    @Column(name = "doctor_system_id", nullable = false, length = 20)
+    private String doctorSystemId;
 
     @Column(name = "facility_id")
     private Integer facilityId;

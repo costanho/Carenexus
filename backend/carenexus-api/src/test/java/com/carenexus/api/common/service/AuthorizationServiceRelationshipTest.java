@@ -37,18 +37,18 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
     @BeforeEach
     public void setUp() {
         // Create users
-        drMatt = createAndSaveUser(1, "matt@hospital.com", "DOCTOR");
-        linda = createAndSaveUser(2, "linda@example.com", "PATIENT");
-        mary = createAndSaveUser(3, "mary@example.com", "PATIENT");
-        sarah = createAndSaveUser(4, "sarah@example.com", "CAREGIVER");
-        jake = createAndSaveUser(5, "jake@example.com", "CAREGIVER");
-        eleanor = createAndSaveUser(6, "eleanor@example.com", "PATIENT");
+        drMatt = createAndSaveUser(1, "DOC-00001", "matt@hospital.com", "DOCTOR");
+        linda = createAndSaveUser(2, "PAT-00001", "linda@example.com", "PATIENT");
+        mary = createAndSaveUser(3, "PAT-00002", "mary@example.com", "PATIENT");
+        sarah = createAndSaveUser(4, "CGV-00001", "sarah@example.com", "CAREGIVER");
+        jake = createAndSaveUser(5, "CGV-00002", "jake@example.com", "CAREGIVER");
+        eleanor = createAndSaveUser(6, "PAT-00003", "eleanor@example.com", "PATIENT");
 
         // Relationships:
         // Dr. Matt → Linda (care_team)
         CareTeam careTeam1 = CareTeam.builder()
-                .patientId(linda.getUserId())
-                .doctorId(drMatt.getUserId())
+                .patientSystemId(linda.getSystemId())
+                .providerSystemId(drMatt.getSystemId())
                 .facilityId(1)
                 .role("PRIMARY_DOCTOR")
                 .assignedAt(LocalDateTime.now())
@@ -58,8 +58,8 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
 
         // Sarah (caregiver) → Linda (care_team)
         CareTeam careTeam2 = CareTeam.builder()
-                .patientId(linda.getUserId())
-                .caregiverId(sarah.getUserId())
+                .patientSystemId(linda.getSystemId())
+                .providerSystemId(sarah.getSystemId())
                 .facilityId(1)
                 .role("ASSIGNED_CAREGIVER")
                 .assignedAt(LocalDateTime.now())
@@ -69,12 +69,11 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
 
         // Jake (son) → Eleanor (dependent_access, family relationship)
         DependentAccess access = DependentAccess.builder()
-                .dependentId(eleanor.getUserId())
-                .caregiverId(jake.getUserId())
-                .guardianId(eleanor.getUserId()) // Eleanor granted access to Jake
-                .permissionType("FULL")
+                .patientSystemId(eleanor.getSystemId())
+                .caregiverSystemId(jake.getSystemId())
+                .authorizedBySystemId(eleanor.getSystemId()) // Eleanor granted access to Jake
+                .accessLevel("FULL")
                 .authorizedAt(LocalDateTime.now())
-                .authorizedBy(eleanor.getUserId())
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);
@@ -85,11 +84,11 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_DoctorCanAccessAssignedPatient() {
-        setSecurityContext(drMatt.getUserId(), "matt@hospital.com", "DOCTOR");
+        setSecurityContext(drMatt.getUserId(), drMatt.getSystemId(), "matt@hospital.com", "DOCTOR");
 
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(), // Linda
+                linda.getSystemId(), // Linda
                 "MEDICAL_RECORDS",
                 1
             )
@@ -101,12 +100,12 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_DoctorCannotAccessUnassignedPatient() {
-        setSecurityContext(drMatt.getUserId(), "matt@hospital.com", "DOCTOR");
+        setSecurityContext(drMatt.getUserId(), drMatt.getSystemId(), "matt@hospital.com", "DOCTOR");
 
         // Dr. Matt is not assigned to Mary
         assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                mary.getUserId(), // Mary
+                mary.getSystemId(), // Mary
                 "MEDICAL_RECORDS",
                 2
             )
@@ -118,11 +117,11 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_PatientCanAccessOwnData() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(), // Linda accessing her own data
+                linda.getSystemId(), // Linda accessing her own data
                 "MEDICAL_RECORDS",
                 1
             )
@@ -134,11 +133,11 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_PatientCannotAccessOtherPatient() {
-        setSecurityContext(linda.getUserId(), "linda@example.com", "PATIENT");
+        setSecurityContext(linda.getUserId(), linda.getSystemId(), "linda@example.com", "PATIENT");
 
         assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                mary.getUserId(), // Linda trying to access Mary's data
+                mary.getSystemId(), // Linda trying to access Mary's data
                 "MEDICAL_RECORDS",
                 2
             )
@@ -150,11 +149,11 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_CaregiverCanAccessAssignedPatient() {
-        setSecurityContext(sarah.getUserId(), "sarah@example.com", "CAREGIVER");
+        setSecurityContext(sarah.getUserId(), sarah.getSystemId(), "sarah@example.com", "CAREGIVER");
 
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(), // Sarah is assigned to Linda
+                linda.getSystemId(), // Sarah is assigned to Linda
                 "HEALTH_METRICS",
                 1
             )
@@ -166,12 +165,12 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_FamilyCaregiverCanAccessDependent() {
-        setSecurityContext(jake.getUserId(), "jake@example.com", "CAREGIVER");
+        setSecurityContext(jake.getUserId(), jake.getSystemId(), "jake@example.com", "CAREGIVER");
 
         // Jake has dependent_access to Eleanor
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                eleanor.getUserId(),
+                eleanor.getSystemId(),
                 "HEALTH_METRICS",
                 6
             )
@@ -183,12 +182,12 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_CaregiverCannotAccessUnassignedPatient() {
-        setSecurityContext(sarah.getUserId(), "sarah@example.com", "CAREGIVER");
+        setSecurityContext(sarah.getUserId(), sarah.getSystemId(), "sarah@example.com", "CAREGIVER");
 
         // Sarah is not assigned to Mary
         assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                mary.getUserId(),
+                mary.getSystemId(),
                 "MEDICAL_RECORDS",
                 2
             )
@@ -200,13 +199,13 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testAuthorizePatientDataAccess_AdminCanAccessAllData() {
-        User admin = createAndSaveUser(7, "admin@example.com", "ADMIN");
-        setSecurityContext(admin.getUserId(), "admin@example.com", "ADMIN");
+        User admin = createAndSaveUser(7, "ADM-00001", "admin@example.com", "ADMIN");
+        setSecurityContext(admin.getUserId(), admin.getSystemId(), "admin@example.com", "ADMIN");
 
         // Admin can access Linda's data
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "MEDICAL_RECORDS",
                 1
             )
@@ -215,7 +214,7 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
         // Admin can access Mary's data
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                mary.getUserId(),
+                mary.getSystemId(),
                 "MEDICAL_RECORDS",
                 2
             )
@@ -224,7 +223,7 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
         // Admin can access Eleanor's data
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                eleanor.getUserId(),
+                eleanor.getSystemId(),
                 "MEDICAL_RECORDS",
                 6
             )
@@ -236,24 +235,24 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRevokeDoctorAccess() {
-        setSecurityContext(drMatt.getUserId(), "matt@hospital.com", "DOCTOR");
+        setSecurityContext(drMatt.getUserId(), drMatt.getSystemId(), "matt@hospital.com", "DOCTOR");
 
         // Dr. Matt can access Linda before revocation
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "MEDICAL_RECORDS",
                 1
             )
         );
 
         // Revoke access
-        relationshipService.revokeDoctorAccessToPatient(drMatt.getUserId(), linda.getUserId());
+        relationshipService.revokeDoctorAccessToPatient(drMatt.getSystemId(), linda.getSystemId());
 
         // Now Dr. Matt should be denied
         assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                linda.getUserId(),
+                linda.getSystemId(),
                 "MEDICAL_RECORDS",
                 1
             )
@@ -265,24 +264,24 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
      */
     @Test
     public void testRevokeFamilyCaregiverAccess() {
-        setSecurityContext(jake.getUserId(), "jake@example.com", "CAREGIVER");
+        setSecurityContext(jake.getUserId(), jake.getSystemId(), "jake@example.com", "CAREGIVER");
 
         // Jake can access Eleanor before revocation
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
-                eleanor.getUserId(),
+                eleanor.getSystemId(),
                 "HEALTH_METRICS",
                 6
             )
         );
 
         // Revoke access
-        relationshipService.revokeCaregiverAccessToDependent(jake.getUserId(), eleanor.getUserId());
+        relationshipService.revokeCaregiverAccessToDependent(jake.getSystemId(), eleanor.getSystemId());
 
         // Now Jake should be denied
         assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                eleanor.getUserId(),
+                eleanor.getSystemId(),
                 "HEALTH_METRICS",
                 6
             )
@@ -291,8 +290,8 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
 
     // ==================== HELPER METHODS ====================
 
-    private void setSecurityContext(Integer userId, String email, String role) {
-        var userDetails = new com.carenexus.api.auth.config.CustomUserDetails(userId, email, role);
+    private void setSecurityContext(Integer userId, String systemId, String email, String role) {
+        var userDetails = new com.carenexus.api.auth.config.CustomUserDetails(userId, systemId, email, role);
         var authentication = new UsernamePasswordAuthenticationToken(
                 userDetails,
                 null,

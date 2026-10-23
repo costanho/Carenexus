@@ -1,8 +1,6 @@
 package com.carenexus.api.core.controller;
 
 import com.carenexus.api.core.dto.response.AppointmentResponse;
-import com.carenexus.api.core.model.Doctor;
-import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.service.AppointmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,140 +16,121 @@ import java.util.Map;
 public class DoctorAppointmentController {
 
     private final AppointmentService appointmentService;
-    private final DoctorRepository doctorRepository;
-
-    private Integer getDoctorIdFromUserId(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-        return doctor.getDoctorId();
-    }
 
     @GetMapping
     public ResponseEntity<List<AppointmentResponse>> getMyAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(getDoctorIdFromUserId(userId));
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(systemId);
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(@PathVariable Integer doctorId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+    @GetMapping("/{doctorSystemId}")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/scheduled")
     public ResponseEntity<List<AppointmentResponse>> getMyScheduledAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}/scheduled")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorScheduledAppointments(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/scheduled")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorScheduledAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getUpcomingForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/completed")
     public ResponseEntity<List<AppointmentResponse>> getMyCompletedAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}/completed")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorCompletedAppointments(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/completed")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorCompletedAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getCompletedForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/cancelled")
     public ResponseEntity<List<AppointmentResponse>> getMyCancelledAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}/cancelled")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorCancelledAppointments(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/cancelled")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorCancelledAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getCancelledForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/no-show")
     public ResponseEntity<List<AppointmentResponse>> getMyNoShowAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}/no-show")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorNoShowAppointments(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/no-show")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorNoShowAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getNoShowForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/rescheduled")
     public ResponseEntity<List<AppointmentResponse>> getMyRescheduledAppointments(
-            @RequestAttribute("userId") Integer userId) {
-        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(userId, "DOCTOR");
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(systemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/{doctorId}/rescheduled")
-    public ResponseEntity<List<AppointmentResponse>> getDoctorRescheduledAppointments(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(doctor.getUserId(), "DOCTOR");
+    @GetMapping("/{doctorSystemId}/rescheduled")
+    public ResponseEntity<List<AppointmentResponse>> getDoctorRescheduledAppointments(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getRescheduledForUser(doctorSystemId, "DOCTOR");
         return ResponseEntity.ok(appointments);
     }
 
-    @GetMapping("/patient/{patientId}")
+    @GetMapping("/patient/{patientSystemId}")
     public ResponseEntity<List<AppointmentResponse>> getMyAppointmentsWithPatient(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(systemId);
         return ResponseEntity.ok(appointments.stream()
-                .filter(a -> a.getPatientId().equals(patientId))
+                .filter(a -> a.getPatientSystemId().equals(patientSystemId))
                 .toList());
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<AppointmentResponse>> getDoctorAppointmentsWithPatient(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId) {
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(appointments.stream()
-                .filter(a -> a.getPatientId().equals(patientId))
+                .filter(a -> a.getPatientSystemId().equals(patientSystemId))
                 .toList());
     }
 
     @GetMapping("/status/{status}")
     public ResponseEntity<List<AppointmentResponse>> getMyAppointmentsByStatus(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @PathVariable String status) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(systemId);
         String upperStatus = status.toUpperCase();
         return ResponseEntity.ok(appointments.stream()
                 .filter(a -> a.getStatus().equalsIgnoreCase(upperStatus))
                 .toList());
     }
 
-    @GetMapping("/{doctorId}/status/{status}")
+    @GetMapping("/{doctorSystemId}/status/{status}")
     public ResponseEntity<List<AppointmentResponse>> getDoctorAppointmentsByStatus(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable String status) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorId(doctorId);
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
         String upperStatus = status.toUpperCase();
         return ResponseEntity.ok(appointments.stream()
                 .filter(a -> a.getStatus().equalsIgnoreCase(upperStatus))
@@ -160,14 +139,13 @@ public class DoctorAppointmentController {
 
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getMyAppointmentStats(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<AppointmentResponse> scheduled = appointmentService.getUpcomingForUser(userId, "DOCTOR");
-        List<AppointmentResponse> completed = appointmentService.getCompletedForUser(userId, "DOCTOR");
-        List<AppointmentResponse> cancelled = appointmentService.getCancelledForUser(userId, "DOCTOR");
-        List<AppointmentResponse> noShow = appointmentService.getNoShowForUser(userId, "DOCTOR");
-        List<AppointmentResponse> rescheduled = appointmentService.getRescheduledForUser(userId, "DOCTOR");
-        List<AppointmentResponse> all = appointmentService.getAppointmentsByDoctorId(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        List<AppointmentResponse> scheduled = appointmentService.getUpcomingForUser(systemId, "DOCTOR");
+        List<AppointmentResponse> completed = appointmentService.getCompletedForUser(systemId, "DOCTOR");
+        List<AppointmentResponse> cancelled = appointmentService.getCancelledForUser(systemId, "DOCTOR");
+        List<AppointmentResponse> noShow = appointmentService.getNoShowForUser(systemId, "DOCTOR");
+        List<AppointmentResponse> rescheduled = appointmentService.getRescheduledForUser(systemId, "DOCTOR");
+        List<AppointmentResponse> all = appointmentService.getAppointmentsByDoctorSystemId(systemId);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalAppointments", all.size());
@@ -184,17 +162,14 @@ public class DoctorAppointmentController {
         return ResponseEntity.ok(stats);
     }
 
-    @GetMapping("/{doctorId}/stats")
-    public ResponseEntity<Map<String, Object>> getDoctorAppointmentStats(@PathVariable Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
-
-        List<AppointmentResponse> scheduled = appointmentService.getUpcomingForUser(doctor.getUserId(), "DOCTOR");
-        List<AppointmentResponse> completed = appointmentService.getCompletedForUser(doctor.getUserId(), "DOCTOR");
-        List<AppointmentResponse> cancelled = appointmentService.getCancelledForUser(doctor.getUserId(), "DOCTOR");
-        List<AppointmentResponse> noShow = appointmentService.getNoShowForUser(doctor.getUserId(), "DOCTOR");
-        List<AppointmentResponse> rescheduled = appointmentService.getRescheduledForUser(doctor.getUserId(), "DOCTOR");
-        List<AppointmentResponse> all = appointmentService.getAppointmentsByDoctorId(doctorId);
+    @GetMapping("/{doctorSystemId}/stats")
+    public ResponseEntity<Map<String, Object>> getDoctorAppointmentStats(@PathVariable String doctorSystemId) {
+        List<AppointmentResponse> scheduled = appointmentService.getUpcomingForUser(doctorSystemId, "DOCTOR");
+        List<AppointmentResponse> completed = appointmentService.getCompletedForUser(doctorSystemId, "DOCTOR");
+        List<AppointmentResponse> cancelled = appointmentService.getCancelledForUser(doctorSystemId, "DOCTOR");
+        List<AppointmentResponse> noShow = appointmentService.getNoShowForUser(doctorSystemId, "DOCTOR");
+        List<AppointmentResponse> rescheduled = appointmentService.getRescheduledForUser(doctorSystemId, "DOCTOR");
+        List<AppointmentResponse> all = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalAppointments", all.size());

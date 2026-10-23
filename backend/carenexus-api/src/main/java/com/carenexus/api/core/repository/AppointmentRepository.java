@@ -10,12 +10,12 @@ import java.util.Optional;
 
 @Repository
 public interface AppointmentRepository extends JpaRepository<Appointment, Integer> {
-    List<Appointment> findByPatientId(Integer patientId);
-    List<Appointment> findByDoctorId(Integer doctorId);
-    List<Appointment> findByPatientIdAndStatus(Integer patientId, String status);
-    List<Appointment> findByDoctorIdAndStatus(Integer doctorId, String status);
+    List<Appointment> findByPatientSystemId(String patientSystemId);
+    List<Appointment> findByDoctorSystemId(String doctorSystemId);
+    List<Appointment> findByPatientSystemIdAndStatus(String patientSystemId, String status);
+    List<Appointment> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<Appointment> findByScheduledAtBetween(LocalDateTime start, LocalDateTime end);
-    List<Appointment> findByDoctorIdAndScheduledAtBetween(Integer doctorId, LocalDateTime start, LocalDateTime end);
-    Optional<Appointment> findByAppointmentIdAndPatientId(Integer appointmentId, Integer patientId);
+    List<Appointment> findByDoctorSystemIdAndScheduledAtBetween(String doctorSystemId, LocalDateTime start, LocalDateTime end);
+    Optional<Appointment> findByAppointmentIdAndPatientSystemId(Integer appointmentId, String patientSystemId);
     List<Appointment> findByStatus(String status);
 }

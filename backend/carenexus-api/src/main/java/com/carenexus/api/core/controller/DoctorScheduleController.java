@@ -21,131 +21,131 @@ public class DoctorScheduleController {
     private final DoctorScheduleService doctorScheduleService;
     private final DoctorRepository doctorRepository;
 
-    private Integer getDoctorIdFromUserId(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    private String getDoctorSystemIdFromUserId(String systemId) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
-        return doctor.getDoctorId();
+        return doctor.getSystemId();
     }
 
     @GetMapping
     public ResponseEntity<List<ScheduleEntryResponse>> getMySchedule(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorSchedule(@PathVariable Integer doctorId) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorId);
+    @GetMapping("/{doctorSystemId}")
+    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorSchedule(@PathVariable String doctorSystemId) {
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/today")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyTodaySchedule(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/today")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorTodaySchedule(@PathVariable Integer doctorId) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorId);
+    @GetMapping("/{doctorSystemId}/today")
+    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorTodaySchedule(@PathVariable String doctorSystemId) {
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/upcoming")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyUpcomingSchedule(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/upcoming")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorUpcomingSchedule(@PathVariable Integer doctorId) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorId);
+    @GetMapping("/{doctorSystemId}/upcoming")
+    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorUpcomingSchedule(@PathVariable String doctorSystemId) {
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/past")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyPastSchedule(
-            @RequestAttribute("userId") Integer userId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorId);
+            @RequestAttribute("systemId") String systemId) {
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/past")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorPastSchedule(@PathVariable Integer doctorId) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorId);
+    @GetMapping("/{doctorSystemId}/past")
+    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorPastSchedule(@PathVariable String doctorSystemId) {
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/date-range")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleByDateRange(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorId, startDate, endDate);
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorSystemId, startDate, endDate);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/date-range")
+    @GetMapping("/{doctorSystemId}/date-range")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleByDateRange(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorId, startDate, endDate);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorSystemId, startDate, endDate);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/status/{status}")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleByStatus(
-            @RequestAttribute("userId") Integer userId,
+            @RequestAttribute("systemId") String systemId,
             @PathVariable String status) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorId, status.toUpperCase());
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorSystemId, status.toUpperCase());
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/status/{status}")
+    @GetMapping("/{doctorSystemId}/status/{status}")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleByStatus(
-            @PathVariable Integer doctorId,
+            @PathVariable String doctorSystemId,
             @PathVariable String status) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorId, status.toUpperCase());
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorSystemId, status.toUpperCase());
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/patient/{patientId}")
+    @GetMapping("/patient/{patientSystemId}")
     public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleWithPatient(
-            @RequestAttribute("userId") Integer userId,
-            @PathVariable Integer patientId) {
-        Integer doctorId = getDoctorIdFromUserId(userId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorId, patientId);
+            @RequestAttribute("systemId") String systemId,
+            @PathVariable String patientSystemId) {
+        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorSystemId, patientSystemId);
         return ResponseEntity.ok(schedule);
     }
 
-    @GetMapping("/{doctorId}/patient/{patientId}")
+    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleWithPatient(
-            @PathVariable Integer doctorId,
-            @PathVariable Integer patientId) {
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorId, patientId);
+            @PathVariable String doctorSystemId,
+            @PathVariable String patientSystemId) {
+        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorSystemId, patientSystemId);
         return ResponseEntity.ok(schedule);
     }
 
     @GetMapping("/dashboard")
     public ResponseEntity<DoctorDashboardResponse> getMyDashboard(
-            @RequestAttribute("userId") Integer userId) {
-        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(userId);
+            @RequestAttribute("systemId") String systemId) {
+        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
         return ResponseEntity.ok(dashboard);
     }
 
-    @GetMapping("/{userId}/dashboard")
-    public ResponseEntity<DoctorDashboardResponse> getDoctorDashboard(@PathVariable Integer userId) {
-        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(userId);
+    @GetMapping("/{systemId}/dashboard")
+    public ResponseEntity<DoctorDashboardResponse> getDoctorDashboard(@PathVariable String systemId) {
+        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
         return ResponseEntity.ok(dashboard);
     }
 }

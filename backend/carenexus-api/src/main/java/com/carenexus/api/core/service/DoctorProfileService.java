@@ -30,30 +30,30 @@ public class DoctorProfileService {
     private final MedicalRecordRepository medicalRecordRepository;
     private final PatientRepository patientRepository;
 
-    public DoctorProfileResponse getDoctorProfile(Integer userId) {
-        User user = userRepository.findById(userId)
+    public DoctorProfileResponse getDoctorProfile(String systemId) {
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Doctor doctor = doctorRepository.findByUserId(userId)
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
-        List<Appointment> appointments = appointmentRepository.findByDoctorId(doctor.getDoctorId());
-        List<Consultation> consultations = consultationRepository.findByDoctorId(doctor.getDoctorId());
+        List<Appointment> appointments = appointmentRepository.findByDoctorSystemId(systemId);
+        List<Consultation> consultations = consultationRepository.findByDoctorSystemId(systemId);
 
-        Set<Integer> uniquePatients = appointments.stream()
-                .map(Appointment::getPatientId)
+        Set<String> uniquePatients = appointments.stream()
+                .map(Appointment::getPatientSystemId)
                 .collect(Collectors.toSet());
 
         long completedConsultations = consultations.stream()
                 .filter(c -> "COMPLETED".equals(c.getStatus()))
                 .count();
 
-        List<MedicalRecord> medicalRecords = medicalRecordRepository.findByDoctorIdAndIsDeletedFalse(doctor.getDoctorId());
+        List<MedicalRecord> medicalRecords = medicalRecordRepository.findByDoctorSystemIdAndIsDeletedFalse(systemId);
 
-        int totalPrescriptions = prescriptionRepository.findByDoctorId(doctor.getDoctorId()).size();
+        int totalPrescriptions = prescriptionRepository.findByDoctorSystemId(systemId).size();
 
         return DoctorProfileResponse.builder()
-                .doctorId(doctor.getDoctorId())
+                .doctorSystemId(doctor.getSystemId())
                 .userId(user.getUserId())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
@@ -77,11 +77,11 @@ public class DoctorProfileService {
     }
 
     @Transactional
-    public DoctorProfileResponse updateDoctorProfile(Integer userId, UpdateDoctorProfileRequest request) {
-        User user = userRepository.findById(userId)
+    public DoctorProfileResponse updateDoctorProfile(String systemId, UpdateDoctorProfileRequest request) {
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        Doctor doctor = doctorRepository.findByUserId(userId)
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
         if (request.getFirstName() != null && !request.getFirstName().isEmpty()) {
@@ -114,14 +114,14 @@ public class DoctorProfileService {
         userRepository.save(user);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 
-    public DoctorProfileResponse getDoctorProfileById(Integer doctorId) {
-        Doctor doctor = doctorRepository.findById(doctorId)
+    public DoctorProfileResponse getDoctorProfileById(String doctorSystemId) {
+        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
                 .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        return getDoctorProfile(doctor.getUserId());
+        return getDoctorProfile(doctor.getSystemId());
     }
 
     public List<Doctor> getAllActiveDoctors() {
@@ -132,7 +132,7 @@ public class DoctorProfileService {
 
     public List<DoctorProfileResponse> getAllActiveDoctorsProfiles() {
         return getAllActiveDoctors().stream()
-                .map(doctor -> getDoctorProfile(doctor.getUserId()))
+                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
                 .collect(Collectors.toList());
     }
 
@@ -140,7 +140,7 @@ public class DoctorProfileService {
         return getAllActiveDoctors().stream()
                 .filter(doctor -> doctor.getSpecialization() != null &&
                         doctor.getSpecialization().toLowerCase().contains(specialization.toLowerCase()))
-                .map(doctor -> getDoctorProfile(doctor.getUserId()))
+                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
                 .collect(Collectors.toList());
     }
 
@@ -148,12 +148,12 @@ public class DoctorProfileService {
         String lowerSearchTerm = searchTerm.toLowerCase();
         return getAllActiveDoctors().stream()
                 .filter(doctor -> {
-                    User user = userRepository.findById(doctor.getUserId()).orElse(null);
+                    User user = userRepository.findBySystemId(doctor.getSystemId()).orElse(null);
                     return user != null && (user.getFirstName().toLowerCase().contains(lowerSearchTerm) ||
                             user.getLastName().toLowerCase().contains(lowerSearchTerm) ||
                             user.getEmail().toLowerCase().contains(lowerSearchTerm));
                 })
-                .map(doctor -> getDoctorProfile(doctor.getUserId()))
+                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
                 .collect(Collectors.toList());
     }
 
@@ -162,36 +162,36 @@ public class DoctorProfileService {
                 .filter(doctor -> (isActive == null || doctor.getIsActive().equals(isActive)) &&
                         (specialization == null || (doctor.getSpecialization() != null &&
                                 doctor.getSpecialization().toLowerCase().contains(specialization.toLowerCase()))))
-                .map(doctor -> getDoctorProfile(doctor.getUserId()))
+                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
                 .collect(Collectors.toList());
     }
 
-    public DoctorProfileResponse updateDoctorSpecialization(Integer userId, String specialization) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    public DoctorProfileResponse updateDoctorSpecialization(String systemId, String specialization) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
         doctor.setSpecialization(specialization);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 
-    public DoctorProfileResponse updateDoctorBio(Integer userId, String bio) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    public DoctorProfileResponse updateDoctorBio(String systemId, String bio) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
         doctor.setBio(bio);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 
     @Transactional
-    public DoctorProfileResponse toggleDoctorStatus(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    public DoctorProfileResponse toggleDoctorStatus(String systemId) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
-        User user = userRepository.findById(userId)
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         boolean newStatus = !doctor.getIsActive();
@@ -201,14 +201,14 @@ public class DoctorProfileService {
         userRepository.save(user);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 
-    public DoctorProfileResponse activateDoctor(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    public DoctorProfileResponse activateDoctor(String systemId) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
-        User user = userRepository.findById(userId)
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         doctor.setIsActive(true);
@@ -217,14 +217,14 @@ public class DoctorProfileService {
         userRepository.save(user);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 
-    public DoctorProfileResponse deactivateDoctor(Integer userId) {
-        Doctor doctor = doctorRepository.findByUserId(userId)
+    public DoctorProfileResponse deactivateDoctor(String systemId) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
 
-        User user = userRepository.findById(userId)
+        User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         doctor.setIsActive(false);
@@ -233,6 +233,6 @@ public class DoctorProfileService {
         userRepository.save(user);
         doctorRepository.save(doctor);
 
-        return getDoctorProfile(userId);
+        return getDoctorProfile(systemId);
     }
 }

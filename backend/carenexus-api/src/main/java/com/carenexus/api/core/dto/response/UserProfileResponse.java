@@ -35,8 +35,8 @@ public class UserProfileResponse {
     @JsonProperty("isActive")
     private Boolean isActive;
 
-    @JsonProperty("patientId")
-    private Integer patientId;
+    @JsonProperty("patientSystemId")
+    private String patientSystemId;
 
     @JsonProperty("dateOfBirth")
     private LocalDate dateOfBirth;

@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.carenexus.api.common.service.AuditService;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -37,6 +38,16 @@ public class AuthService {
     private final PatientRepository patientRepository;
     private final DoctorRepository doctorRepository;
     private final CaregiverRepository caregiverRepository;
+    private final SystemIdGenerator systemIdGenerator;
+
+    private String normalizeRole(String role) {
+        if (role == null) return null;
+        String lower = role.toLowerCase();
+        if (lower.equals("caregiver")) {
+            return "proxy";
+        }
+        return lower;
+    }
 
     /**
      * Register a new user account with role-based cascading
@@ -66,8 +77,9 @@ public class AuthService {
             throw new RuntimeException("Email already registered");
         }
 
-        // Create user
+        // Create user with system_id
         String passwordHash = passwordEncoder.encode(request.getPassword());
+        String systemId = systemIdGenerator.generateSystemId(request.getRole());
         User user = User.builder()
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
@@ -75,6 +87,7 @@ public class AuthService {
                 .phone(request.getPhone())
                 .passwordHash(passwordHash)
                 .role(request.getRole())
+                .systemId(systemId)
                 .isActive(true)
                 .build();
 
@@ -84,7 +97,7 @@ public class AuthService {
         switch (request.getRole().toUpperCase()) {
             case "PATIENT":
                 Patient patient = Patient.builder()
-                        .userId(savedUser.getUserId())
+                        .systemId(savedUser.getSystemId())
                         .healthStatus("STABLE")
                         .build();
                 patientRepository.save(patient);
@@ -92,7 +105,7 @@ public class AuthService {
 
             case "DOCTOR":
                 Doctor doctor = Doctor.builder()
-                        .userId(savedUser.getUserId())
+                        .systemId(savedUser.getSystemId())
                         .isActive(true)
                         .build();
                 doctorRepository.save(doctor);
@@ -100,7 +113,7 @@ public class AuthService {
 
             case "CAREGIVER":
                 Caregiver caregiver = Caregiver.builder()
-                        .userId(savedUser.getUserId())
+                        .systemId(savedUser.getSystemId())
                         .build();
                 caregiverRepository.save(caregiver);
                 break;
@@ -113,22 +126,16 @@ public class AuthService {
                 throw new RuntimeException("Invalid role: " + request.getRole());
         }
 
-        // Generate JWT token
-        String accessToken = jwtUtil.generateToken(savedUser.getUserId(), savedUser.getEmail(), savedUser.getRole());
-
-        // Create refresh token
-        RefreshToken refreshToken = createRefreshToken(savedUser, "web", "Registration");
-
-        // Return response
+        // Return user info only — no tokens until login
         return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken.getTokenHash())
-                .tokenType("Bearer")
-                .expiresIn(jwtUtil.getExpirationTimeInSeconds())
-                .userId(savedUser.getUserId())
-                .firstName(savedUser.getFirstName())
-                .lastName(savedUser.getLastName())
-                .role(savedUser.getRole())
+                .message("Account created successfully. Please log in.")
+                .user(AuthResponse.AuthUser.builder()
+                        .user_id(savedUser.getUserId())
+                        .system_id(savedUser.getSystemId())
+                        .name(savedUser.getFirstName() + " " + savedUser.getLastName())
+                        .email(savedUser.getEmail())
+                        .role(normalizeRole(savedUser.getRole()))
+                        .build())
                 .build();
     }
 
@@ -155,24 +162,28 @@ public class AuthService {
             }
 
             // Generate JWT token
-            String accessToken = jwtUtil.generateToken(user.getUserId(), user.getEmail(), user.getRole());
+            String accessToken = jwtUtil.generateToken(user.getUserId(), user.getSystemId(), user.getEmail(), user.getRole());
 
             // Create and save refresh token
             RefreshToken refreshToken = createRefreshToken(user, request.getDeviceType(), request.getDeviceInfo());
 
             // Log successful login
-            auditService.logLogin(user.getUserId(), ipAddress, userAgent);
+            auditService.logLogin(user.getSystemId(), ipAddress, userAgent);
 
             // Build response
             return AuthResponse.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken.getTokenHash())
-                    .tokenType("Bearer")
-                    .expiresIn(jwtUtil.getExpirationTimeInSeconds())
-                    .userId(user.getUserId())
-                    .firstName(user.getFirstName())
-                    .lastName(user.getLastName())
-                    .role(user.getRole())
+                    .tokens(AuthResponse.AuthTokens.builder()
+                            .accessToken(accessToken)
+                            .refreshToken(refreshToken.getTokenHash())
+                            .expiresIn(jwtUtil.getExpirationTimeInSeconds())
+                            .build())
+                    .user(AuthResponse.AuthUser.builder()
+                            .user_id(user.getUserId())
+                            .system_id(user.getSystemId())
+                            .name(user.getFirstName() + " " + user.getLastName())
+                            .email(user.getEmail())
+                            .role(normalizeRole(user.getRole()))
+                            .build())
                     .build();
         } catch (RuntimeException e) {
             throw e;
@@ -187,7 +198,7 @@ public class AuthService {
         String tokenHash = generateRandomToken();
 
         RefreshToken refreshToken = RefreshToken.builder()
-                .userId(user.getUserId())
+                .systemId(user.getSystemId())
                 .tokenHash(tokenHash)
                 .expiresAt(LocalDateTime.now().plusDays(7))
                 .isRevoked(false)
@@ -217,37 +228,61 @@ public class AuthService {
         }
 
         // Get user
-        User user = userRepository.findByUserIdAndIsActiveTrue(refreshToken.getUserId())
+        User user = userRepository.findBySystemId(refreshToken.getSystemId())
                 .orElseThrow(() -> new RuntimeException("User not found or inactive"));
 
+        if (!user.getIsActive()) {
+            throw new RuntimeException("User account is inactive");
+        }
+
         // Generate new JWT
-        String accessToken = jwtUtil.generateToken(user.getUserId(), user.getEmail(), user.getRole());
+        String accessToken = jwtUtil.generateToken(user.getUserId(), user.getSystemId(), user.getEmail(), user.getRole());
 
         return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(request.getRefreshToken())
-                .tokenType("Bearer")
-                .expiresIn(jwtUtil.getExpirationTimeInSeconds())
-                .userId(user.getUserId())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .role(user.getRole())
+                .tokens(AuthResponse.AuthTokens.builder()
+                        .accessToken(accessToken)
+                        .refreshToken(request.getRefreshToken())
+                        .expiresIn(jwtUtil.getExpirationTimeInSeconds())
+                        .build())
+                .user(AuthResponse.AuthUser.builder()
+                        .user_id(user.getUserId())
+                        .system_id(user.getSystemId())
+                        .name(user.getFirstName() + " " + user.getLastName())
+                        .email(user.getEmail())
+                        .role(normalizeRole(user.getRole()))
+                        .build())
                 .build();
     }
 
     /**
      * Logout - revoke refresh token
      */
-    public void logout(Integer userId, String ipAddress) {
-        Optional<RefreshToken> refreshToken = refreshTokenRepository.findByUserIdAndIsRevokedFalse(userId);
-        refreshToken.ifPresent(token -> {
+    public void logout(String systemId, String ipAddress) {
+        List<RefreshToken> refreshTokens = refreshTokenRepository.findBySystemIdAndIsRevokedFalse(systemId);
+        refreshTokens.forEach(token -> {
             token.setIsRevoked(true);
             token.setRevokedAt(LocalDateTime.now());
             refreshTokenRepository.save(token);
         });
 
         // Log logout
-        auditService.logLogout(userId, ipAddress);
+        auditService.logLogout(systemId, ipAddress);
+    }
+
+    /**
+     * Get current user information by system ID
+     */
+    public AuthResponse.AuthUser getCurrentUserBySystemId(String systemId) {
+        User user = userRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        return AuthResponse.AuthUser.builder()
+                .user_id(user.getUserId())
+                .system_id(user.getSystemId())
+                .name(user.getFirstName() + " " + user.getLastName())
+                .email(user.getEmail())
+                .role(normalizeRole(user.getRole()))
+                .build();
     }
 
     /**

@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "caregivers", uniqueConstraints = {
-    @UniqueConstraint(columnNames = "user_id")
+    @UniqueConstraint(columnNames = "system_id")
 })
 @Getter
 @Setter
@@ -21,8 +21,8 @@ public class Caregiver {
     @Column(name = "caregiver_id")
     private Integer caregiverId;
 
-    @Column(name = "user_id", nullable = false, unique = true)
-    private Integer userId;
+    @Column(name = "system_id", nullable = false, unique = true, length = 20)
+    private String systemId;
 
     @Column(name = "relationship", length = 80)
     private String relationship;
