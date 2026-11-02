@@ -10,9 +10,11 @@ import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.RefreshTokenRepository;
 import com.carenexus.api.auth.repository.UserRepository;
 import com.carenexus.api.core.model.Caregiver;
+import com.carenexus.api.core.model.DependentAccess;
 import com.carenexus.api.core.model.Doctor;
 import com.carenexus.api.core.model.Patient;
 import com.carenexus.api.core.repository.CaregiverRepository;
+import com.carenexus.api.core.repository.DependentAccessRepository;
 import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.repository.PatientRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,7 @@ public class AuthService {
     private final PatientRepository patientRepository;
     private final DoctorRepository doctorRepository;
     private final CaregiverRepository caregiverRepository;
+    private final DependentAccessRepository dependentAccessRepository;
     private final SystemIdGenerator systemIdGenerator;
 
     private String normalizeRole(String role) {
@@ -86,7 +89,7 @@ public class AuthService {
                 .email(request.getEmail())
                 .phone(request.getPhone())
                 .passwordHash(passwordHash)
-                .role(request.getRole())
+                .role(request.getRole().toUpperCase())
                 .systemId(systemId)
                 .isActive(true)
                 .build();
@@ -101,6 +104,18 @@ public class AuthService {
                         .healthStatus("STABLE")
                         .build();
                 patientRepository.save(patient);
+
+                if (request.getCaregiverSystemId() != null && !request.getCaregiverSystemId().isBlank()) {
+                    DependentAccess access = DependentAccess.builder()
+                            .patientSystemId(savedUser.getSystemId())
+                            .caregiverSystemId(request.getCaregiverSystemId())
+                            .authorizedBySystemId(request.getCaregiverSystemId())
+                            .relationship(request.getRelationship() != null ? request.getRelationship() : "caregiver")
+                            .accessLevel("VIEW_ONLY")
+                            .isActive(true)
+                            .build();
+                    dependentAccessRepository.save(access);
+                }
                 break;
 
             case "DOCTOR":

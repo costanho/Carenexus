@@ -74,6 +74,13 @@ public class ConsultationService {
                 .collect(Collectors.toList());
     }
 
+    public List<ConsultationResponse> getConsultationsForPatients(List<String> patientSystemIds) {
+        if (patientSystemIds == null || patientSystemIds.isEmpty()) return List.of();
+        return consultationRepository.findByPatientSystemIdIn(patientSystemIds).stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
     public List<ConsultationResponse> getConsultationsByDoctorSystemId(String doctorSystemId) {
         return consultationRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)

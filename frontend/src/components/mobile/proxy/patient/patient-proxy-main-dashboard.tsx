@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { api } from '@/lib/auth/auth.interceptor';
 import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
@@ -192,14 +193,34 @@ const SHOW_LIMIT = 3;
 export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: any) => void }) {
   const { s, sh } = useScale();
   const { dependents, loading: depsLoading } = useCaregiverDependents();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,     setExpanded]     = useState(false);
+  const [apptCount,    setApptCount]    = useState<number | null>(null);
+  const [apptSub,      setApptSub]      = useState('');
+
+  useEffect(() => {
+    api.get<{ appointments: { status: string; scheduledAt: string }[] }>('/api/caregiver/dependents/activity')
+      .then(({ data }) => {
+        const now = Date.now();
+        const scheduled = (data.appointments ?? [])
+          .filter(a => a.status === 'SCHEDULED' && new Date(a.scheduledAt).getTime() > now)
+          .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+        setApptCount(scheduled.length);
+        if (scheduled.length > 0) {
+          const next = new Date(scheduled[0].scheduledAt);
+          setApptSub(`${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })}`);
+        } else {
+          setApptSub('No upcoming');
+        }
+      })
+      .catch(() => { setApptCount(0); setApptSub(''); });
+  }, []);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(14), paddingBottom: sh(90) }} showsVerticalScrollIndicator={false}>
 
       {/* Stat cards — horizontal scroll */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(16) }} contentContainerStyle={{ gap: s(10), paddingRight: s(4) }}>
-        <StatCard icon="calendar-outline" iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appts"  value="2" sub="Tomorrow, 10:30 AM" />
+        <StatCard icon="calendar-outline" iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appts" value={apptCount === null ? '…' : String(apptCount)} sub={apptSub} />
         <StatCard icon="medical-outline"  iconBg="#D1FAE5" iconColor={GREEN}  label="Medications Due" value="3" sub="Today"              />
         <StatCard icon="flask-outline"    iconBg="#FEF3C7" iconColor={ORANGE} label="Pending Results" value="1" sub="Awaiting Review"    />
         <StatCard icon="chatbox-outline"  iconBg="#EDE9FE" iconColor={PURPLE} label="Unread Messages" value="2" sub="From Care Team"     />
@@ -217,20 +238,20 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
         ) : (
           <>
             {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => {
-              const name      = dep.patient_name ?? 'Unknown';
-              const dotColor  = healthDotColor(dep.patient_health_status);
-              const health    = healthLabel(dep.patient_health_status);
-              const access    = accessLabel(dep.access_level);
-              const age       = calcAge(dep.patient_date_of_birth);
-              const gender    = dep.patient_gender
-                ? dep.patient_gender.charAt(0) + dep.patient_gender.slice(1).toLowerCase()
+              const name      = dep.patientName ?? 'Unknown';
+              const dotColor  = healthDotColor(dep.patientHealthStatus);
+              const health    = healthLabel(dep.patientHealthStatus);
+              const access    = accessLabel(dep.accessLevel);
+              const age       = calcAge(dep.patientDateOfBirth);
+              const gender    = dep.patientGender
+                ? dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()
                 : null;
               const rel       = dep.relationship
                 ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
                 : '';
 
               return (
-                <View key={dep.access_id}>
+                <View key={dep.accessId}>
                   {i > 0 && <View style={[styles.sep, { marginVertical: s(10) }]} />}
                   <TouchableOpacity
                     style={[styles.lovedOneRow, { gap: s(10), borderRadius: s(10), padding: s(10) }]}
@@ -238,31 +259,24 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
                     onPress={() => onSelectPatient?.(dep)}
                   >
                     <View>
-                      {dep.patient_avatar ? (
-                        <Image
-                          source={{ uri: dep.patient_avatar }}
-                          style={{ width: s(46), height: s(46), borderRadius: s(23), backgroundColor: BORDER }}
-                        />
-                      ) : (
-                        <View style={{
-                          width: s(46), height: s(46), borderRadius: s(23),
-                          backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <Text style={{ color: '#fff', fontSize: s(16), fontWeight: '700' }}>{initials(name)}</Text>
-                        </View>
-                      )}
+                      <View style={{
+                        width: s(46), height: s(46), borderRadius: s(23),
+                        backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Text style={{ color: '#fff', fontSize: s(16), fontWeight: '700' }}>{initials(name)}</Text>
+                      </View>
                       <View style={[styles.dot, { backgroundColor: dotColor, width: s(11), height: s(11), borderRadius: s(6) }]} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.lovedOneName, { fontSize: s(13) }]} numberOfLines={1}>{name}</Text>
                       <Text style={{ fontSize: s(10), color: PURPLE, fontWeight: '500', marginBottom: s(2) }}>{rel}</Text>
                       <View style={[styles.accessBadge, {
-                        backgroundColor: dep.access_level === 'FULL_ACCESS' ? '#D1FAE5' : '#FEF3C7',
+                        backgroundColor: dep.accessLevel === 'FULL_ACCESS' ? '#D1FAE5' : '#FEF3C7',
                         borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2), marginBottom: s(3),
                       }]}>
                         <Text style={[styles.accessText, {
                           fontSize: s(10),
-                          color: dep.access_level === 'FULL_ACCESS' ? GREEN : ORANGE,
+                          color: dep.accessLevel === 'FULL_ACCESS' ? GREEN : ORANGE,
                         }]}>{access}</Text>
                       </View>
                       {(age || gender) && (
@@ -273,13 +287,13 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: s(4) }}>
                       <View style={[styles.healthPill, {
-                        backgroundColor: dep.patient_health_status === 'STABLE' ? '#D1FAE5'
-                          : dep.patient_health_status === 'CRITICAL' ? '#FEE2E2' : '#FEF3C7',
+                        backgroundColor: dep.patientHealthStatus === 'STABLE' ? '#D1FAE5'
+                          : dep.patientHealthStatus === 'CRITICAL' ? '#FEE2E2' : '#FEF3C7',
                         borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(3),
                       }]}>
                         <Text style={{ fontSize: s(11), fontWeight: '600',
-                          color: dep.patient_health_status === 'STABLE' ? GREEN
-                            : dep.patient_health_status === 'CRITICAL' ? RED : ORANGE,
+                          color: dep.patientHealthStatus === 'STABLE' ? GREEN
+                            : dep.patientHealthStatus === 'CRITICAL' ? RED : ORANGE,
                         }}>{health}</Text>
                       </View>
                     </View>
@@ -365,17 +379,21 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
       </Card>
 
       {/* Proxy Access Banner */}
+      {dependents.length > 0 && (
       <View style={[styles.banner, { borderRadius: s(14), padding: s(14), gap: s(12) }]}>
         <View style={[styles.bannerIcon, { width: s(48), height: s(48), borderRadius: s(24) }]}>
           <Ionicons name="shield-outline" size={s(24)} color={PURPLE} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.updateTitle, { fontSize: s(13), marginBottom: s(4) }]}>Full Access Proxy for Mary Davis</Text>
+          <Text style={[styles.updateTitle, { fontSize: s(13), marginBottom: s(4) }]}>
+            {accessLabel(dependents[0].accessLevel)} Proxy for {dependents[0].patientName ?? 'your loved one'}
+          </Text>
           <Text style={[styles.lovedOneMeta, { fontSize: s(11), lineHeight: s(16) }]}>
             You can view health info, appointments, medications and communicate with the care team.
           </Text>
         </View>
       </View>
+      )}
 
     </ScrollView>
   );

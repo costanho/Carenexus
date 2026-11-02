@@ -291,7 +291,7 @@ public class RelationshipServiceTest extends BaseIntegrationTest {
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel("FULL")
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);
@@ -304,7 +304,7 @@ public class RelationshipServiceTest extends BaseIntegrationTest {
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel(accessLevel)
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);

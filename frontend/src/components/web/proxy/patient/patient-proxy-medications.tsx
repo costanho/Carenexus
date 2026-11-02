@@ -16,7 +16,7 @@ const RED    = '#EF4444';
 
 interface Prescription {
   prescription_id:      number;
-  patient_id:           number;
+  patientSystemId:      string;
   doctor_id:            number;
   medication_name:      string;
   generic_name:         string;
@@ -48,7 +48,7 @@ function routeIcon(route: string): React.ComponentProps<typeof Ionicons>['name']
 
 function MedCard({ rx, dep }: { rx: Prescription; dep?: CaregiverDependent }) {
   const { bg, text } = statusColor(rx.status);
-  const patientName = dep?.patient_name ?? `Patient #${rx.patient_id}`;
+  const patientName = dep?.patientName ?? 'Unknown Patient';
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -120,14 +120,14 @@ export default function PatientProxyMedications() {
   const [loading, setLoading]               = useState(false);
   const [filter,  setFilter]                = useState<Filter>('all');
 
-  const depMap = new Map(dependents.map(d => [d.patient_id, d]));
+  const depMap = new Map(dependents.map(d => [d.patientSystemId, d]));
 
   useEffect(() => {
     if (dependents.length === 0) return;
     setLoading(true);
     Promise.all(
       dependents.map(d =>
-        api.get<Prescription[]>(`/api/prescriptions?patient_id=${d.patient_id}`).then(r => r.data)
+        api.get<Prescription[]>(`/api/prescriptions/patient/${d.patientSystemId}`).then(r => r.data)
       )
     )
       .then(results => setPrescriptions(results.flat()))
@@ -186,7 +186,7 @@ export default function PatientProxyMedications() {
           <Text style={styles.emptyText}>No prescriptions found</Text>
         </View>
       ) : (
-        visible.map(rx => <MedCard key={rx.prescription_id} rx={rx} dep={depMap.get(rx.patient_id)} />)
+        visible.map(rx => <MedCard key={rx.prescription_id} rx={rx} dep={depMap.get(rx.patientSystemId)} />)
       )}
     </ScrollView>
   );

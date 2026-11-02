@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -33,12 +32,13 @@ type HealthStat   = 'STABLE' | 'MONITOR' | 'CRITICAL';
 type BloodType    = 'A+' | 'A-' | 'B+' | 'B-' | 'O+' | 'O-' | 'AB+' | 'AB-';
 
 interface PatientDetail {
-  patient_id: number; user_id: number;
-  date_of_birth: string; gender: string; blood_type: string;
-  allergies: string[]; chronic_conditions: string[];
-  health_status: string; created_at: string;
-  first_name: string; last_name: string; full_name: string;
-  email: string; phone: string; avatar_url: string | null;
+  userId: number;
+  firstName: string; lastName: string; phone: string; email: string;
+  role: string; isActive: boolean;
+  patientSystemId: string;
+  dateOfBirth: string; gender: string; bloodType: string;
+  allergies: string; chronicConditions: string;
+  healthStatus: string; createdAt: string; updatedAt: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -92,9 +92,9 @@ function accessLabel(level: string) {
   return level;
 }
 function permissionsForLevel(level: AccessLevel) {
-  if (level === 'FULL_ACCESS') return { can_view_records:1,can_view_appointments:1,can_view_medications:1,can_view_lab_results:1,can_view_imaging:1,can_message_care_team:1,can_view_consultations:1,can_schedule_appointments:1,can_manage_care_plan:1 };
-  if (level === 'VIEW_ONLY')   return { can_view_records:1,can_view_appointments:1,can_view_medications:1,can_view_lab_results:1,can_view_imaging:0,can_message_care_team:0,can_view_consultations:1,can_schedule_appointments:0,can_manage_care_plan:0 };
-  if (level === 'EDIT_ONLY')   return { can_view_records:1,can_view_appointments:1,can_view_medications:1,can_view_lab_results:1,can_view_imaging:1,can_message_care_team:1,can_view_consultations:1,can_schedule_appointments:1,can_manage_care_plan:0 };
+  if (level === 'FULL_ACCESS') return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:true };
+  if (level === 'VIEW_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:false,canMessageCareTeam:false,canViewConsultations:true,canScheduleAppointments:false,canManageCarePlan:false };
+  if (level === 'EDIT_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:false };
   return {};
 }
 
@@ -248,43 +248,43 @@ export default function PatientProxyWebProfile({
   const [aLevel,    setALevel]    = useState<AccessLevel>('FULL_ACCESS');
   const [aExpires,  setAExpires]  = useState('');
   const [aPerms, setAPerms] = useState({
-    can_view_records:1, can_view_appointments:1, can_view_medications:1,
-    can_view_lab_results:1, can_view_imaging:1, can_message_care_team:1,
-    can_view_consultations:1, can_schedule_appointments:1, can_manage_care_plan:1,
+    canViewRecords:true, canViewAppointments:true, canViewMedications:true,
+    canViewLabResults:true, canViewImaging:true, canMessageCareTeam:true,
+    canViewConsultations:true, canScheduleAppointments:true, canManageCarePlan:true,
   });
 
   useEffect(() => {
     setLoading(true);
-    api.get<PatientDetail>(`/api/patients/${dependent.patient_id}`)
+    api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`)
       .then(({ data }) => {
         setPatient(data);
-        setPFirst(data.first_name ?? '');
-        setPLast(data.last_name ?? '');
+        setPFirst(data.firstName ?? '');
+        setPLast(data.lastName ?? '');
         setPPhone(data.phone ?? '');
-        setHDob(data.date_of_birth ?? '');
+        setHDob(data.dateOfBirth ?? '');
         setHGender((data.gender as Gender) ?? 'MALE');
-        setHBlood((data.blood_type as BloodType) ?? 'A+');
-        setHStatus((data.health_status as HealthStat) ?? 'STABLE');
-        setHAllergies(data.allergies ?? []);
-        setHConditions(data.chronic_conditions ?? []);
+        setHBlood((data.bloodType as BloodType) ?? 'A+');
+        setHStatus((data.healthStatus as HealthStat) ?? 'STABLE');
+        setHAllergies(JSON.parse(data.allergies || '[]'));
+        setHConditions(JSON.parse(data.chronicConditions || '[]'));
       })
       .catch(() => setFetchError('Could not load full patient details. Showing available data.'))
       .finally(() => setLoading(false));
 
-    setALevel(dependent.access_level as AccessLevel);
-    setAExpires(dependent.expires_at ?? '');
+    setALevel(dependent.accessLevel as AccessLevel);
+    setAExpires(dependent.expiresAt ?? '');
     setAPerms({
-      can_view_records:          dependent.can_view_records,
-      can_view_appointments:     dependent.can_view_appointments,
-      can_view_medications:      dependent.can_view_medications,
-      can_view_lab_results:      dependent.can_view_lab_results,
-      can_view_imaging:          dependent.can_view_imaging,
-      can_message_care_team:     dependent.can_message_care_team,
-      can_view_consultations:    dependent.can_view_consultations,
-      can_schedule_appointments: dependent.can_schedule_appointments,
-      can_manage_care_plan:      dependent.can_manage_care_plan,
+      canViewRecords:          dependent.canViewRecords,
+      canViewAppointments:     dependent.canViewAppointments,
+      canViewMedications:      dependent.canViewMedications,
+      canViewLabResults:       dependent.canViewLabResults,
+      canViewImaging:          dependent.canViewImaging,
+      canMessageCareTeam:      dependent.canMessageCareTeam,
+      canViewConsultations:    dependent.canViewConsultations,
+      canScheduleAppointments: dependent.canScheduleAppointments,
+      canManageCarePlan:       dependent.canManageCarePlan,
     });
-  }, [dependent.patient_id]);
+  }, [dependent.patientSystemId]);
 
   function changeAccessLevel(level: AccessLevel) {
     setALevel(level);
@@ -295,8 +295,8 @@ export default function PatientProxyWebProfile({
     if (!patient) return;
     setSaving(true); setSaveError('');
     try {
-      await api.patch(`/api/users/${patient.user_id}`, { first_name: pFirst.trim(), last_name: pLast.trim(), phone: pPhone.trim() });
-      const { data } = await api.get<PatientDetail>(`/api/patients/${dependent.patient_id}`);
+      await api.put(`/api/profile/user/${dependent.patientSystemId}`, { firstName: pFirst.trim(), lastName: pLast.trim(), phone: pPhone.trim() });
+      const { data } = await api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`);
       setPatient(data);
       setEditingPersonal(false);
     } catch { setSaveError('Failed to save personal details.'); }
@@ -306,9 +306,9 @@ export default function PatientProxyWebProfile({
   async function saveHealth() {
     setSaving(true); setSaveError('');
     try {
-      const { data } = await api.patch<PatientDetail>(`/api/patients/${dependent.patient_id}`, {
-        date_of_birth: hDob, gender: hGender, blood_type: hBlood,
-        health_status: hStatus, allergies: hAllergies, chronic_conditions: hConditions,
+      const { data } = await api.put<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`, {
+        dateOfBirth: hDob, gender: hGender, bloodType: hBlood,
+        healthStatus: hStatus, allergies: JSON.stringify(hAllergies), chronicConditions: JSON.stringify(hConditions),
       });
       setPatient(data);
       setEditingHealth(false);
@@ -319,52 +319,52 @@ export default function PatientProxyWebProfile({
   async function saveAccess() {
     setSaving(true); setSaveError('');
     try {
-      await api.patch(`/api/dependent-access/${dependent.access_id}`, {
-        access_level:              aLevel,
-        expires_at:                aExpires.trim() || null,
-        can_view_records:          aPerms.can_view_records,
-        can_view_appointments:     aPerms.can_view_appointments,
-        can_view_medications:      aPerms.can_view_medications,
-        can_view_lab_results:      aPerms.can_view_lab_results,
-        can_view_imaging:          aPerms.can_view_imaging,
-        can_message_care_team:     aPerms.can_message_care_team,
-        can_view_consultations:    aPerms.can_view_consultations,
-        can_schedule_appointments: aPerms.can_schedule_appointments,
-        can_manage_care_plan:      aPerms.can_manage_care_plan,
+      await api.patch(`/api/caregiver/dependents/${dependent.accessId}`, {
+        accessLevel:              aLevel,
+        expiresAt:                aExpires.trim() || null,
+        canViewRecords:           aPerms.canViewRecords,
+        canViewAppointments:      aPerms.canViewAppointments,
+        canViewMedications:       aPerms.canViewMedications,
+        canViewLabResults:        aPerms.canViewLabResults,
+        canViewImaging:           aPerms.canViewImaging,
+        canMessageCareTeam:       aPerms.canMessageCareTeam,
+        canViewConsultations:     aPerms.canViewConsultations,
+        canScheduleAppointments:  aPerms.canScheduleAppointments,
+        canManageCarePlan:        aPerms.canManageCarePlan,
       });
       setEditingAccess(false);
     } catch { setSaveError('Failed to save access settings.'); }
     finally { setSaving(false); }
   }
 
-  const name       = patient?.full_name ?? dependent.patient_name ?? 'Unknown Patient';
-  const avatarUri  = patient?.avatar_url ?? dependent.patient_avatar;
-  const status     = patient?.health_status ?? dependent.patient_health_status ?? null;
-  const dob        = patient?.date_of_birth ?? dependent.patient_date_of_birth;
-  const gender     = patient?.gender ?? dependent.patient_gender;
-  const bloodType  = patient?.blood_type ?? dependent.patient_blood_type;
-  const email      = patient?.email ?? dependent.patient_email;
+  const name       = patient ? `${patient.firstName} ${patient.lastName}` : dependent.patientName ?? 'Unknown Patient';
+  const avatarUri  = null;
+  const status     = patient?.healthStatus ?? dependent.patientHealthStatus ?? null;
+  const dob        = patient?.dateOfBirth ?? dependent.patientDateOfBirth;
+  const gender     = patient?.gender ?? dependent.patientGender;
+  const bloodType  = patient?.bloodType ?? dependent.patientBloodType;
+  const email      = patient?.email ?? dependent.patientEmail;
   const phone      = patient?.phone;
-  const createdAt  = patient?.created_at;
-  const allergies  = patient?.allergies ?? [];
-  const conditions = patient?.chronic_conditions ?? [];
+  const createdAt  = patient?.createdAt;
+  const allergies  = patient ? JSON.parse(patient.allergies || '[]') : [];
+  const conditions = patient ? JSON.parse(patient.chronicConditions || '[]') : [];
 
   const sc  = healthColors(status);
   const dc  = dotColor(status);
-  const lc  = accessColors(dependent.access_level);
+  const lc  = accessColors(dependent.accessLevel);
   const currentALevel = aLevel;
   const currentLc     = accessColors(currentALevel);
 
   const PERMS: { key: keyof typeof aPerms; icon: IoniconsName; label: string }[] = [
-    { key: 'can_view_records',          icon: 'document-text-outline', label: 'View Records'      },
-    { key: 'can_view_appointments',     icon: 'calendar-outline',      label: 'Appointments'      },
-    { key: 'can_view_medications',      icon: 'medical-outline',       label: 'Medications'       },
-    { key: 'can_view_lab_results',      icon: 'flask-outline',         label: 'Lab Results'       },
-    { key: 'can_view_imaging',          icon: 'scan-outline',          label: 'Imaging'           },
-    { key: 'can_message_care_team',     icon: 'chatbox-outline',       label: 'Message Team'      },
-    { key: 'can_view_consultations',    icon: 'people-outline',        label: 'Consultations'     },
-    { key: 'can_schedule_appointments', icon: 'add-circle-outline',    label: 'Schedule'          },
-    { key: 'can_manage_care_plan',      icon: 'clipboard-outline',     label: 'Manage Care Plan'  },
+    { key: 'canViewRecords',          icon: 'document-text-outline', label: 'View Records'      },
+    { key: 'canViewAppointments',     icon: 'calendar-outline',      label: 'Appointments'      },
+    { key: 'canViewMedications',      icon: 'medical-outline',       label: 'Medications'       },
+    { key: 'canViewLabResults',       icon: 'flask-outline',         label: 'Lab Results'       },
+    { key: 'canViewImaging',          icon: 'scan-outline',          label: 'Imaging'           },
+    { key: 'canMessageCareTeam',      icon: 'chatbox-outline',       label: 'Message Team'      },
+    { key: 'canViewConsultations',    icon: 'people-outline',        label: 'Consultations'     },
+    { key: 'canScheduleAppointments', icon: 'add-circle-outline',    label: 'Schedule'          },
+    { key: 'canManageCarePlan',       icon: 'clipboard-outline',     label: 'Manage Care Plan'  },
   ];
 
   return (
@@ -616,7 +616,7 @@ export default function PatientProxyWebProfile({
                     key={p.key}
                     label={p.label}
                     value={!!aPerms[p.key]}
-                    onChange={v => setAPerms(prev => ({ ...prev, [p.key]: v ? 1 : 0 }))}
+                    onChange={v => setAPerms(prev => ({ ...prev, [p.key]: v }))}
                   />
                 ))}
               </View>
@@ -643,15 +643,15 @@ export default function PatientProxyWebProfile({
             <View style={styles.sep} />
             <InfoRow label="Access Level">
               <View style={[styles.badge, { backgroundColor: lc.bg }]}>
-                <Text style={[styles.badgeText, { color: lc.text }]}>{accessLabel(dependent.access_level)}</Text>
+                <Text style={[styles.badgeText, { color: lc.text }]}>{accessLabel(dependent.accessLevel)}</Text>
               </View>
             </InfoRow>
             <View style={styles.sep} />
-            <InfoRow label="Authorized On"><Text style={styles.infoVal}>{formatDate(dependent.authorized_date)}</Text></InfoRow>
+            <InfoRow label="Authorized On"><Text style={styles.infoVal}>{formatDate(dependent.authorizedDate)}</Text></InfoRow>
             <View style={styles.sep} />
-            <InfoRow label="Expires"><Text style={styles.infoVal}>{dependent.expires_at ? formatDate(dependent.expires_at) : 'No expiry'}</Text></InfoRow>
+            <InfoRow label="Expires"><Text style={styles.infoVal}>{dependent.expiresAt ? formatDate(dependent.expiresAt) : 'No expiry'}</Text></InfoRow>
             <View style={styles.sep} />
-            <InfoRow label="Authorized By"><Text style={styles.infoVal}>{dependent.authorized_by_name ?? '—'}</Text></InfoRow>
+            <InfoRow label="Authorized By"><Text style={styles.infoVal}>{dependent.authorizedBySystemId ?? '—'}</Text></InfoRow>
             <View style={[styles.sep, { marginVertical: 4 }]} />
             <Text style={styles.subLabel}>Permissions</Text>
             <View style={styles.permGrid}>
@@ -662,12 +662,12 @@ export default function PatientProxyWebProfile({
       </SectionCard>
 
       {/* ── Quick Actions ── */}
-      {(!!dependent.can_message_care_team || !!dependent.can_schedule_appointments || !!dependent.can_view_records) && (
+      {(!!dependent.canMessageCareTeam || !!dependent.canScheduleAppointments || !!dependent.canViewRecords) && (
         <SectionCard title="Quick Actions">
           <View style={styles.actionsRow}>
-            {!!dependent.can_message_care_team    && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="chatbox-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Message Care Team</Text></TouchableOpacity>}
-            {!!dependent.can_schedule_appointments && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="calendar-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Schedule Appointment</Text></TouchableOpacity>}
-            {!!dependent.can_view_records          && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="document-text-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>View Records</Text></TouchableOpacity>}
+            {!!dependent.canMessageCareTeam    && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="chatbox-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Message Care Team</Text></TouchableOpacity>}
+            {!!dependent.canScheduleAppointments && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="calendar-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Schedule Appointment</Text></TouchableOpacity>}
+            {!!dependent.canViewRecords          && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="document-text-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>View Records</Text></TouchableOpacity>}
           </View>
         </SectionCard>
       )}

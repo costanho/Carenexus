@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 public class AppointmentResponse {
     private Integer appointmentId;
     private String patientSystemId;
+    private String patientName;
     private String doctorSystemId;
     private Integer facilityId;
     private LocalDateTime scheduledAt;

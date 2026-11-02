@@ -73,7 +73,7 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
                 .caregiverSystemId(jake.getSystemId())
                 .authorizedBySystemId(eleanor.getSystemId()) // Eleanor granted access to Jake
                 .accessLevel("FULL")
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);

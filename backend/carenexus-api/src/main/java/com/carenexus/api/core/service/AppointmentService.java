@@ -82,6 +82,13 @@ public class AppointmentService {
                 .collect(Collectors.toList());
     }
 
+    public List<AppointmentResponse> getAppointmentsForPatients(List<String> patientSystemIds) {
+        if (patientSystemIds == null || patientSystemIds.isEmpty()) return List.of();
+        return appointmentRepository.findByPatientSystemIdIn(patientSystemIds).stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
     public List<AppointmentResponse> getAppointmentsByDoctorSystemId(String doctorSystemId) {
         return appointmentRepository.findByDoctorSystemId(doctorSystemId).stream()
                 .map(this::mapToResponse)

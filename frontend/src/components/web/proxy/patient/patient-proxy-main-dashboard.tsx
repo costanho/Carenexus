@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { api } from '@/lib/auth/auth.interceptor';
 import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
@@ -55,62 +56,6 @@ function Card({ title, action, onAction, children, style }: {
   );
 }
 
-// ─── Loved One Row ────────────────────────────────────────────────────────────
-
-function LovedOneRow({ name, access, age, gender, lastUpdated, health, carePlan, lastVisit, lastVisitDoc, avatarId, dotColor }: {
-  name: string; access: string; age: string; gender: string; lastUpdated: string;
-  health: string; carePlan: string; lastVisit: string; lastVisitDoc: string;
-  avatarId: number; dotColor: string;
-}) {
-  const isFullAccess = access === 'Full Access';
-  return (
-    <TouchableOpacity style={styles.lovedOneRow} activeOpacity={0.8}>
-      <View style={styles.lovedOneLeft}>
-        <View style={styles.lovedOneAvatarWrapper}>
-          <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }} style={styles.lovedOneAvatar} />
-          <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
-        </View>
-        <View>
-          <Text style={styles.lovedOneName}>{name}</Text>
-          <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
-            <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
-          </View>
-          <Text style={styles.lovedOneMeta}>{age} • {gender}</Text>
-          <Text style={styles.lovedOneUpdated}>Last updated: {lastUpdated}</Text>
-        </View>
-      </View>
-      <View style={styles.lovedOneStats}>
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Health Status</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="heart-outline" size={14} color={health === 'Stable' ? GREEN : ORANGE} />
-            <Text style={[styles.lovedOneStatText, { color: health === 'Stable' ? GREEN : ORANGE }]}>{health}</Text>
-          </View>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Care Plan</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="clipboard-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>{carePlan}</Text>
-          </View>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Last Visit</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="calendar-outline" size={14} color={GRAY} />
-            <View>
-              <Text style={styles.lovedOneStatText}>{lastVisit}</Text>
-              <Text style={styles.lovedOneStatSub}>{lastVisitDoc}</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />
-    </TouchableOpacity>
-  );
-}
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
@@ -227,26 +172,22 @@ function accessLabel(level: string) {
 // ─── Live Loved One Row ───────────────────────────────────────────────────────
 
 function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?: (dep: CaregiverDependent) => void }) {
-  const name     = dep.patient_name ?? 'Unknown';
-  const dotColor = healthDotColor(dep.patient_health_status);
-  const access   = accessLabel(dep.access_level);
-  const isFullAccess = dep.access_level === 'FULL_ACCESS';
-  const age      = calcAge(dep.patient_date_of_birth);
-  const gender   = dep.patient_gender
-    ? dep.patient_gender.charAt(0) + dep.patient_gender.slice(1).toLowerCase()
+  const name     = dep.patientName ?? 'Unknown';
+  const dotColor = healthDotColor(dep.patientHealthStatus);
+  const access   = accessLabel(dep.accessLevel);
+  const isFullAccess = dep.accessLevel === 'FULL_ACCESS';
+  const age      = calcAge(dep.patientDateOfBirth);
+  const gender   = dep.patientGender
+    ? dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()
     : '';
 
   return (
     <TouchableOpacity style={styles.lovedOneRow} activeOpacity={0.8} onPress={() => onSelect?.(dep)}>
       <View style={styles.lovedOneLeft}>
         <View style={styles.lovedOneAvatarWrapper}>
-          {dep.patient_avatar ? (
-            <Image source={{ uri: dep.patient_avatar }} style={styles.lovedOneAvatar} />
-          ) : (
-            <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
-            </View>
-          )}
+          <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+          </View>
           <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
         </View>
         <View>
@@ -263,8 +204,8 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
           <View style={styles.lovedOneStatVal}>
             <Ionicons name="heart-outline" size={14} color={dotColor} />
             <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
-              {dep.patient_health_status
-                ? dep.patient_health_status.charAt(0) + dep.patient_health_status.slice(1).toLowerCase()
+              {dep.patientHealthStatus
+                ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
                 : 'Unknown'}
             </Text>
           </View>
@@ -274,7 +215,7 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
           <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
           <View style={styles.lovedOneStatVal}>
             <Ionicons name="water-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>{dep.patient_blood_type ?? '—'}</Text>
+            <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
           </View>
         </View>
         <View style={styles.statDivider} />
@@ -299,19 +240,45 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
 
 const SHOW_LIMIT = 3;
 
+function useActivityAppointments() {
+  const [upcoming, setUpcoming] = useState<number | null>(null);
+  const [nextSub,  setNextSub]  = useState('');
+
+  useEffect(() => {
+    api.get<{ appointments: { status: string; scheduledAt: string }[] }>('/api/caregiver/dependents/activity')
+      .then(({ data }) => {
+        const now = Date.now();
+        const scheduled = (data.appointments ?? [])
+          .filter(a => a.status === 'SCHEDULED' && new Date(a.scheduledAt).getTime() > now)
+          .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+        setUpcoming(scheduled.length);
+        if (scheduled.length > 0) {
+          const next = new Date(scheduled[0].scheduledAt);
+          setNextSub(`Next: ${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })} ${next.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' })}`);
+        } else {
+          setNextSub('No upcoming');
+        }
+      })
+      .catch(() => { setUpcoming(0); setNextSub(''); });
+  }, []);
+
+  return { upcoming, nextSub };
+}
+
 export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const isMedium = width >= 768;
   const { dependents, loading: lovedLoading } = useCaregiverDependents();
   const [lovedExpanded, setLovedExpanded] = useState(false);
+  const { upcoming: apptCount, nextSub: apptSub } = useActivityAppointments();
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
       {/* Stat Cards */}
       <View style={styles.statsRow}>
-        <StatCard icon="calendar-outline"      iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appointments" value="2" sub="Next: Tomorrow, 10:30 AM" />
+        <StatCard icon="calendar-outline"      iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appointments" value={apptCount === null ? '…' : String(apptCount)} sub={apptSub} />
         <StatCard icon="medical-outline"       iconBg="#D1FAE5" iconColor={GREEN}  label="Medications Due"       value="3" sub="Today" />
         <StatCard icon="flask-outline"         iconBg="#FEF3C7" iconColor={ORANGE} label="Pending Results"       value="1" sub="Awaiting Review" />
         <StatCard icon="chatbox-outline"       iconBg="#EDE9FE" iconColor={PURPLE} label="Unread Messages"       value="2" sub="From Care Team" />
@@ -329,7 +296,7 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
           ) : (
             <>
               {(lovedExpanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => (
-                <View key={dep.access_id}>
+                <View key={dep.accessId}>
                   {i > 0 && <View style={styles.sep} />}
                   <LiveLovedOneRow dep={dep} onSelect={onSelectPatient} />
                 </View>
@@ -410,12 +377,15 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
       </View>
 
       {/* Proxy Access Banner */}
+      {dependents.length > 0 && (
       <View style={styles.banner}>
         <View style={styles.bannerIconWrapper}>
           <Ionicons name="shield-outline" size={28} color={PURPLE} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.bannerTitle}>You are a Full Access Proxy for Mary Davis</Text>
+          <Text style={styles.bannerTitle}>
+            You are a {accessLabel(dependents[0].accessLevel)} Proxy for {dependents[0].patientName ?? 'your loved one'}
+          </Text>
           <Text style={styles.bannerSub}>
             You can view health info, appointments, medications, results and communicate with the care team. You can also join consultations when permitted.
           </Text>
@@ -425,6 +395,7 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
           <Text style={styles.manageBtnText}>Manage Permissions</Text>
         </TouchableOpacity>
       </View>
+      )}
 
     </ScrollView>
   );

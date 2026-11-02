@@ -79,3 +79,4 @@ build/
 # Project specific
 example
 *.md
+erd-output/

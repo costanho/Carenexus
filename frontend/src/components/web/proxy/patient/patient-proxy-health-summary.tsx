@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
@@ -36,7 +36,7 @@ function healthColor(s: string | null) {
 }
 
 // Static enrichment per patient (supplemental data not in dependent_access)
-const PATIENT_EXTRAS: Record<number, {
+const PATIENT_EXTRAS: Record<string, {
   conditions: string[];
   vitals: { label: string; value: string; unit: string; icon: IoniconsName; alert?: boolean }[];
   allergies: string[];
@@ -82,33 +82,29 @@ const PATIENT_EXTRAS: Record<number, {
 };
 
 function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
-  const name   = dep.patient_name ?? 'Unknown';
-  const age    = calcAge(dep.patient_date_of_birth);
-  const { color, bg } = healthColor(dep.patient_health_status);
-  const extras = PATIENT_EXTRAS[dep.patient_id];
+  const name   = dep.patientName ?? 'Unknown';
+  const age    = calcAge(dep.patientDateOfBirth);
+  const { color, bg } = healthColor(dep.patientHealthStatus);
+  const extras = PATIENT_EXTRAS[dep.patientSystemId];
 
   return (
     <View style={styles.card}>
       {/* Patient header */}
       <View style={styles.patHeader}>
         <View style={styles.avatarWrap}>
-          {dep.patient_avatar ? (
-            <Image source={{ uri: dep.patient_avatar }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-              <Text style={{ color: WHITE, fontSize: 22, fontWeight: '700' }}>{initials(name)}</Text>
-            </View>
-          )}
+          <View style={[styles.avatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+            <Text style={{ color: WHITE, fontSize: 22, fontWeight: '700' }}>{initials(name)}</Text>
+          </View>
           <View style={[styles.statusDot, { backgroundColor: color }]} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.patName}>{name}</Text>
           <View style={styles.patMetaRow}>
             {age && <Text style={styles.patMeta}>{age} yrs</Text>}
-            {dep.patient_gender && <Text style={styles.patMeta}>{dep.patient_gender.charAt(0) + dep.patient_gender.slice(1).toLowerCase()}</Text>}
-            {dep.patient_blood_type && (
+            {dep.patientGender && <Text style={styles.patMeta}>{dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()}</Text>}
+            {dep.patientBloodType && (
               <View style={styles.bloodType}>
-                <Text style={styles.bloodText}>{dep.patient_blood_type}</Text>
+                <Text style={styles.bloodText}>{dep.patientBloodType}</Text>
               </View>
             )}
           </View>
@@ -120,7 +116,7 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         </View>
         <View style={[styles.statusBadge, { backgroundColor: bg }]}>
           <Text style={[styles.statusText, { color }]}>
-            {dep.patient_health_status ?? 'Unknown'}
+            {dep.patientHealthStatus ?? 'Unknown'}
           </Text>
         </View>
       </View>
@@ -209,7 +205,7 @@ export default function PatientProxyHealthSummary() {
           <Text style={styles.emptyText}>No linked patients</Text>
         </View>
       ) : (
-        dependents.map(dep => <PatientHealthCard key={dep.access_id} dep={dep} />)
+        dependents.map(dep => <PatientHealthCard key={dep.accessId} dep={dep} />)
       )}
     </ScrollView>
   );

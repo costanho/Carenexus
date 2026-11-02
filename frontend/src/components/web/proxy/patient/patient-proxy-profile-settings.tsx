@@ -113,29 +113,25 @@ export default function PatientProxyProfileSettings() {
             <Text style={styles.emptyText}>No linked patients yet.</Text>
           ) : (
             dependents.map((dep, i) => {
-              const name      = dep.patient_name ?? 'Unknown';
-              const dotColor  = healthDotColor(dep.patient_health_status);
-              const label     = accessLabel(dep.access_level);
+              const name      = dep.patientName ?? 'Unknown';
+              const dotColor  = healthDotColor(dep.patientHealthStatus);
+              const label     = accessLabel(dep.accessLevel);
               const bg2       = avatarColor(name);
               const rel       = dep.relationship
                 ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
                 : '';
-              const expiry = dep.expires_at
-                ? `Expires ${new Date(dep.expires_at).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' })}`
+              const expiry = dep.expiresAt
+                ? `Expires ${new Date(dep.expiresAt).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' })}`
                 : 'No expiry';
 
               return (
-                <View key={dep.access_id}>
+                <View key={dep.accessId}>
                   {i > 0 && <View style={styles.sep} />}
                   <View style={styles.depRow}>
                     <View style={styles.depAvatarWrap}>
-                      {dep.patient_avatar ? (
-                        <Image source={{ uri: dep.patient_avatar }} style={styles.depAvatar} />
-                      ) : (
-                        <View style={[styles.depAvatar, { backgroundColor: bg2, alignItems: 'center', justifyContent: 'center' }]}>
-                          <Text style={{ color: WHITE, fontSize: 14, fontWeight: '700' }}>{initials(name)}</Text>
-                        </View>
-                      )}
+                      <View style={[styles.depAvatar, { backgroundColor: bg2, alignItems: 'center', justifyContent: 'center' }]}>
+                        <Text style={{ color: WHITE, fontSize: 14, fontWeight: '700' }}>{initials(name)}</Text>
+                      </View>
                       <View style={[styles.depDot, { backgroundColor: dotColor }]} />
                     </View>
                     <View style={{ flex: 1 }}>

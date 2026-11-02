@@ -16,4 +16,5 @@ public interface ConsultationRepository extends JpaRepository<Consultation, Inte
     List<Consultation> findByDoctorSystemIdAndStatus(String doctorSystemId, String status);
     List<Consultation> findByAppointmentId(Integer appointmentId);
     Optional<Consultation> findByAppointmentIdAndPatientSystemId(Integer appointmentId, String patientSystemId);
+    List<Consultation> findByPatientSystemIdIn(List<String> patientSystemIds);
 }

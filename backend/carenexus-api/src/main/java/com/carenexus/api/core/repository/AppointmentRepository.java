@@ -18,4 +18,5 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Intege
     List<Appointment> findByDoctorSystemIdAndScheduledAtBetween(String doctorSystemId, LocalDateTime start, LocalDateTime end);
     Optional<Appointment> findByAppointmentIdAndPatientSystemId(Integer appointmentId, String patientSystemId);
     List<Appointment> findByStatus(String status);
+    List<Appointment> findByPatientSystemIdIn(List<String> patientSystemIds);
 }

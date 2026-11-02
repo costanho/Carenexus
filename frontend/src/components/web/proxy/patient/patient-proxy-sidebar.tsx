@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
 
 
@@ -123,22 +123,18 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             ) : (
               <>
                 {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep) => {
-                  const name     = dep.patient_name ?? 'Unknown';
-                  const dotColor = healthDotColor(dep.patient_health_status);
-                  const label    = accessLabel(dep.access_level);
+                  const name     = dep.patientName ?? 'Unknown';
+                  const dotColor = healthDotColor(dep.patientHealthStatus);
+                  const label    = accessLabel(dep.accessLevel);
                   const rel      = dep.relationship
                     ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
                     : '';
                   return (
-                    <TouchableOpacity key={dep.access_id} style={styles.lovedOneRow} activeOpacity={0.7} onPress={() => onSelectPatient?.(dep)}>
+                    <TouchableOpacity key={dep.accessId} style={styles.lovedOneRow} activeOpacity={0.7} onPress={() => onSelectPatient?.(dep)}>
                       <View style={styles.avatarWrapper}>
-                        {dep.patient_avatar ? (
-                          <Image source={{ uri: dep.patient_avatar }} style={styles.avatar} />
-                        ) : (
-                          <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
-                            <Text style={styles.avatarInitials}>{initials(name)}</Text>
-                          </View>
-                        )}
+                        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
+                          <Text style={styles.avatarInitials}>{initials(name)}</Text>
+                        </View>
                         <View style={[styles.dot, { backgroundColor: dotColor }]} />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -171,17 +167,13 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
         {collapsed && (
           <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }}>
             {dependents.map((dep) => {
-              const name     = dep.patient_name ?? '?';
-              const dotColor = healthDotColor(dep.patient_health_status);
+              const name     = dep.patientName ?? '?';
+              const dotColor = healthDotColor(dep.patientHealthStatus);
               return (
-                <TouchableOpacity key={dep.access_id} activeOpacity={0.7} style={{ position: 'relative' }}>
-                  {dep.patient_avatar ? (
-                    <Image source={{ uri: dep.patient_avatar }} style={styles.collapsedAvatar} />
-                  ) : (
-                    <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-                      <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
-                    </View>
-                  )}
+                <TouchableOpacity key={dep.accessId} activeOpacity={0.7} style={{ position: 'relative' }}>
+                  <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
+                  </View>
                   <View style={[styles.collapsedDot, { backgroundColor: dotColor }]} />
                 </TouchableOpacity>
               );

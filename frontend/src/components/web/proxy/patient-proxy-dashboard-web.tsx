@@ -28,17 +28,23 @@ export function PatientProxyDashboardWeb() {
   const { width } = useWindowDimensions();
   const isCollapsed = width < 1024;
   const [activeKey, setActiveKey]               = useState('dashboard');
+  const [navKey,    setNavKey]                  = useState(0);
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
+
+  function navigate(key: string) {
+    setNavKey(k => k + 1);
+    setActiveKey(key);
+  }
 
   function selectPatient(dep: CaregiverDependent) {
     setSelectedDependent(dep);
-    setActiveKey('patient-profile');
+    navigate('patient-profile');
   }
 
   function renderContent() {
     switch (activeKey) {
       case 'appointments':
-        return <Suspense fallback={<Loader />}><ProxyAppointments /></Suspense>;
+        return <Suspense fallback={<Loader />}><ProxyAppointments key={navKey} /></Suspense>;
       case 'medications':
         return <Suspense fallback={<Loader />}><ProxyMedications /></Suspense>;
       case 'messages':
@@ -54,13 +60,13 @@ export function PatientProxyDashboardWeb() {
       case 'notification-settings':
         return <Suspense fallback={<Loader />}><ProxyNotificationSettings /></Suspense>;
       case 'add-dependent':
-        return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => setActiveKey('dashboard')} onCancel={() => setActiveKey('dashboard')} /></Suspense>;
+        return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => navigate('dashboard')} onCancel={() => navigate('dashboard')} /></Suspense>;
       case 'patient-profile':
         return selectedDependent
-          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => setActiveKey('dashboard')} /></Suspense>
-          : <PatientProxyMainDashboard onNavigate={setActiveKey} onSelectPatient={selectPatient} />;
+          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} /></Suspense>
+          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
       default:
-        return <PatientProxyMainDashboard onNavigate={setActiveKey} onSelectPatient={selectPatient} />;
+        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
     }
   }
 
@@ -69,7 +75,7 @@ export function PatientProxyDashboardWeb() {
       <PatientProxySidebar
         collapsed={isCollapsed}
         activeKey={activeKey}
-        onNavigate={setActiveKey}
+        onNavigate={navigate}
         onSelectPatient={selectPatient}
       />
       <View style={styles.main}>

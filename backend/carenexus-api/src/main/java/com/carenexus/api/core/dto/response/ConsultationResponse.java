@@ -22,6 +22,9 @@ public class ConsultationResponse {
     @JsonProperty("patientSystemId")
     private String patientSystemId;
 
+    @JsonProperty("patientName")
+    private String patientName;
+
     @JsonProperty("doctorSystemId")
     private String doctorSystemId;
 

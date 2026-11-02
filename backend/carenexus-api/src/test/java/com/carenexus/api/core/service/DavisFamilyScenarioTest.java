@@ -352,7 +352,7 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel(accessLevel)
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
         dependentAccessRepository.save(access);

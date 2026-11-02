@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -11,25 +10,28 @@ const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
 const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
 const RED    = '#EF4444';
 
 type ApptStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-type ApptType   = 'IN_PERSON' | 'VIDEO';
+type ApptType   = 'IN_PERSON' | 'VIDEO' | 'PHONE';
 
 interface Appointment {
-  appointment_id:          number;
-  patient_id:              number;
-  doctor_id:               number;
-  scheduled_at:            string;
-  duration_minutes:        number;
-  type:                    ApptType;
-  status:                  ApptStatus;
-  reason_for_visit:        string;
-  video_consultation_link: string | null;
-  notes:                   string | null;
-  doctor_name?:            string;
-  patient_name?:           string;
+  appointmentId:          number;
+  patientSystemId:        string | null;
+  patientName:            string | null;
+  doctorSystemId:         string | null;
+  scheduledAt:            string;
+  durationMinutes:        number;
+  type:                   ApptType;
+  status:                 ApptStatus;
+  reasonForVisit:         string | null;
+  videoConsultationLink:  string | null;
+  notes:                  string | null;
+}
+
+interface ActivityResponse {
+  appointments:  Appointment[];
+  consultations: unknown[];
 }
 
 function statusColor(s: ApptStatus) {
@@ -47,44 +49,40 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
 }
 
-function ApptCard({ appt, depMap }: { appt: Appointment; depMap: Map<number, CaregiverDependent> }) {
+function ApptCard({ appt }: { appt: Appointment }) {
   const { bg, text } = statusColor(appt.status);
-  const dep = depMap.get(appt.patient_id);
-  const patientName = dep?.patient_name ?? appt.patient_name ?? `Patient #${appt.patient_id}`;
-  const isVideo = appt.type === 'VIDEO';
+  const isVideo    = appt.type === 'VIDEO';
   const isUpcoming = appt.status === 'SCHEDULED';
 
   return (
     <View style={[styles.card, isUpcoming && styles.cardUpcoming]}>
-      {/* Header row */}
       <View style={styles.cardHead}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitle}>{appt.reason_for_visit}</Text>
-          <Text style={styles.cardSub}>{patientName}</Text>
+          <Text style={styles.cardTitle}>{appt.reasonForVisit ?? 'Appointment'}</Text>
+          <Text style={styles.cardSub}>{appt.patientName ?? appt.patientSystemId ?? '—'}</Text>
         </View>
         <View style={[styles.badge, { backgroundColor: bg }]}>
           <Text style={[styles.badgeText, { color: text }]}>{appt.status.replace('_', ' ')}</Text>
         </View>
       </View>
 
-      {/* Details grid */}
       <View style={styles.detailRow}>
         <View style={styles.detail}>
           <Ionicons name="calendar-outline" size={14} color={GRAY} />
-          <Text style={styles.detailText}>{formatDate(appt.scheduled_at)}</Text>
+          <Text style={styles.detailText}>{formatDate(appt.scheduledAt)}</Text>
         </View>
         <View style={styles.detail}>
           <Ionicons name="time-outline" size={14} color={GRAY} />
-          <Text style={styles.detailText}>{formatTime(appt.scheduled_at)} · {appt.duration_minutes} min</Text>
+          <Text style={styles.detailText}>{formatTime(appt.scheduledAt)} · {appt.durationMinutes} min</Text>
         </View>
         <View style={styles.detail}>
           <Ionicons name={isVideo ? 'videocam-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
           <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>{isVideo ? 'Video Call' : 'In Person'}</Text>
         </View>
-        {appt.doctor_name && (
+        {appt.doctorSystemId && (
           <View style={styles.detail}>
             <Ionicons name="person-outline" size={14} color={GRAY} />
-            <Text style={styles.detailText}>{appt.doctor_name}</Text>
+            <Text style={styles.detailText}>{appt.doctorSystemId}</Text>
           </View>
         )}
       </View>
@@ -95,7 +93,7 @@ function ApptCard({ appt, depMap }: { appt: Appointment; depMap: Map<number, Car
         </View>
       )}
 
-      {isUpcoming && isVideo && appt.video_consultation_link && (
+      {isUpcoming && isVideo && appt.videoConsultationLink && (
         <TouchableOpacity style={styles.joinBtn} activeOpacity={0.8}>
           <Ionicons name="videocam-outline" size={15} color={WHITE} />
           <Text style={styles.joinBtnText}>Join Video Call</Text>
@@ -108,30 +106,24 @@ function ApptCard({ appt, depMap }: { appt: Appointment; depMap: Map<number, Car
 type Filter = 'all' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export default function PatientProxyAppointments() {
-  const { dependents, loading: depsLoading } = useCaregiverDependents();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading]           = useState(false);
+  const [loading, setLoading]           = useState(true);
+  const [error,   setError]             = useState<string | null>(null);
   const [filter,  setFilter]            = useState<Filter>('all');
 
-  const depMap = new Map(dependents.map(d => [d.patient_id, d]));
-
   useEffect(() => {
-    if (dependents.length === 0) return;
     setLoading(true);
-    Promise.all(
-      dependents.map(d =>
-        api.get<Appointment[]>(`/api/appointments?patient_id=${d.patient_id}`)
-           .then(r => r.data)
-      )
-    )
-      .then(results => {
-        const all = results.flat().sort(
-          (a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
+    api.get<ActivityResponse>('/api/caregiver/dependents/activity')
+      .then(({ data }) => {
+        const sorted = [...(data.appointments ?? [])].sort(
+          (a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
         );
-        setAppointments(all);
+        setAppointments(sorted);
+        setError(null);
       })
+      .catch(() => setError('Failed to load appointments.'))
       .finally(() => setLoading(false));
-  }, [dependents.length]);
+  }, []);
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all',       label: 'All' },
@@ -140,9 +132,9 @@ export default function PatientProxyAppointments() {
     { key: 'CANCELLED', label: 'Cancelled' },
   ];
 
-  const visible = filter === 'all' ? appointments : appointments.filter(a => a.status === filter);
-  const upcoming   = appointments.filter(a => a.status === 'SCHEDULED').length;
-  const completed  = appointments.filter(a => a.status === 'COMPLETED').length;
+  const visible   = filter === 'all' ? appointments : appointments.filter(a => a.status === filter);
+  const upcoming  = appointments.filter(a => a.status === 'SCHEDULED').length;
+  const completed = appointments.filter(a => a.status === 'COMPLETED').length;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -187,15 +179,20 @@ export default function PatientProxyAppointments() {
       </View>
 
       {/* List */}
-      {depsLoading || loading ? (
+      {loading ? (
         <ActivityIndicator size="large" color={PURPLE} style={{ marginTop: 60 }} />
+      ) : error ? (
+        <View style={styles.empty}>
+          <Ionicons name="alert-circle-outline" size={40} color={RED} />
+          <Text style={styles.emptyText}>{error}</Text>
+        </View>
       ) : visible.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="calendar-outline" size={40} color={BORDER} />
           <Text style={styles.emptyText}>No appointments found</Text>
         </View>
       ) : (
-        visible.map(a => <ApptCard key={a.appointment_id} appt={a} depMap={depMap} />)
+        visible.map(a => <ApptCard key={a.appointmentId} appt={a} />)
       )}
     </ScrollView>
   );

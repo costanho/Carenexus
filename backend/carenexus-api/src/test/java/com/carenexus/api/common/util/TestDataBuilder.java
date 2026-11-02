@@ -126,7 +126,7 @@ public class TestDataBuilder {
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel("FULL")
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
     }
@@ -138,7 +138,7 @@ public class TestDataBuilder {
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel(accessLevel)
-                .authorizedAt(LocalDateTime.now())
+                .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
     }
