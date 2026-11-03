@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const WHITE  = '#FFFFFF';
@@ -30,6 +31,7 @@ function statusConfig(s: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show'      };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled'  };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress'  };
+    default:            return { bg: BG,        color: GRAY,  label: String(s)      };
   }
 }
 
@@ -38,6 +40,7 @@ function typeConfig(t: ScheduleEntry['type']) {
     case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
     case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG        };
   }
 }
 
@@ -74,6 +77,7 @@ function consultLabel(c: ScheduleEntry['consultation']) {
   if (!c) return 'No consultation';
   if (c.status === 'DRAFT')       return 'Consultation: Draft';
   if (c.status === 'IN_PROGRESS') return 'Consultation: In Progress';
+  if (c.status === 'CANCELLED')   return 'Consultation: Cancelled';
   return 'Consultation: Completed';
 }
 
@@ -96,6 +100,7 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
 function AppCard({ entry }: { entry: ScheduleEntry }) {
+  const [expanded, setExpanded] = useState(false);
   const sc    = statusConfig(entry.status);
   const tc    = typeConfig(entry.type);
   const today = isTodayDate(entry.scheduled_at);
@@ -151,11 +156,48 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
             </View>
           )}
 
-          <TouchableOpacity style={styles.viewBtn} activeOpacity={0.8}>
-            <Text style={styles.viewBtnText}>View Details</Text>
-            <Ionicons name="chevron-forward" size={14} color={BLUE} />
+          {canJoinCall(entry) && (
+            <TouchableOpacity
+              style={styles.metaPill}
+              activeOpacity={0.8}
+              onPress={() => openVideoLink(entry)}
+              accessibilityRole="link"
+              accessibilityLabel={`Join video call with ${entry.patient_name}`}
+            >
+              <Ionicons name="videocam-outline" size={12} color={BLUE} />
+              <Text style={[styles.metaText, { color: BLUE }]}>Join Call</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.viewBtn}
+            activeOpacity={0.8}
+            onPress={() => setExpanded(v => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
+            accessibilityState={{ expanded }}
+          >
+            <Text style={styles.viewBtnText}>{expanded ? 'Hide Details' : 'View Details'}</Text>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={BLUE} />
           </TouchableOpacity>
         </View>
+
+        {expanded && (
+          <View style={styles.detailsPanel}>
+            {([
+              ['Patient ID',  entry.patient_system_id],
+              ['Appointment', `#${entry.appointment_id}`],
+              ['Reason',      entry.reason_for_visit ?? '—'],
+              ['Notes',       entry.notes ?? '—'],
+              ...(entry.type === 'VIDEO' ? [['Video link', entry.video_consultation_link ?? 'Not provided']] : []),
+            ] as [string, string][]).map(([label, value]) => (
+              <View key={label} style={styles.detailLine}>
+                <Text style={styles.detailLabel}>{label}</Text>
+                <Text style={styles.detailValue} selectable>{value}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     </View>
   );
@@ -373,6 +415,10 @@ const styles = StyleSheet.create({
   metaText:    { fontSize: 11, color: GRAY, fontWeight: '500' },
   viewBtn:     { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' as any },
   viewBtnText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  detailsPanel: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: BORDER, gap: 4 },
+  detailLine:   { flexDirection: 'row', gap: 12 },
+  detailLabel:  { width: 100, fontSize: 12, color: GRAY, fontWeight: '600' },
+  detailValue:  { flex: 1, fontSize: 12, color: TEXT },
 
   emptyState:  { alignItems: 'center', gap: 8, paddingVertical: 64 },
   emptyTitle:  { fontSize: 18, fontWeight: '600', color: TEXT },

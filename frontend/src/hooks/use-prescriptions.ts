@@ -33,14 +33,20 @@ interface State {
 }
 
 export function usePrescriptions(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [tick, setTick]       = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) {
+        setError(userError ?? 'Could not load your account.');
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
 
     Promise.all([
@@ -89,7 +95,7 @@ export function usePrescriptions(): State {
       })
       .catch(() => setError('Failed to load prescriptions.'))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, tick]);
 
   return { prescriptions, loading, error, refetch: () => setTick(t => t + 1) };
 }

@@ -66,14 +66,14 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
         // Dr. Sarah (specialist) → Linda
         createCareTeamRelationship(linda.getSystemId(), drSarah.getSystemId(), null, "SPECIALIST");
 
-        // Caregiver Sarah → Linda
+        // Caregiver Sarah → Linda (care-team listing only; no dependent_access grant yet)
         createCareTeamRelationship(linda.getSystemId(), null, caregiverSarah.getSystemId(), "ASSIGNED_CAREGIVER");
 
         // Jake (son) → Eleanor (family caregiver with full access)
-        createDependentAccess(eleanor.getSystemId(), jake.getSystemId(), eleanor.getSystemId(), "FULL");
+        createDependentAccess(eleanor.getSystemId(), jake.getSystemId(), eleanor.getSystemId(), "FULL_ACCESS", false);
 
-        // Lisa (daughter) → Eleanor (family caregiver with limited access)
-        createDependentAccess(eleanor.getSystemId(), lisa.getSystemId(), eleanor.getSystemId(), "HEALTH_RECORDS_ONLY");
+        // Lisa (daughter) → Eleanor (family caregiver with limited access: health records only)
+        createDependentAccess(eleanor.getSystemId(), lisa.getSystemId(), eleanor.getSystemId(), "CUSTOM", true);
 
         // No relationships between Linda and Mary (they're unrelated)
     }
@@ -159,11 +159,23 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
     }
 
     /**
-     * Scenario 6: Caregiver Sarah (hired) can view Linda's records
+     * Scenario 6: Caregiver Sarah (hired) needs a patient-authorized dependent_access grant; a care_team
+     * ASSIGNED_CAREGIVER row alone does not give access to Linda's records.
      */
     @Test
     public void scenario6_HiredCaregiverViewsAssignedPatient() {
         setSecurityContext(caregiverSarah.getUserId(), caregiverSarah.getSystemId(), "sarah-caregiver@example.com", "CAREGIVER");
+
+        assertThrows(AuthorizationException.class, () ->
+            authorizationService.authorizePatientDataAccess(
+                linda.getSystemId(),
+                "HEALTH_METRICS",
+                1
+            )
+        );
+
+        // Linda grants Sarah access to her health records
+        createDependentAccess(linda.getSystemId(), caregiverSarah.getSystemId(), linda.getSystemId(), "CUSTOM", true);
 
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
@@ -197,7 +209,7 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
     public void scenario8_DaughterWithLimitedAccess() {
         setSecurityContext(lisa.getUserId(), lisa.getSystemId(), "lisa@example.com", "CAREGIVER");
 
-        // Lisa has HEALTH_RECORDS_ONLY permission
+        // Lisa has a CUSTOM grant with only canViewRecords
         // She should be able to access health records
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(
@@ -313,7 +325,8 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
             authorizationService.authorizePatientDataAccess(linda.getSystemId(), "MEDICAL_RECORDS", 1)
         );
 
-        // 4. Caregiver Sarah
+        // 4. Caregiver Sarah (once Linda has granted her proxy access)
+        createDependentAccess(linda.getSystemId(), caregiverSarah.getSystemId(), linda.getSystemId(), "CUSTOM", true);
         setSecurityContext(caregiverSarah.getUserId(), caregiverSarah.getSystemId(), "sarah-caregiver@example.com", "CAREGIVER");
         assertDoesNotThrow(() ->
             authorizationService.authorizePatientDataAccess(linda.getSystemId(), "MEDICAL_RECORDS", 1)
@@ -346,12 +359,14 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
         careTeamRepository.save(careTeam);
     }
 
-    private void createDependentAccess(String patientSystemId, String caregiverSystemId, String authorizedBySystemId, String accessLevel) {
+    private void createDependentAccess(String patientSystemId, String caregiverSystemId, String authorizedBySystemId,
+                                       String accessLevel, boolean canViewRecords) {
         DependentAccess access = DependentAccess.builder()
                 .patientSystemId(patientSystemId)
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
                 .accessLevel(accessLevel)
+                .canViewRecords(canViewRecords)
                 .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();

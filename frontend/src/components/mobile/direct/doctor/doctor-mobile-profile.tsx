@@ -135,6 +135,8 @@ export default function DoctorMobileProfile() {
             }}
             onPress={refetch}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh"
           >
             <Ionicons name="refresh-outline" size={s(16)} color={WHITE} />
           </TouchableOpacity>
@@ -284,7 +286,7 @@ export default function DoctorMobileProfile() {
             </View>
             <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT }}>Account Details</Text>
           </View>
-          <InfoRow icon="finger-print-outline" label="Doctor ID" value={`#${profile.doctor_id}`} mono />
+          <InfoRow icon="finger-print-outline" label="Doctor ID" value={profile.doctor_system_id} mono />
           <InfoRow icon="person-outline"       label="User ID"   value={`#${profile.user_id}`}   mono />
           <InfoRow icon="time-outline"         label="Joined"    value={formatDate(profile.created_at)} />
         </View>

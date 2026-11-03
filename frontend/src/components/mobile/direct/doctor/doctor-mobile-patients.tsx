@@ -106,6 +106,8 @@ export default function DoctorMobilePatients() {
           onPress={refetch}
           activeOpacity={0.7}
           style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(20)} color={WHITE} />
         </TouchableOpacity>
@@ -261,13 +263,11 @@ export default function DoctorMobilePatients() {
               Last: <Text style={{ fontWeight: '600', color: TEXT }}>{formatDate(patient.last_appointment_at)}</Text>
             </Text>
           </View>
-          <TouchableOpacity
-            style={{ flexDirection: 'row', alignItems: 'center', gap: s(2), backgroundColor: '#EEF2FF', paddingHorizontal: s(10), paddingVertical: sh(5), borderRadius: s(8) }}
-            activeOpacity={0.8}
-          >
-            <Text style={{ fontSize: s(11), color: BLUE, fontWeight: '600' }}>Profile</Text>
-            <Ionicons name="chevron-forward" size={s(12)} color={BLUE} />
-          </TouchableOpacity>
+          {!!patient.patient_system_id && (
+            <Text style={{ fontSize: s(10), color: GRAY, fontWeight: '600' }} selectable>
+              {patient.patient_system_id}
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -372,7 +372,7 @@ export default function DoctorMobilePatients() {
             clearButtonMode="while-editing"
           />
           {!!search && (
-            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
               <Ionicons name="close-circle" size={s(16)} color={LGRAY} />
             </TouchableOpacity>
           )}
@@ -392,7 +392,7 @@ export default function DoctorMobilePatients() {
               <Text style={{ fontSize: s(13), color: GRAY }}>Try adjusting your filter</Text>
             </View>
           ) : (
-            filtered.map(p => <PatientCard key={p.patient_id} patient={p} />)
+            filtered.map(p => <PatientCard key={p.patient_system_id} patient={p} />)
           )}
         </View>
       </ScrollView>

@@ -34,6 +34,44 @@ public class UpdateUserSettingsRequest {
     @JsonProperty("consultationNotifications")
     private Boolean consultationNotifications;
 
+    // Notification preferences used by the proxy notification settings screen (V11 columns)
+
+    @JsonProperty("criticalAlerts")
+    private Boolean criticalAlerts;
+
+    @JsonProperty("medicationReminders")
+    private Boolean medicationReminders;
+
+    @JsonProperty("vitalsAlerts")
+    private Boolean vitalsAlerts;
+
+    @JsonProperty("appointmentReminder1h")
+    private Boolean appointmentReminder1h;
+
+    @JsonProperty("appointmentChangeAlerts")
+    private Boolean appointmentChangeAlerts;
+
+    @JsonProperty("videoCallAlerts")
+    private Boolean videoCallAlerts;
+
+    @JsonProperty("messageNotifications")
+    private Boolean messageNotifications;
+
+    @JsonProperty("carePlanUpdateAlerts")
+    private Boolean carePlanUpdateAlerts;
+
+    @JsonProperty("referralAlerts")
+    private Boolean referralAlerts;
+
+    @JsonProperty("loginAlerts")
+    private Boolean loginAlerts;
+
+    @JsonProperty("accessChangeAlerts")
+    private Boolean accessChangeAlerts;
+
+    @JsonProperty("weeklySummary")
+    private Boolean weeklySummary;
+
     @JsonProperty("profileVisibility")
     private String profileVisibility;
 

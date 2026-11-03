@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  apiErrorMessage, cancelAppointment, isFutureSlot, isUpcomingAppointment,
+  rescheduleAppointment, useAppointments, type Appointment,
+} from '@/hooks/use-appointments';
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/auth/auth.interceptor';
+import { confirmAction, showMessage } from '@/lib/ui/dialogs';
+import { CalendarPicker, TimePicker } from './patient-web-appointment';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -67,36 +71,103 @@ function StatCard({ value, label, color, icon }: { value: number; label: string;
   );
 }
 
+function ReschedulePanel({ appt, onDone, onClose }: { appt: Appointment; onDone: () => void; onClose: () => void }) {
+  const [date, setDate]     = useState('');
+  const [time, setTime]     = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const slotInPast = !!date && !!time && !isFutureSlot(date, time);
+
+  async function handleSave() {
+    setError('');
+    if (!date || !time) { setError('Please choose a new date and time.'); return; }
+    if (!isFutureSlot(date, time)) { setError('Please choose a date and time in the future.'); return; }
+    setSaving(true);
+    try {
+      await rescheduleAppointment(appt.appointment_id, date, time);
+      onDone();
+    } catch (e: any) {
+      setError(apiErrorMessage(e, 'Failed to reschedule appointment. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.reschedulePanel}>
+      <Text style={styles.rescheduleTitle}>Choose a new date and time</Text>
+      <View style={styles.reschedulePickers}>
+        <View style={styles.reschedulePickerCol}>
+          <CalendarPicker value={date} onChange={setDate} />
+        </View>
+        <View style={styles.reschedulePickerCol}>
+          <TimePicker value={time} onChange={setTime} />
+        </View>
+      </View>
+      {(!!error || slotInPast) && (
+        <View style={styles.inlineError}>
+          <Ionicons name="alert-circle-outline" size={14} color={RED} />
+          <Text style={styles.inlineErrorText}>{error || 'This time has already passed. Please choose a later time.'}</Text>
+        </View>
+      )}
+      <View style={styles.rescheduleActions}>
+        <TouchableOpacity
+          style={styles.rescheduleCancelBtn}
+          onPress={onClose}
+          disabled={saving}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+        >
+          <Text style={styles.rescheduleCancelText}>Keep current time</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.rescheduleSaveBtn, saving && { opacity: 0.6 }]}
+          onPress={handleSave}
+          disabled={saving}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: saving }}
+        >
+          <Text style={styles.rescheduleSaveText}>{saving ? 'Saving…' : 'Confirm new time'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: () => void }) {
-  const [expanded, setExpanded]   = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [expanded, setExpanded]       = useState(false);
+  const [cancelling, setCancelling]   = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [notice, setNotice]           = useState('');
   const status = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
   const type   = TYPE_CONFIG[appt.type]     ?? TYPE_CONFIG.IN_PERSON;
-  const canCancel = appt.status === 'SCHEDULED' || appt.status === 'RESCHEDULED';
+  // Only appointments that are still ahead of us can be changed.
+  const canChange = isUpcomingAppointment(appt);
 
   async function handleCancel() {
-    Alert.alert(
-      'Cancel Appointment',
-      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)}?`,
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Yes, delete it',
-          style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            try {
-              await api.delete(`/api/appointments/${appt.appointment_id}`);
-              onRefetch();
-            } catch {
-              Alert.alert('Error', 'Failed to cancel appointment. Please try again.');
-            } finally {
-              setCancelling(false);
-            }
-          },
-        },
-      ]
+    const ok = await confirmAction(
+      'Cancel appointment',
+      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)} at ${formatTime(appt.scheduled_at)}?`,
+      'Cancel appointment',
+      true,
     );
+    if (!ok) return;
+    setCancelling(true);
+    try {
+      await cancelAppointment(appt.appointment_id);
+      onRefetch();
+    } catch (e: any) {
+      showMessage('Could not cancel appointment', apiErrorMessage(e, 'Failed to cancel appointment. Please try again.'));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  function handleRescheduled() {
+    setRescheduling(false);
+    setNotice('Your appointment has been moved to the new time.');
+    onRefetch();
   }
 
   return (
@@ -117,7 +188,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         {appt.doctor_avatar_url ? (
           <Image source={{ uri: appt.doctor_avatar_url }} style={styles.avatar} />
         ) : (
-          <View style={[styles.avatar, styles.avatarFallback]}>
+          <View style={[styles.avatar, styles.avatarFallback]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Text style={styles.avatarInitial}>{appt.doctor_name[4] ?? 'D'}</Text>
           </View>
         )}
@@ -186,6 +257,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
               style={styles.videoBtn}
               onPress={() => Linking.openURL(appt.video_consultation_link!)}
               activeOpacity={0.8}
+              accessibilityRole="link"
             >
               <Ionicons name="videocam-outline" size={15} color={INDIGO} />
               <Text style={styles.videoBtnText}>Join Video Consultation</Text>
@@ -195,21 +267,51 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         </View>
       )}
 
-      {/* Cancel button — always visible for cancellable appointments */}
-      {canCancel && (
-        <TouchableOpacity
-          style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
-          onPress={handleCancel}
-          disabled={cancelling}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="trash-outline" size={15} color={RED} />
-          <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling…' : 'Cancel & Delete'}</Text>
-        </TouchableOpacity>
+      {!!notice && (
+        <View style={styles.noticeBox}>
+          <Ionicons name="checkmark-circle-outline" size={14} color={GREEN} />
+          <Text style={styles.noticeText}>{notice}</Text>
+        </View>
+      )}
+
+      {/* Reschedule / cancel — only for appointments that have not happened yet */}
+      {canChange && rescheduling && (
+        <ReschedulePanel appt={appt} onDone={handleRescheduled} onClose={() => setRescheduling(false)} />
+      )}
+      {canChange && !rescheduling && (
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.rescheduleBtn, cancelling && { opacity: 0.6 }]}
+            onPress={() => { setNotice(''); setRescheduling(true); }}
+            disabled={cancelling}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Ionicons name="calendar-outline" size={15} color={TEAL} />
+            <Text style={styles.rescheduleBtnText}>Reschedule</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
+            onPress={handleCancel}
+            disabled={cancelling}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: cancelling }}
+          >
+            <Ionicons name="close-circle-outline" size={15} color={RED} />
+            <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling…' : 'Cancel appointment'}</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {/* Expand toggle */}
-      <TouchableOpacity style={styles.expandToggle} onPress={() => setExpanded(e => !e)} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.expandToggle}
+        onPress={() => setExpanded(e => !e)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+      >
         <Text style={styles.expandToggleText}>{expanded ? 'Show less' : 'Show details'}</Text>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={TEAL} />
       </TouchableOpacity>
@@ -243,7 +345,7 @@ export function PatientWebAppointmentStatus() {
   const remaining = sorted.length - visibleCount;
 
   const total      = appointments.length;
-  const upcoming   = appointments.filter(a => a.status === 'SCHEDULED' || a.status === 'RESCHEDULED').length;
+  const upcoming   = appointments.filter(isUpcomingAppointment).length;
   const completed  = appointments.filter(a => a.status === 'COMPLETED').length;
   const cancelled  = appointments.filter(a => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
 
@@ -255,7 +357,7 @@ export function PatientWebAppointmentStatus() {
           <Text style={styles.pageTitle}>My Appointments</Text>
           <Text style={styles.pageSub}>Track and manage all your healthcare appointments</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh appointments">
           <Ionicons name="refresh-outline" size={16} color={TEAL} />
           <Text style={styles.refreshBtnText}>Refresh</Text>
         </TouchableOpacity>
@@ -279,6 +381,8 @@ export function PatientWebAppointmentStatus() {
               style={[styles.filterTab, on && styles.filterTabActive]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterTabText, on && styles.filterTabTextActive]}>{f.label}</Text>
               {on && f.key !== 'ALL' && (
@@ -394,8 +498,25 @@ const styles = StyleSheet.create({
   videoBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#EEF2FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#C7D2FE' },
   videoBtnText:    { flex: 1, fontSize: 13, fontWeight: '600', color: INDIGO },
 
-  cancelBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: RED, backgroundColor: '#FEF2F2', marginBottom: 8 },
+  actionRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  rescheduleBtn:    { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  rescheduleBtnText:{ fontSize: 13, fontWeight: '600', color: TEAL },
+  cancelBtn:        { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: RED, backgroundColor: '#FEF2F2' },
   cancelBtnText:    { fontSize: 13, fontWeight: '600', color: RED },
+
+  reschedulePanel:      { borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 14, gap: 12, marginBottom: 8, backgroundColor: BG },
+  rescheduleTitle:      { fontSize: 14, fontWeight: '700', color: TEXT },
+  reschedulePickers:    { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  reschedulePickerCol:  { flex: 1, minWidth: 260, backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 14 },
+  rescheduleActions:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' },
+  rescheduleCancelBtn:  { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: CARD },
+  rescheduleCancelText: { fontSize: 13, fontWeight: '600', color: GRAY },
+  rescheduleSaveBtn:    { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: TEAL },
+  rescheduleSaveText:   { fontSize: 13, fontWeight: '700', color: WHITE },
+  inlineError:          { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FEF2F2', borderRadius: 8, padding: 10 },
+  inlineErrorText:      { flex: 1, fontSize: 12, color: RED },
+  noticeBox:            { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ECFDF5', borderRadius: 8, padding: 10, marginBottom: 8 },
+  noticeText:           { flex: 1, fontSize: 12, color: '#047857' },
   expandToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: BORDER, marginTop: 4 },
   expandToggleText: { fontSize: 12, fontWeight: '600', color: TEAL },
 

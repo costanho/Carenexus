@@ -4,8 +4,10 @@ import com.carenexus.api.core.service.RelationshipService;
 
 import com.carenexus.api.BaseIntegrationTest;
 import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.core.model.Appointment;
 import com.carenexus.api.core.model.CareTeam;
 import com.carenexus.api.core.model.DependentAccess;
+import com.carenexus.api.core.repository.AppointmentRepository;
 import com.carenexus.api.auth.model.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,9 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
 
     @Autowired
     private RelationshipService relationshipService;
+
+    @Autowired
+    private AppointmentRepository appointmentRepository;
 
     private User drMatt;      // doctor
     private User linda;       // patient
@@ -56,7 +61,7 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
                 .build();
         careTeamRepository.save(careTeam1);
 
-        // Sarah (caregiver) → Linda (care_team)
+        // Sarah (caregiver) → Linda (care_team only: does NOT grant data access; caregivers need dependent_access)
         CareTeam careTeam2 = CareTeam.builder()
                 .patientSystemId(linda.getSystemId())
                 .providerSystemId(sarah.getSystemId())
@@ -72,7 +77,7 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
                 .patientSystemId(eleanor.getSystemId())
                 .caregiverSystemId(jake.getSystemId())
                 .authorizedBySystemId(eleanor.getSystemId()) // Eleanor granted access to Jake
-                .accessLevel("FULL")
+                .accessLevel("FULL_ACCESS")
                 .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();
@@ -145,19 +150,90 @@ public class AuthorizationServiceRelationshipTest extends BaseIntegrationTest {
     }
 
     /**
-     * Scenario: Caregiver (hired) accessing assigned patient's data
+     * Scenario: a care_team row alone does not give a caregiver access (permissions live on dependent_access)
      */
     @Test
-    public void testAuthorizePatientDataAccess_CaregiverCanAccessAssignedPatient() {
+    public void testAuthorizePatientDataAccess_CareTeamCaregiverWithoutDependentAccessDenied() {
         setSecurityContext(sarah.getUserId(), sarah.getSystemId(), "sarah@example.com", "CAREGIVER");
 
-        assertDoesNotThrow(() ->
+        assertThrows(AuthorizationException.class, () ->
             authorizationService.authorizePatientDataAccess(
-                linda.getSystemId(), // Sarah is assigned to Linda
+                linda.getSystemId(),
                 "HEALTH_METRICS",
                 1
             )
         );
+    }
+
+    /**
+     * Scenario: doctor related only through an appointment
+     */
+    @Test
+    public void testRequirePatientAccess_DoctorWithAppointmentAllowed() {
+        appointmentRepository.save(Appointment.builder()
+                .patientSystemId(mary.getSystemId())
+                .doctorSystemId(drMatt.getSystemId())
+                .scheduledAt(LocalDateTime.now().plusDays(2))
+                .build());
+        setSecurityContext(drMatt.getUserId(), drMatt.getSystemId(), "matt@hospital.com", "DOCTOR");
+
+        assertDoesNotThrow(() -> authorizationService.requirePatientAccess(mary.getSystemId(), PatientPermission.RECORDS));
+    }
+
+    /**
+     * Scenario: cancelled appointments do not create a relationship
+     */
+    @Test
+    public void testRequirePatientAccess_DoctorWithCancelledAppointmentDenied() {
+        appointmentRepository.save(Appointment.builder()
+                .patientSystemId(mary.getSystemId())
+                .doctorSystemId(drMatt.getSystemId())
+                .scheduledAt(LocalDateTime.now().plusDays(2))
+                .status("CANCELLED")
+                .build());
+        setSecurityContext(drMatt.getUserId(), drMatt.getSystemId(), "matt@hospital.com", "DOCTOR");
+
+        assertThrows(AuthorizationException.class,
+                () -> authorizationService.requirePatientAccess(mary.getSystemId(), PatientPermission.RECORDS));
+    }
+
+    /**
+     * Scenario: an expired dependent_access grant no longer works
+     */
+    @Test
+    public void testRequirePatientAccess_ExpiredCaregiverAccessDenied() {
+        DependentAccess expired = DependentAccess.builder()
+                .patientSystemId(mary.getSystemId())
+                .caregiverSystemId(sarah.getSystemId())
+                .accessLevel("FULL_ACCESS")
+                .expiresAt(LocalDateTime.now().minusDays(1))
+                .isActive(true)
+                .build();
+        dependentAccessRepository.save(expired);
+        setSecurityContext(sarah.getUserId(), sarah.getSystemId(), "sarah@example.com", "CAREGIVER");
+
+        assertThrows(AuthorizationException.class,
+                () -> authorizationService.requirePatientAccess(mary.getSystemId(), PatientPermission.PROFILE));
+    }
+
+    /**
+     * Scenario: caregiver flags are enforced per resource
+     */
+    @Test
+    public void testRequirePatientAccess_CaregiverFlagsEnforced() {
+        DependentAccess limited = DependentAccess.builder()
+                .patientSystemId(mary.getSystemId())
+                .caregiverSystemId(sarah.getSystemId())
+                .accessLevel("CUSTOM")
+                .canViewAppointments(true)
+                .isActive(true)
+                .build();
+        dependentAccessRepository.save(limited);
+        setSecurityContext(sarah.getUserId(), sarah.getSystemId(), "sarah@example.com", "CAREGIVER");
+
+        assertDoesNotThrow(() -> authorizationService.requirePatientAccess(mary.getSystemId(), PatientPermission.APPOINTMENTS));
+        assertThrows(AuthorizationException.class,
+                () -> authorizationService.requirePatientAccess(mary.getSystemId(), PatientPermission.LAB_RESULTS));
     }
 
     /**

@@ -87,7 +87,7 @@ export function DoctorDashboardWeb() {
         </Suspense>
       );
     }
-    return <DoctorMainDashboardArea />;
+    return <DoctorMainDashboardArea onNavigate={setActiveKey} />;
   }
 
   return (
@@ -98,7 +98,7 @@ export function DoctorDashboardWeb() {
         onNavigate={setActiveKey}
       />
       <View style={styles.main}>
-        <DoctorTopNavbar />
+        <DoctorTopNavbar onProfilePress={() => setActiveKey('profile')} />
         {renderContent()}
       </View>
     </View>

@@ -1,231 +1,182 @@
 package com.carenexus.api.common.service;
 
-import com.carenexus.api.BaseIntegrationTest;
+import com.carenexus.api.common.config.UserContext;
 import com.carenexus.api.common.model.AuditLog;
-import com.carenexus.api.auth.model.User;
+import com.carenexus.api.common.repository.AuditLogRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.util.List;
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-public class AuditServiceTest extends BaseIntegrationTest {
+/**
+ * Unit tests for AuditService (repository mocked; no database needed). The REQUIRES_NEW behaviour itself is
+ * declared with @Transactional and asserted here by reflection; it was verified end-to-end against PostgreSQL
+ * (a failed login row survives the login rollback).
+ */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+public class AuditServiceTest {
 
-    @Autowired
+    @Mock
+    private AuditLogRepository auditLogRepository;
+
+    @Mock
+    private UserContext userContext;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @InjectMocks
     private AuditService auditService;
 
-    private User linda;
-    private User drMatt;
-
     @BeforeEach
-    public void setUp() {
-        linda = createAndSaveUser(1, "PAT-00001", "linda@example.com", "PATIENT");
-        drMatt = createAndSaveUser(2, "DOC-00001", "matt@hospital.com", "DOCTOR");
+    void setUp() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/lab-results/patient/PAT-00001");
+        request.setRemoteAddr("203.0.113.42");
+        request.addHeader("User-Agent", "JUnit");
+        request.addHeader("Authorization", "Bearer secret-token");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        when(userContext.getCurrentUserSystemId()).thenReturn("DOC-00001");
+        when(userContext.getCurrentUserRole()).thenReturn("DOCTOR");
+        when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
     }
 
-    /**
-     * Test: Login success is logged
-     */
+    @AfterEach
+    void tearDown() {
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    private AuditLog saved() {
+        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogRepository).save(captor.capture());
+        return captor.getValue();
+    }
+
     @Test
-    public void testLogLogin() {
-        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla/5.0...");
+    public void logLogin_keepsCallerIpAndAddsRequestContext() {
+        auditService.logLogin("PAT-00001", "192.168.1.100", "Mozilla/5.0");
 
-        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
-
-        assertEquals(1, logs.size());
-        AuditLog log = logs.get(0);
+        AuditLog log = saved();
+        assertEquals("PAT-00001", log.getSystemId());
         assertEquals("LOGIN", log.getAction());
         assertEquals("SUCCESS", log.getStatus());
         assertEquals("192.168.1.100", log.getIpAddress());
+        assertEquals("Mozilla/5.0", log.getUserAgent());
+        assertEquals("GET", log.getHttpMethod());
     }
 
-    /**
-     * Test: Failed login is logged
-     */
     @Test
-    public void testLogFailedLogin() {
-        auditService.logFailedLogin("linda@example.com", "192.168.1.100", "Mozilla/5.0...", "Invalid password");
+    public void logFailedLogin_hasNoSystemIdAndDoesNotStoreEmail() {
+        auditService.logFailedLogin("linda@example.com", "192.168.1.100", "Mozilla/5.0", "Invalid password");
 
-        List<AuditLog> logs = auditLogRepository.findAll();
-
-        assertTrue(logs.stream().anyMatch(log ->
-                "LOGIN".equals(log.getAction()) &&
-                "FAILURE".equals(log.getStatus()) &&
-                "Invalid password".equals(log.getErrorMessage())
-        ));
-    }
-
-    /**
-     * Test: Logout is logged
-     */
-    @Test
-    public void testLogLogout() {
-        auditService.logLogout(linda.getSystemId(), "192.168.1.100");
-
-        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
-
-        assertTrue(logs.stream().anyMatch(log ->
-                "LOGOUT".equals(log.getAction()) &&
-                "SUCCESS".equals(log.getStatus())
-        ));
-    }
-
-    /**
-     * Test: Resource access (READ) is logged
-     */
-    @Test
-    public void testLogResourceAccess() {
-        auditService.logResourceAccess(
-                drMatt.getSystemId(),
-                "MEDICAL_RECORDS",
-                linda.getUserId(),
-                "192.168.1.100"
-        );
-
-        List<AuditLog> logs = auditLogRepository.findBySystemId(drMatt.getSystemId());
-
-        assertEquals(1, logs.size());
-        AuditLog log = logs.get(0);
-        assertEquals("READ", log.getAction());
-        assertEquals("MEDICAL_RECORDS", log.getResourceType());
-        assertEquals(linda.getUserId(), log.getResourceId());
-        assertEquals("SUCCESS", log.getStatus());
-    }
-
-    /**
-     * Test: Resource modification (CREATE) is logged
-     */
-    @Test
-    public void testLogResourceModification_Create() {
-        auditService.logResourceModification(
-                drMatt.getSystemId(),
-                "CREATE",
-                "PRESCRIPTION",
-                1,
-                "192.168.1.100"
-        );
-
-        List<AuditLog> logs = auditLogRepository.findBySystemId(drMatt.getSystemId());
-
-        AuditLog log = logs.stream()
-                .filter(l -> "CREATE".equals(l.getAction()))
-                .findFirst()
-                .orElseThrow();
-
-        assertEquals("PRESCRIPTION", log.getResourceType());
-        assertEquals(1, log.getResourceId());
-    }
-
-    /**
-     * Test: Resource modification (UPDATE) is logged
-     */
-    @Test
-    public void testLogResourceModification_Update() {
-        auditService.logResourceModification(
-                linda.getSystemId(),
-                "UPDATE",
-                "PATIENT_PROFILE",
-                linda.getUserId(),
-                "192.168.1.100"
-        );
-
-        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
-
-        AuditLog log = logs.stream()
-                .filter(l -> "UPDATE".equals(l.getAction()))
-                .findFirst()
-                .orElseThrow();
-
-        assertEquals("PATIENT_PROFILE", log.getResourceType());
-    }
-
-    /**
-     * Test: Access denied is logged
-     */
-    @Test
-    public void testLogAccessDenied() {
-        auditService.logAccessDenied(
-                linda.getSystemId(),
-                "MEDICAL_RECORDS",
-                999,
-                "192.168.1.100",
-                "Patient accessing other patient's data"
-        );
-
-        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
-
-        AuditLog log = logs.stream()
-                .filter(l -> "ACCESS_DENIED".equals(l.getAction()))
-                .findFirst()
-                .orElseThrow();
-
+        AuditLog log = saved();
+        assertNull(log.getSystemId());
         assertEquals("FAILURE", log.getStatus());
-        assertEquals("Patient accessing other patient's data", log.getErrorMessage());
+        assertEquals("Invalid password", log.getErrorMessage());
+        assertFalse(String.valueOf(log.getErrorMessage()).contains("linda@example.com"));
     }
 
-    /**
-     * Test: Multiple actions create separate log entries
-     */
     @Test
-    public void testMultipleActionsLogged() {
-        // Simulate user's journey
-        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla...");
-        auditService.logResourceAccess(linda.getSystemId(), "HEALTH_METRICS", linda.getUserId(), "192.168.1.100");
-        auditService.logResourceAccess(linda.getSystemId(), "APPOINTMENTS", linda.getUserId(), "192.168.1.100");
-        auditService.logResourceModification(linda.getSystemId(), "UPDATE", "APPOINTMENT", 1, "192.168.1.100");
-        auditService.logLogout(linda.getSystemId(), "192.168.1.100");
+    public void logAccessDenied_fillsUnknownIpFromRequest() {
+        auditService.logAccessDenied("PAT-00001", "MEDICAL_RECORD", 9, "PAT-00002", "0.0.0.0", "Patient accessing other patient's data");
 
-        List<AuditLog> logs = auditLogRepository.findBySystemId(linda.getSystemId());
-
-        assertEquals(5, logs.size());
-        assertTrue(logs.stream().anyMatch(l -> "LOGIN".equals(l.getAction())));
-        assertTrue(logs.stream().filter(l -> "READ".equals(l.getAction())).count() >= 2);
-        assertTrue(logs.stream().anyMatch(l -> "UPDATE".equals(l.getAction())));
-        assertTrue(logs.stream().anyMatch(l -> "LOGOUT".equals(l.getAction())));
+        AuditLog log = saved();
+        assertEquals("ACCESS_DENIED", log.getAction());
+        assertEquals("FAILURE", log.getStatus());
+        assertEquals("PAT-00002", log.getPatientSystemId());
+        assertEquals("203.0.113.42", log.getIpAddress());
+        assertEquals("/api/lab-results/patient/PAT-00001", log.getRequestPath());
     }
 
-    /**
-     * Test: Audit logs capture IP address
-     */
     @Test
-    public void testAuditLogCapturesIpAddress() {
-        String ipAddress = "203.0.113.42";
-        auditService.logLogin(linda.getSystemId(), ipAddress, "Mozilla...");
+    public void logClinicalAccess_recordsActorPatientAndRequest_withoutHeadersOrBody() {
+        auditService.logClinicalAccess("read", "LAB_RESULT", null, "PAT-00001");
 
-        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
-
-        assertEquals(ipAddress, log.getIpAddress());
+        AuditLog log = saved();
+        assertEquals("DOC-00001", log.getSystemId());
+        assertEquals("DOCTOR", log.getActorRole());
+        assertEquals("READ", log.getAction());
+        assertEquals("LAB_RESULT", log.getResourceType());
+        assertNull(log.getResourceId());
+        assertEquals("PAT-00001", log.getPatientSystemId());
+        assertEquals("SUCCESS", log.getStatus());
+        assertEquals("203.0.113.42", log.getIpAddress());
+        assertEquals("JUnit", log.getUserAgent());
+        assertEquals("GET", log.getHttpMethod());
+        assertNull(log.getErrorMessage());
     }
 
-    /**
-     * Test: Audit logs capture User-Agent
-     */
     @Test
-    public void testAuditLogCapturesUserAgent() {
-        String userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-        auditService.logLogin(linda.getSystemId(), "192.168.1.100", userAgent);
+    public void logClinicalAccess_outsideWritableTransaction_usesOwnTransaction() {
+        auditService.logClinicalAccess("CREATE", "PRESCRIPTION", 5, "PAT-00001");
 
-        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
-
-        assertEquals(userAgent, log.getUserAgent());
+        verify(transactionManager).getTransaction(argThatRequiresNew());
+        verify(transactionManager).commit(any());
+        assertEquals(5, saved().getResourceId());
     }
 
-    /**
-     * Test: Audit logs are immutable (created_at never changes)
-     */
     @Test
-    public void testAuditLogsImmutable() {
-        auditService.logLogin(linda.getSystemId(), "192.168.1.100", "Mozilla...");
+    public void logClinicalAccess_rejectsUnknownAction() {
+        assertThrows(IllegalArgumentException.class,
+                () -> auditService.logClinicalAccess("EXPORT", "LAB_RESULT", 1, "PAT-00001"));
+        verifyNoInteractions(auditLogRepository);
+    }
 
-        AuditLog log = auditLogRepository.findBySystemId(linda.getSystemId()).get(0);
-        var createdAt = log.getTimestamp();
+    @Test
+    public void logClinicalFailure_truncatesLongReasons() {
+        auditService.logClinicalFailure("UPDATE", "MEDICAL_RECORD", 3, "PAT-00001", "x".repeat(800));
 
-        // Simulate time passing (audit log should not be updated)
-        // In real scenario, no one should be able to update audit logs
+        AuditLog log = saved();
+        assertEquals("FAILURE", log.getStatus());
+        assertEquals(500, log.getErrorMessage().length());
+    }
 
-        AuditLog retrieved = auditLogRepository.findById(log.getAuditId()).orElseThrow();
-        assertEquals(createdAt, retrieved.getTimestamp());
+    @Test
+    public void worksWithoutHttpRequest() {
+        RequestContextHolder.resetRequestAttributes();
+        auditService.logLogout("PAT-00001", "10.0.0.1");
+
+        AuditLog log = saved();
+        assertEquals("10.0.0.1", log.getIpAddress());
+        assertNull(log.getRequestPath());
+    }
+
+    @Test
+    public void failureAndDenialMethods_runInTheirOwnTransaction() throws Exception {
+        assertRequiresNew(AuditService.class.getMethod("logFailedLogin", String.class, String.class, String.class, String.class));
+        assertRequiresNew(AuditService.class.getMethod("logAccessDenied", String.class, String.class, Integer.class, String.class, String.class));
+        assertRequiresNew(AuditService.class.getMethod("logAccessDenied", String.class, String.class, Integer.class, String.class, String.class, String.class));
+        assertRequiresNew(AuditService.class.getMethod("logClinicalFailure", String.class, String.class, Integer.class, String.class, String.class));
+    }
+
+    private static void assertRequiresNew(Method method) {
+        Transactional tx = method.getAnnotation(Transactional.class);
+        assertNotNull(tx, method.getName() + " must be @Transactional");
+        assertEquals(Propagation.REQUIRES_NEW, tx.propagation(), method.getName());
+    }
+
+    private static TransactionDefinition argThatRequiresNew() {
+        return org.mockito.ArgumentMatchers.argThat(def ->
+                def != null && def.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 }

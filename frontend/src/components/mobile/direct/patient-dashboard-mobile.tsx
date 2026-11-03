@@ -56,7 +56,6 @@ export function PatientDashboardMobile() {
     ) {
       setActiveKey(key as ActiveKey);
     }
-    // messages — not yet implemented
   }
 
   function renderContent() {
@@ -133,7 +132,7 @@ export function PatientDashboardMobile() {
     }
     return (
       <>
-        <PatientTopNavbar />
+        <PatientTopNavbar onProfilePress={() => setActiveKey('profile')} />
         <PatientMainDashboardAreaMobile
           onBookAppointment={() => setActiveKey('book-appointment')}
           onViewAppointments={() => setActiveKey('appointments')}

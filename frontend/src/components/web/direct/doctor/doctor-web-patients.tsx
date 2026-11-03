@@ -192,10 +192,11 @@ function PatientCard({ patient }: { patient: DoctorPatient }) {
           </Text>
         </View>
 
-        <TouchableOpacity style={styles.viewBtn} activeOpacity={0.8}>
-          <Text style={styles.viewBtnText}>View Profile</Text>
-          <Ionicons name="chevron-forward" size={13} color={BLUE} />
-        </TouchableOpacity>
+        {!!patient.patient_system_id && (
+          <Text style={styles.viewBtnText} selectable accessibilityLabel={`Patient ID ${patient.patient_system_id}`}>
+            {patient.patient_system_id}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -327,7 +328,7 @@ export default function DoctorWebPatients() {
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}
@@ -348,7 +349,7 @@ export default function DoctorWebPatients() {
       ) : (
         <View style={[styles.grid, twoCol && styles.gridTwo]}>
           {filtered.map(p => (
-            <View key={p.patient_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
+            <View key={p.patient_system_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
               <PatientCard patient={p} />
             </View>
           ))}
@@ -447,8 +448,7 @@ const styles = StyleSheet.create({
   footerStatNum: { fontSize: 13, fontWeight: '700', color: TEXT },
   footerStatLabel: { fontSize: 12, color: GRAY },
   footerDivider: { width: 1, height: 16, backgroundColor: BORDER },
-  viewBtn:       { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 'auto' as any },
-  viewBtnText:   { fontSize: 13, color: BLUE, fontWeight: '500' },
+  viewBtnText:   { fontSize: 12, color: GRAY, fontWeight: '500', marginLeft: 'auto' as any },
 
   emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },

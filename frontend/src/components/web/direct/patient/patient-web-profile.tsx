@@ -222,7 +222,7 @@ export function PatientWebProfile() {
           <Text style={styles.pageTitle}>Profile &amp; Settings</Text>
           <Text style={styles.pageSubtitle}>Your personal and health information</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} accessibilityRole="button">
           <Ionicons name="refresh-outline" size={16} color={TEAL} />
           <Text style={styles.refreshText}>Refresh</Text>
         </TouchableOpacity>

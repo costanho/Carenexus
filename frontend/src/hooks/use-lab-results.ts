@@ -41,14 +41,20 @@ function parseResultData(raw: any): Record<string, unknown> | null {
 }
 
 export function useLabResults(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [results, setResults] = useState<LabResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [tick, setTick]       = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) {
+        setError(userError ?? 'Could not load your account.');
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
 
     Promise.all([
@@ -99,7 +105,7 @@ export function useLabResults(): State {
       })
       .catch(() => setError('Failed to load lab results.'))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, tick]);
 
   return { results, loading, error, refetch: () => setTick(t => t + 1) };
 }

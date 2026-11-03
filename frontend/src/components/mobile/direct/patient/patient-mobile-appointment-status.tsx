@@ -2,12 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  Alert, Image, Linking, KeyboardAvoidingView, Platform, ScrollView,
+  Image, Linking, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAppointments, type Appointment } from '@/hooks/use-appointments';
-import { api } from '@/lib/auth/auth.interceptor';
+import {
+  apiErrorMessage, cancelAppointment, isFutureSlot, isUpcomingAppointment,
+  rescheduleAppointment, useAppointments, type Appointment,
+} from '@/hooks/use-appointments';
+import { confirmAction, showMessage } from '@/lib/ui/dialogs';
+import { CalendarPicker, TimePicker } from './patient-mobile-appointment';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -55,36 +59,101 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
+function ReschedulePanel({
+  appt, s, onDone, onClose,
+}: { appt: Appointment; s: (n: number) => number; onDone: () => void; onClose: () => void }) {
+  const [date, setDate]     = useState('');
+  const [time, setTime]     = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const slotInPast = !!date && !!time && !isFutureSlot(date, time);
+
+  async function handleSave() {
+    setError('');
+    if (!date || !time) { setError('Please choose a new date and time.'); return; }
+    if (!isFutureSlot(date, time)) { setError('Please choose a date and time in the future.'); return; }
+    setSaving(true);
+    try {
+      await rescheduleAppointment(appt.appointment_id, date, time);
+      onDone();
+    } catch (e: any) {
+      setError(apiErrorMessage(e, 'Failed to reschedule appointment. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <View style={[styles.reschedulePanel, { borderRadius: s(12), padding: s(12), gap: s(12), marginBottom: s(8) }]}>
+      <Text style={[styles.rescheduleTitle, { fontSize: s(13) }]}>Choose a new date and time</Text>
+      <CalendarPicker value={date} onChange={setDate} s={s} />
+      <TimePicker value={time} onChange={setTime} s={s} />
+      {(!!error || slotInPast) && (
+        <View style={[styles.inlineError, { borderRadius: s(8), padding: s(10), gap: s(6) }]}>
+          <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
+          <Text style={[styles.inlineErrorText, { fontSize: s(12) }]}>
+            {error || 'This time has already passed. Please choose a later time.'}
+          </Text>
+        </View>
+      )}
+      <View style={{ flexDirection: 'row', gap: s(8) }}>
+        <TouchableOpacity
+          style={[styles.rescheduleCancelBtn, { borderRadius: s(10), paddingVertical: s(10) }]}
+          onPress={onClose}
+          disabled={saving}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.rescheduleCancelText, { fontSize: s(12) }]}>Keep current time</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.rescheduleSaveBtn, { borderRadius: s(10), paddingVertical: s(10) }, saving && { opacity: 0.6 }]}
+          onPress={handleSave}
+          disabled={saving}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: saving }}
+        >
+          <Text style={[styles.rescheduleSaveText, { fontSize: s(12) }]}>{saving ? 'Saving…' : 'Confirm new time'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: number) => number; onRefetch: () => void }) {
-  const [expanded, setExpanded]     = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [expanded, setExpanded]         = useState(false);
+  const [cancelling, setCancelling]     = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [notice, setNotice]             = useState('');
   const status    = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
   const type      = TYPE_CONFIG[appt.type]     ?? TYPE_CONFIG.IN_PERSON;
-  const canCancel = appt.status === 'SCHEDULED' || appt.status === 'RESCHEDULED';
+  // Only appointments that are still ahead of us can be changed.
+  const canChange = isUpcomingAppointment(appt);
 
   async function handleCancel() {
-    Alert.alert(
-      'Cancel Appointment',
-      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)}? This cannot be undone.`,
-      [
-        { text: 'Keep it', style: 'cancel' },
-        {
-          text: 'Yes, delete it',
-          style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            try {
-              await api.delete(`/api/appointments/${appt.appointment_id}`);
-              onRefetch();
-            } catch {
-              Alert.alert('Error', 'Failed to cancel appointment. Please try again.');
-            } finally {
-              setCancelling(false);
-            }
-          },
-        },
-      ]
+    const ok = await confirmAction(
+      'Cancel appointment',
+      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)} at ${formatTime(appt.scheduled_at)}?`,
+      'Cancel appointment',
+      true,
     );
+    if (!ok) return;
+    setCancelling(true);
+    try {
+      await cancelAppointment(appt.appointment_id);
+      onRefetch();
+    } catch (e: any) {
+      showMessage('Could not cancel appointment', apiErrorMessage(e, 'Failed to cancel appointment. Please try again.'));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  function handleRescheduled() {
+    setRescheduling(false);
+    setNotice('Your appointment has been moved to the new time.');
+    onRefetch();
   }
 
   return (
@@ -109,7 +178,11 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           {appt.doctor_avatar_url ? (
             <Image source={{ uri: appt.doctor_avatar_url }} style={[styles.avatar, { width: s(36), height: s(36), borderRadius: s(18) }]} />
           ) : (
-            <View style={[styles.avatar, styles.avatarFallback, { width: s(36), height: s(36), borderRadius: s(18) }]}>
+            <View
+              style={[styles.avatar, styles.avatarFallback, { width: s(36), height: s(36), borderRadius: s(18) }]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
               <Text style={[styles.avatarInitial, { fontSize: s(14) }]}>{appt.doctor_name[4] ?? 'D'}</Text>
             </View>
           )}
@@ -169,6 +242,7 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
                 style={[styles.videoBtn, { borderRadius: s(10), padding: s(10), gap: s(8) }]}
                 onPress={() => Linking.openURL(appt.video_consultation_link!)}
                 activeOpacity={0.8}
+                accessibilityRole="link"
               >
                 <Ionicons name="videocam-outline" size={s(15)} color={INDIGO} />
                 <Text style={[styles.videoBtnText, { fontSize: s(12), flex: 1 }]}>Join Video Consultation</Text>
@@ -178,17 +252,41 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           </View>
         )}
 
-        {/* Cancel button — always visible for cancellable appointments */}
-        {canCancel && (
-          <TouchableOpacity
-            style={[styles.cancelBtn, { borderRadius: s(10), paddingVertical: s(10), gap: s(6), marginBottom: s(8) }, cancelling && { opacity: 0.6 }]}
-            onPress={handleCancel}
-            disabled={cancelling}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="trash-outline" size={s(15)} color={RED} />
-            <Text style={[styles.cancelBtnText, { fontSize: s(13) }]}>{cancelling ? 'Cancelling…' : 'Cancel & Delete'}</Text>
-          </TouchableOpacity>
+        {!!notice && (
+          <View style={[styles.noticeBox, { borderRadius: s(8), padding: s(10), gap: s(6), marginBottom: s(8) }]}>
+            <Ionicons name="checkmark-circle-outline" size={s(14)} color={GREEN} />
+            <Text style={[styles.noticeText, { fontSize: s(12) }]}>{notice}</Text>
+          </View>
+        )}
+
+        {/* Reschedule / cancel — only for appointments that have not happened yet */}
+        {canChange && rescheduling && (
+          <ReschedulePanel appt={appt} s={s} onDone={handleRescheduled} onClose={() => setRescheduling(false)} />
+        )}
+        {canChange && !rescheduling && (
+          <View style={{ flexDirection: 'row', gap: s(8), marginBottom: s(8) }}>
+            <TouchableOpacity
+              style={[styles.rescheduleBtn, { borderRadius: s(10), paddingVertical: s(10), gap: s(6) }, cancelling && { opacity: 0.6 }]}
+              onPress={() => { setNotice(''); setRescheduling(true); }}
+              disabled={cancelling}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              <Ionicons name="calendar-outline" size={s(15)} color={TEAL} />
+              <Text style={[styles.rescheduleBtnText, { fontSize: s(13) }]}>Reschedule</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.cancelBtn, { borderRadius: s(10), paddingVertical: s(10), gap: s(6) }, cancelling && { opacity: 0.6 }]}
+              onPress={handleCancel}
+              disabled={cancelling}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: cancelling }}
+            >
+              <Ionicons name="close-circle-outline" size={s(15)} color={RED} />
+              <Text style={[styles.cancelBtnText, { fontSize: s(13) }]}>{cancelling ? 'Cancelling…' : 'Cancel'}</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* Expand toggle */}
@@ -196,6 +294,8 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           style={[styles.expandToggle, { paddingTop: s(8), gap: s(4) }]}
           onPress={() => setExpanded(e => !e)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
         >
           <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>{expanded ? 'Show less' : 'Show details'}</Text>
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={TEAL} />
@@ -239,7 +339,7 @@ export function PatientMobileAppointmentStatus({
   const visible   = sorted.slice(0, visibleCount);
   const hasMore   = visibleCount < sorted.length;
   const remaining = sorted.length - visibleCount;
-  const upcoming  = appointments.filter(a => a.status === 'SCHEDULED' || a.status === 'RESCHEDULED').length;
+  const upcoming  = appointments.filter(isUpcomingAppointment).length;
   const completed = appointments.filter(a => a.status === 'COMPLETED').length;
   const cancelled = appointments.filter(a => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
 
@@ -256,6 +356,8 @@ export function PatientMobileAppointmentStatus({
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
           onPress={() => onBack ? onBack() : router.back()}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -267,6 +369,8 @@ export function PatientMobileAppointmentStatus({
           style={[styles.headerRefresh, { width: s(34), height: s(34), borderRadius: s(17) }]}
           onPress={refetch}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh appointments"
         >
           <Ionicons name="refresh-outline" size={s(17)} color={TEAL} />
         </TouchableOpacity>
@@ -274,6 +378,8 @@ export function PatientMobileAppointmentStatus({
           style={[styles.headerBookBtn, { borderRadius: s(10), paddingHorizontal: s(10), paddingVertical: s(7), gap: s(5) }]}
           onPress={() => onBook ? onBook() : router.push('/dashboard/patient/appointments/book' as any)}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Book an appointment"
         >
           <Ionicons name="add-outline" size={s(15)} color={TEAL} />
           <Text style={[styles.headerBookText, { fontSize: s(11) }]}>Book</Text>
@@ -315,6 +421,8 @@ export function PatientMobileAppointmentStatus({
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -390,6 +498,8 @@ export function PatientMobileAppointmentStatus({
         }]}
         onPress={() => onBook ? onBook() : router.push('/dashboard/patient/appointments/book' as any)}
         activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Book a new appointment"
       >
         <Ionicons name="add" size={s(26)} color={WHITE} />
       </TouchableOpacity>
@@ -449,8 +559,21 @@ const styles = StyleSheet.create({
   videoBtn:   { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE' },
   videoBtnText:{ fontWeight: '600', color: INDIGO },
 
-  cancelBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: RED, backgroundColor: '#FEF2F2' },
+  cancelBtn:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: RED, backgroundColor: '#FEF2F2' },
   cancelBtnText:    { fontWeight: '600', color: RED },
+  rescheduleBtn:    { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
+  rescheduleBtnText:{ fontWeight: '600', color: TEAL },
+
+  reschedulePanel:      { borderWidth: 1, borderColor: BORDER, backgroundColor: BG },
+  rescheduleTitle:      { fontWeight: '700', color: TEXT },
+  rescheduleCancelBtn:  { flex: 1, alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
+  rescheduleCancelText: { fontWeight: '600', color: GRAY },
+  rescheduleSaveBtn:    { flex: 1, alignItems: 'center', backgroundColor: TEAL },
+  rescheduleSaveText:   { fontWeight: '700', color: WHITE },
+  inlineError:          { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2' },
+  inlineErrorText:      { flex: 1, color: RED },
+  noticeBox:            { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ECFDF5' },
+  noticeText:           { flex: 1, color: '#047857' },
   expandToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderTopWidth: 1, borderTopColor: BORDER },
   expandToggleText: { fontWeight: '600', color: TEAL },
 

@@ -1,5 +1,7 @@
 package com.carenexus.api.core.controller;
 
+import com.carenexus.api.common.exception.ResourceNotFoundException;
+import com.carenexus.api.common.service.AuthorizationService;
 import com.carenexus.api.core.dto.response.DoctorDashboardResponse;
 import com.carenexus.api.core.dto.response.ScheduleEntryResponse;
 import com.carenexus.api.core.model.Doctor;
@@ -20,11 +22,19 @@ public class DoctorScheduleController {
 
     private final DoctorScheduleService doctorScheduleService;
     private final DoctorRepository doctorRepository;
+    private final AuthorizationService authorizationService;
 
+    /** Self routes: caller must be a DOCTOR (or ADMIN) with a doctor profile. */
     private String getDoctorSystemIdFromUserId(String systemId) {
+        authorizationService.requireRole(AuthorizationService.DOCTOR, AuthorizationService.ADMIN);
         Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
         return doctor.getSystemId();
+    }
+
+    /** /{doctorSystemId}/... routes: only that doctor themselves, or an admin. */
+    private void requireDoctorSelf(String doctorSystemId) {
+        authorizationService.requireDoctorSelf(doctorSystemId);
     }
 
     @GetMapping
@@ -37,6 +47,7 @@ public class DoctorScheduleController {
 
     @GetMapping("/{doctorSystemId}")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorSchedule(@PathVariable String doctorSystemId) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
@@ -51,6 +62,7 @@ public class DoctorScheduleController {
 
     @GetMapping("/{doctorSystemId}/today")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorTodaySchedule(@PathVariable String doctorSystemId) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
@@ -65,6 +77,7 @@ public class DoctorScheduleController {
 
     @GetMapping("/{doctorSystemId}/upcoming")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorUpcomingSchedule(@PathVariable String doctorSystemId) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
@@ -79,6 +92,7 @@ public class DoctorScheduleController {
 
     @GetMapping("/{doctorSystemId}/past")
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorPastSchedule(@PathVariable String doctorSystemId) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorSystemId);
         return ResponseEntity.ok(schedule);
     }
@@ -98,6 +112,7 @@ public class DoctorScheduleController {
             @PathVariable String doctorSystemId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorSystemId, startDate, endDate);
         return ResponseEntity.ok(schedule);
     }
@@ -115,6 +130,7 @@ public class DoctorScheduleController {
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleByStatus(
             @PathVariable String doctorSystemId,
             @PathVariable String status) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorSystemId, status.toUpperCase());
         return ResponseEntity.ok(schedule);
     }
@@ -132,6 +148,7 @@ public class DoctorScheduleController {
     public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleWithPatient(
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId) {
+        requireDoctorSelf(doctorSystemId);
         List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorSystemId, patientSystemId);
         return ResponseEntity.ok(schedule);
     }
@@ -139,12 +156,14 @@ public class DoctorScheduleController {
     @GetMapping("/dashboard")
     public ResponseEntity<DoctorDashboardResponse> getMyDashboard(
             @RequestAttribute("systemId") String systemId) {
+        getDoctorSystemIdFromUserId(systemId);
         DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
         return ResponseEntity.ok(dashboard);
     }
 
     @GetMapping("/{systemId}/dashboard")
     public ResponseEntity<DoctorDashboardResponse> getDoctorDashboard(@PathVariable String systemId) {
+        requireDoctorSelf(systemId);
         DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
         return ResponseEntity.ok(dashboard);
     }

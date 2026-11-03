@@ -1,6 +1,7 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { onSessionExpired } from '@/lib/auth/auth.events';
 import { getUser, isAuthenticated } from '@/lib/auth/auth.storage';
 import { ROLE_HOME } from '@/lib/auth/auth.types';
 
@@ -14,50 +15,42 @@ export default function RootLayout() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const didRedirect = useRef(false);
 
+  // When the API layer can no longer refresh the session, go back to login.
   useEffect(() => {
-    console.log('🔄 Checking auth status due to segments change:', segments);
-    isAuthenticated().then(auth => {
-      console.log('✅ isAuthenticated returned:', auth);
-      setAuthed(auth);
+    return onSessionExpired(() => {
+      setAuthed(false);
+      didRedirect.current = true;
+      router.replace(LOGIN_ROUTE as any);
     });
+  }, [router]);
+
+  useEffect(() => {
+    isAuthenticated().then(setAuthed);
   }, [segments]);
 
   useEffect(() => {
-    console.log('🛡️ Auth guard effect running:', { authed, segments, didRedirect: didRedirect.current });
-    if (authed === null) {
-      console.log('⏳ authed is null, waiting...');
-      return;
-    }
-    if (didRedirect.current) {
-      console.log('⏭️ Already redirected, skipping');
-      return;
-    }
+    if (authed === null) return;
 
     const inAuthGroup      = segments[0] === 'auth';
     const inDashboardGroup = segments[0] === 'dashboard';
-    console.log('📍 Route check:', { inAuthGroup, inDashboardGroup, currentSegments: segments });
+
+    // Once the user is back on the login/register screens, allow the guard to run again.
+    if (inAuthGroup && !authed) {
+      didRedirect.current = false;
+      return;
+    }
+    if (didRedirect.current) return;
 
     if (!authed && !inAuthGroup) {
-      console.log('🔴 Not authenticated and not in auth group → going to login');
       didRedirect.current = true;
       router.replace(LOGIN_ROUTE as any);
     } else if (authed && (inAuthGroup || !inDashboardGroup)) {
-      console.log('🟡 Authenticated but in auth group or not on dashboard → fetching user...');
       // Authenticated but not yet on a dashboard — send to role dashboard
       getUser().then(user => {
-        console.log('👤 User from storage:', user);
-        if (!user) {
-          console.log('❌ No user found → going to login');
-          router.replace(LOGIN_ROUTE as any);
-          return;
-        }
-        const targetRoute = ROLE_HOME[user.role];
-        console.log('🟢 Redirecting to role dashboard:', targetRoute);
+        const targetRoute = user ? ROLE_HOME[user.role] : undefined;
         didRedirect.current = true;
-        router.replace(targetRoute as any);
+        router.replace((targetRoute ?? LOGIN_ROUTE) as any);
       });
-    } else {
-      console.log('✅ No redirect needed');
     }
   }, [authed, segments]);
 

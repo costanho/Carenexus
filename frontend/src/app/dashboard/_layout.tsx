@@ -15,8 +15,9 @@ function getUserIdFromToken(token: string): number | null {
     const payload = token.split('.')[1];
     if (!payload) return null;
 
-    // Decode base64 payload
-    const decoded = JSON.parse(atob(payload));
+    // Decode base64url payload
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
     return decoded.userId ?? null;
   } catch {
     return null;
@@ -31,22 +32,17 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     async function verify() {
-      console.log('🔐 Dashboard guard: verifying access');
       const [token, user] = await Promise.all([getAccessToken(), getUser()]);
-      console.log('📦 Dashboard guard: token:', token ? 'exists' : 'missing', 'user:', user);
 
       // No token or user → back to login
       if (!token || !user) {
-        console.log('❌ No token or user, redirecting to login');
         router.replace(LOGIN_ROUTE as any);
         return;
       }
 
       // Extract user_id from token and verify it matches stored user
       const tokenUserId = getUserIdFromToken(token);
-      console.log('🔍 Token userId:', tokenUserId, 'Stored user_id:', user.user_id, 'Match:', tokenUserId === user.user_id);
       if (tokenUserId !== user.user_id) {
-        console.log('❌ UserId mismatch, redirecting to login');
         router.replace(LOGIN_ROUTE as any);
         return;
       }
@@ -54,7 +50,6 @@ export default function DashboardLayout() {
       // Check the current dashboard segment matches the user's role
       // segments = ['dashboard', 'patient'] for /dashboard/patient
       const dashboardSegment = segments[1] as string;
-      console.log('📍 Dashboard segment:', dashboardSegment, 'User role:', user.role);
 
       // Map route segment → role (proxy route = caregiver role)
       const segmentToRole: Record<string, Role> = {
@@ -64,16 +59,13 @@ export default function DashboardLayout() {
       };
 
       const expectedRole = segmentToRole[dashboardSegment];
-      console.log('✔️ Expected role:', expectedRole);
 
       if (expectedRole && user.role !== expectedRole && !didRedirect.current) {
         didRedirect.current = true;
-        console.warn(`[Guard] Role mismatch — user is "${user.role}" but tried to access "${dashboardSegment}" dashboard. Redirecting.`);
         router.replace(ROLE_HOME[user.role] as any);
         return;
       }
 
-      console.log('✅ Dashboard guard passed!');
       setChecking(false);
     }
 

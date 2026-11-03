@@ -11,7 +11,7 @@ const DIVIDER   = '#1E2D42';
 const LOGOUT_RED = '#EF4444';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type NavItem      = { key: string; label: string; icon: IoniconsName };
+type NavItem      = { key: string; label: string; icon: IoniconsName; disabled?: boolean };
 type NavSection   = { title: string; items: NavItem[] };
 
 const sections: NavSection[] = [
@@ -28,30 +28,30 @@ const sections: NavSection[] = [
     items: [
       { key: 'patients',        label: 'Patients',        icon: 'people-outline' },
       { key: 'medical-records', label: 'Medical Records', icon: 'folder-open-outline' },
-      { key: 'documents',       label: 'Documents',       icon: 'document-outline' },
+      { key: 'documents',       label: 'Documents',       icon: 'document-outline', disabled: true },
     ],
   },
   {
     title: 'CLINICAL',
     items: [
       { key: 'prescriptions', label: 'Prescriptions',  icon: 'medkit-outline' },
-      { key: 'referrals',     label: 'Referrals',      icon: 'git-compare-outline' },
+      { key: 'referrals',     label: 'Referrals',      icon: 'git-compare-outline', disabled: true },
       { key: 'labs',          label: 'Labs & Results', icon: 'flask-outline' },
     ],
   },
   {
     title: 'COMMUNICATION',
     items: [
-      { key: 'messages',      label: 'Messages',       icon: 'chatbubble-outline' },
-      { key: 'notifications', label: 'Notifications',  icon: 'notifications-outline' },
+      { key: 'messages',      label: 'Messages',       icon: 'chatbubble-outline', disabled: true },
+      { key: 'notifications', label: 'Notifications',  icon: 'notifications-outline', disabled: true },
     ],
   },
   {
     title: 'SETTINGS',
     items: [
       { key: 'profile',      label: 'Profile',        icon: 'person-outline' },
-      { key: 'settings',     label: 'Settings',       icon: 'settings-outline' },
-      { key: 'help-support', label: 'Help & Support', icon: 'help-circle-outline' },
+      { key: 'settings',     label: 'Settings',       icon: 'settings-outline', disabled: true },
+      { key: 'help-support', label: 'Help & Support', icon: 'help-circle-outline', disabled: true },
     ],
   },
 ];
@@ -59,15 +59,25 @@ const sections: NavSection[] = [
 function SidebarNavItem({ item, active, collapsed, onPress }: {
   item: NavItem; active: boolean; collapsed: boolean; onPress: () => void;
 }) {
+  const disabled = !!item.disabled;
   return (
     <TouchableOpacity
-      style={[styles.navItem, active && styles.navItemActive]}
+      style={[styles.navItem, active && styles.navItemActive, disabled && styles.navItemDisabled]}
       activeOpacity={0.7}
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={disabled ? `${item.label} (coming soon)` : item.label}
+      accessibilityState={{ selected: active, disabled }}
     >
       <Ionicons name={item.icon} size={18} color={active ? WHITE : '#8BA3BE'} />
       {!collapsed && (
         <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+      )}
+      {!collapsed && disabled && (
+        <View style={styles.soonPill}>
+          <Text style={styles.soonText}>Soon</Text>
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -108,6 +118,9 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
           style={[styles.navItem, activeKey === 'dashboard' && styles.navItemActive]}
           activeOpacity={0.8}
           onPress={() => onNavigate?.('dashboard')}
+          accessibilityRole="button"
+          accessibilityLabel="Dashboard"
+          accessibilityState={{ selected: activeKey === 'dashboard' }}
         >
           <Ionicons name="home-outline" size={18} color={activeKey === 'dashboard' ? WHITE : '#8BA3BE'} />
           {!collapsed && (
@@ -158,6 +171,9 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           <View style={styles.logoutIconBg}>
             <Ionicons
@@ -176,6 +192,16 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
 }
 
 const styles = StyleSheet.create({
+  navItemDisabled: { opacity: 0.45 },
+  soonPill: {
+    marginLeft: 'auto',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    backgroundColor: DIVIDER,
+  },
+  soonText: { fontSize: 9, fontWeight: '700', color: '#8BA3BE', letterSpacing: 0.5 },
+
   sidebar: {
     width: 240,
     backgroundColor: BG,

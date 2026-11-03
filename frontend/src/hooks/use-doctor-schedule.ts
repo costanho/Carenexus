@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 
 // Shape returned by GET /api/doctors/schedule (camelCase from Spring)
-interface ApiScheduleEntry {
+export interface ApiScheduleEntry {
   entryId:                string;
   type:                   'APPOINTMENT' | 'CONSULTATION';
   patientSystemId:        string;
@@ -30,13 +30,21 @@ interface ApiScheduleEntry {
   completedAt?:           string | null;
 }
 
+export type AppointmentStatus  = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED' | 'IN_PROGRESS';
+export type ConsultationStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
+export interface ScheduleConsultation {
+  consultation_id: number;
+  status:          ConsultationStatus;
+}
+
 // Public interface — matches the field names components already use
 export interface ScheduleEntry {
   appointment_id:          number;
   scheduled_at:            string;
   duration_minutes:        number;
   type:                    'IN_PERSON' | 'VIDEO' | 'PHONE';
-  status:                  string;
+  status:                  AppointmentStatus;
   patient_name:            string;
   patient_system_id:       string;
   reason_for_visit:        string | null;
@@ -45,15 +53,17 @@ export interface ScheduleEntry {
   facility_name:           string | null;
   created_at:              string;
   updated_at:              string;
+  /** The consultation linked to this appointment, if one has been started. */
+  consultation:            ScheduleConsultation | null;
 }
 
-function toScheduleEntry(e: ApiScheduleEntry): ScheduleEntry {
+function toScheduleEntry(e: ApiScheduleEntry, consultation: ScheduleConsultation | null): ScheduleEntry {
   return {
     appointment_id:          e.appointmentId ?? 0,
     scheduled_at:            e.scheduledAt,
     duration_minutes:        e.durationMinutes,
     type:                    (e.appointmentType as ScheduleEntry['type']) ?? 'IN_PERSON',
-    status:                  e.appointmentStatus ?? e.consultationStatus ?? 'SCHEDULED',
+    status:                  (e.appointmentStatus ?? 'SCHEDULED') as AppointmentStatus,
     patient_name:            e.patientName,
     patient_system_id:       e.patientSystemId,
     reason_for_visit:        e.reasonForVisit ?? null,
@@ -62,7 +72,28 @@ function toScheduleEntry(e: ApiScheduleEntry): ScheduleEntry {
     facility_name:           null,
     created_at:              e.createdAt,
     updated_at:              e.updatedAt,
+    consultation,
   };
+}
+
+/**
+ * The backend returns appointments and consultations as separate rows
+ * (type APPOINTMENT / CONSULTATION). Collapse them into one entry per
+ * appointment, attaching the linked consultation (if any).
+ */
+export function toScheduleEntries(rows: ApiScheduleEntry[]): ScheduleEntry[] {
+  const consults = new Map<number, ScheduleConsultation>();
+  rows.forEach(e => {
+    if (e.type === 'CONSULTATION' && e.appointmentId != null) {
+      consults.set(e.appointmentId, {
+        consultation_id: e.consultationId ?? 0,
+        status:          (e.consultationStatus ?? 'DRAFT') as ConsultationStatus,
+      });
+    }
+  });
+  return rows
+    .filter(e => e.type === 'APPOINTMENT')
+    .map(e => toScheduleEntry(e, e.appointmentId != null ? consults.get(e.appointmentId) ?? null : null));
 }
 
 interface State {
@@ -82,7 +113,7 @@ export function useDoctorSchedule(): State {
     setLoading(true);
     api.get<ApiScheduleEntry[]>('/api/doctors/schedule')
       .then(({ data }) => {
-        setEntries(data.map(toScheduleEntry));
+        setEntries(toScheduleEntries(data));
         setError(null);
       })
       .catch(() => setError('Failed to load schedule.'))

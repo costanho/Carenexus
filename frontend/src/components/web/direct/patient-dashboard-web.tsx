@@ -137,6 +137,7 @@ export function PatientDashboardWeb() {
           onBookAppointment={() => setActiveKey('book-appointment')}
           onViewConsultations={() => setActiveKey('consultation-history')}
           onViewPrescriptions={() => setActiveKey('prescriptions')}
+          onNavigate={handleNavigate}
         />
         {isLarge && <PatientRightSidebar onNavigate={handleNavigate} />}
       </>
@@ -168,6 +169,7 @@ export function PatientDashboardWeb() {
         <PatientTopNavbar
           showMenuButton={isSmall}
           onMenuPress={() => setDrawerOpen(true)}
+          onProfilePress={() => handleNavigate('profile-settings')}
         />
         <View style={styles.body}>
           {renderCenter()}

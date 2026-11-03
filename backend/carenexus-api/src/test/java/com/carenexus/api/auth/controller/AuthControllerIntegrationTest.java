@@ -147,7 +147,9 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/auth/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(refreshRequestBody))
-                .andExpect(status().isBadRequest());
+                // An unknown refresh token is an authentication failure (401) so the client ends the session
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Invalid refresh token"));
     }
 
     @Test

@@ -132,6 +132,8 @@ export default function DoctorMobilePrescription() {
           onPress={refetch}
           activeOpacity={0.7}
           style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(20)} color={WHITE} />
         </TouchableOpacity>
@@ -365,7 +367,7 @@ export default function DoctorMobilePrescription() {
             clearButtonMode="while-editing"
           />
           {!!search && (
-            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
               <Ionicons name="close-circle" size={s(16)} color={LGRAY} />
             </TouchableOpacity>
           )}

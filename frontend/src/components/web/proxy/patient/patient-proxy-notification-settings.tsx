@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { api } from '@/lib/auth/auth.interceptor';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -101,18 +102,99 @@ const DEFAULT_STATE: Record<string, boolean> = {
   login_alert: true, access_change: true, weekly_summary: false,
 };
 
+// UI key -> field of GET /api/profile/settings and PATCH /api/profile/settings/notifications (UserSettings)
+const SETTING_FIELDS: Record<string, string> = {
+  critical_alerts:    'criticalAlerts',
+  lab_results:        'labResultAlerts',
+  medication_due:     'medicationReminders',
+  vitals_alert:       'vitalsAlerts',
+  appt_reminder_24h:  'appointmentReminders',
+  appt_reminder_1h:   'appointmentReminder1h',
+  appt_changes:       'appointmentChangeAlerts',
+  video_call_ready:   'videoCallAlerts',
+  new_message:        'messageNotifications',
+  prescription_ready: 'prescriptionReminders',
+  care_plan_update:   'carePlanUpdateAlerts',
+  referral:           'referralAlerts',
+  login_alert:        'loginAlerts',
+  access_change:      'accessChangeAlerts',
+  weekly_summary:     'weeklySummary',
+};
+
+const CHANNEL_FIELDS = { push: 'pushNotifications', email: 'emailNotifications', sms: 'smsNotifications' } as const;
+type Channels = Record<keyof typeof CHANNEL_FIELDS, boolean>;
+
+function errorMessage(err: any, fallback: string) {
+  if (!err?.response) return 'Unable to reach the server. Please check your connection.';
+  return err.response.data?.message ?? fallback;
+}
+
 export default function PatientProxyNotificationSettings() {
   const [settings, setSettings] = useState<Record<string, boolean>>(DEFAULT_STATE);
-  const [channels, setChannels] = useState({ push: true, email: true, sms: false });
+  const [channels, setChannels] = useState<Channels>({ push: true, email: true, sms: false });
+  const [loading, setLoading]   = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [saved, setSaved]       = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyServer = useCallback((data: any) => {
+    if (!data) return;
+    setSettings(prev => {
+      const next = { ...prev };
+      for (const [key, field] of Object.entries(SETTING_FIELDS)) {
+        if (typeof data[field] === 'boolean') next[key] = data[field];
+      }
+      return next;
+    });
+    setChannels(prev => {
+      const next = { ...prev };
+      for (const [key, field] of Object.entries(CHANNEL_FIELDS) as [keyof Channels, string][]) {
+        if (typeof data[field] === 'boolean') next[key] = data[field];
+      }
+      return next;
+    });
+  }, []);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError('');
+    api.get('/api/profile/settings')
+      .then(({ data }) => applyServer(data))
+      .catch(err => setLoadError(errorMessage(err, 'Could not load your notification settings.')))
+      .finally(() => setLoading(false));
+  }, [applyServer]);
+
+  useEffect(() => {
+    load();
+    return () => { if (savedTimer.current) clearTimeout(savedTimer.current); };
+  }, [load]);
 
   function toggle(key: string) {
     setSettings(s => ({ ...s, [key]: !s[key] }));
+    setSaved(false);
   }
 
-  function save() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  async function save() {
+    if (saving || loading || loadError) return;
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    const body: Record<string, boolean> = {};
+    for (const [key, field] of Object.entries(SETTING_FIELDS)) body[field] = !!settings[key];
+    for (const [key, field] of Object.entries(CHANNEL_FIELDS) as [keyof Channels, string][]) body[field] = channels[key];
+    try {
+      const { data } = await api.patch('/api/profile/settings/notifications', body);
+      applyServer(data);
+      setSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setSaveError(errorMessage(err, 'Could not save your notification settings. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   const enabledCount = Object.values(settings).filter(Boolean).length;
@@ -124,11 +206,45 @@ export default function PatientProxyNotificationSettings() {
           <Text style={styles.pageTitle}>Notification Settings</Text>
           <Text style={styles.pageSub}>{enabledCount} of {Object.keys(settings).length} notifications enabled</Text>
         </View>
-        <TouchableOpacity style={styles.saveBtn} activeOpacity={0.8} onPress={save}>
-          <Ionicons name={saved ? 'checkmark-outline' : 'save-outline'} size={15} color={WHITE} />
-          <Text style={styles.saveBtnText}>{saved ? 'Saved!' : 'Save Changes'}</Text>
+        <TouchableOpacity
+          style={[styles.saveBtn, (saving || loading || !!loadError) && styles.saveBtnDisabled]}
+          activeOpacity={0.8}
+          onPress={save}
+          disabled={saving || loading || !!loadError}
+          accessibilityRole="button"
+          accessibilityLabel="Save notification settings"
+        >
+          {saving
+            ? <ActivityIndicator size="small" color={WHITE} />
+            : <Ionicons name={saved ? 'checkmark-outline' : 'save-outline'} size={15} color={WHITE} />}
+          <Text style={styles.saveBtnText}>{saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}</Text>
         </TouchableOpacity>
       </View>
+
+      {loading ? (
+        <View style={styles.banner}>
+          <ActivityIndicator size="small" color={PURPLE} />
+          <Text style={styles.bannerText}>Loading your notification settings…</Text>
+        </View>
+      ) : null}
+      {loadError ? (
+        <View style={[styles.banner, styles.bannerError]}>
+          <Ionicons name="alert-circle-outline" size={16} color={RED} />
+          <Text style={[styles.bannerText, { color: RED, flex: 1 }]}>{loadError}</Text>
+          <TouchableOpacity onPress={load} accessibilityRole="button" accessibilityLabel="Retry loading settings">
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      {saveError ? (
+        <View style={[styles.banner, styles.bannerError]}>
+          <Ionicons name="alert-circle-outline" size={16} color={RED} />
+          <Text style={[styles.bannerText, { color: RED, flex: 1 }]}>{saveError}</Text>
+        </View>
+      ) : null}
+      <Text style={styles.deliveryNote}>
+        These preferences are saved to your account. Email and SMS delivery of notifications is not available yet.
+      </Text>
 
       {/* Delivery channels */}
       <View style={styles.card}>
@@ -140,7 +256,7 @@ export default function PatientProxyNotificationSettings() {
               key={ch.key}
               style={[styles.channelBtn, channels[ch.key as keyof typeof channels] && styles.channelBtnActive]}
               activeOpacity={0.7}
-              onPress={() => setChannels(c => ({ ...c, [ch.key]: !c[ch.key as keyof typeof channels] }))}
+              onPress={() => { setChannels(c => ({ ...c, [ch.key]: !c[ch.key as keyof typeof channels] })); setSaved(false); }}
             >
               <Ionicons
                 name={ch.icon}
@@ -175,9 +291,12 @@ export default function PatientProxyNotificationSettings() {
 
       {/* Quiet hours */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Quiet Hours</Text>
-        <Text style={styles.cardSub}>Pause non-critical notifications during these hours</Text>
-        <View style={styles.quietRow}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={styles.cardTitle}>Quiet Hours</Text>
+          <View style={styles.soonPill}><Text style={styles.soonText}>Coming soon</Text></View>
+        </View>
+        <Text style={styles.cardSub}>Pausing non-critical notifications during set hours is not available yet</Text>
+        <View style={[styles.quietRow, { opacity: 0.5 }]} accessibilityState={{ disabled: true }}>
           <View style={styles.quietBlock}>
             <Text style={styles.quietLabel}>From</Text>
             <View style={styles.quietTime}><Text style={styles.quietTimeText}>10:00 PM</Text></View>
@@ -189,12 +308,13 @@ export default function PatientProxyNotificationSettings() {
           </View>
           <View style={{ flex: 1 }} />
           <Switch
-            value={true}
+            value={false}
+            disabled
             trackColor={{ false: BORDER, true: PURPLE + '60' }}
-            thumbColor={PURPLE}
+            thumbColor={WHITE}
+            accessibilityLabel="Quiet hours (coming soon)"
           />
         </View>
-        <Text style={styles.quietNote}>Critical health alerts will still be delivered during quiet hours.</Text>
       </View>
     </ScrollView>
   );
@@ -208,6 +328,15 @@ const styles = StyleSheet.create({
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
   saveBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
   saveBtnText:{ fontSize: 13, color: WHITE, fontWeight: '600' },
+  saveBtnDisabled: { opacity: 0.6 },
+
+  banner:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: WHITE, borderRadius: 10, borderWidth: 1, borderColor: BORDER, padding: 12 },
+  bannerError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  bannerText:  { fontSize: 13, color: GRAY },
+  retryText:   { fontSize: 13, color: PURPLE, fontWeight: '600' },
+  deliveryNote:{ fontSize: 12, color: GRAY, fontStyle: 'italic', marginTop: -8 },
+  soonPill:    { backgroundColor: '#F3F4F6', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, marginBottom: 4 },
+  soonText:    { fontSize: 11, color: GRAY, fontWeight: '600' },
 
   card:      { backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 0 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: TEXT, marginBottom: 4 },

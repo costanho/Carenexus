@@ -55,7 +55,7 @@ export function PatientProxyDashboardMobile() {
       <View style={styles.container}>
         <PatientProxyTopNavMobile />
         {renderContent()}
-        <PatientProxyBottomNavbar />
+        <PatientProxyBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
       </View>
     </SafeAreaProvider>
   );

@@ -1,16 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Linking, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
 
 const TEAL      = '#0D9488';
 const TEAL_BG   = '#E8F5F4';
-const NAVY      = '#1E3A5F';
 const GRAY      = '#6B7280';
 const GRAY_LIGHT = '#F3F4F6';
 const BORDER    = '#E5E7EB';
 const WHITE     = '#FFFFFF';
-const PURPLE_BG = '#EEF0FB';
-const PURPLE    = '#5B6BB5';
 const RED       = '#EF4444';
 const ORANGE    = '#F97316';
 const AMBER     = '#F59E0B';
@@ -53,11 +50,10 @@ function formatApptTime(iso: string) {
 
 function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => void }) {
   const onViewAll = () => onNavigate?.('my-appointments');
-  const { appointments, loading } = useAppointments();
+  const { appointments, loading, error, refetch } = useAppointments();
 
-  const now = Date.now();
   const next = appointments
-    .filter(a => (a.status === 'SCHEDULED' || a.status === 'RESCHEDULED') && new Date(a.scheduled_at).getTime() > now)
+    .filter(isUpcomingAppointment)
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0] ?? null;
 
   const scheme = next ? urgencyScheme(next) : { color: TEAL, bg: TEAL_BG, label: '' };
@@ -66,7 +62,7 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>Upcoming Appointment</Text>
-        <TouchableOpacity onPress={onViewAll} activeOpacity={0.7}>
+        <TouchableOpacity onPress={onViewAll} activeOpacity={0.7} accessibilityRole="link">
           <Text style={[styles.link, { color: scheme.color }]}>View all</Text>
         </TouchableOpacity>
       </View>
@@ -75,11 +71,21 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
         <View style={[styles.apptInner, { backgroundColor: TEAL_BG, alignItems: 'center', paddingVertical: 24 }]}>
           <Text style={{ color: GRAY, fontSize: 13 }}>Loading…</Text>
         </View>
+      ) : error ? (
+        <View style={[styles.apptInner, { backgroundColor: '#FEF2F2', alignItems: 'center', gap: 8, paddingVertical: 20 }]}>
+          <Ionicons name="alert-circle-outline" size={28} color={RED} />
+          <Text style={{ color: RED, fontSize: 13, textAlign: 'center' }}>{error}</Text>
+          <TouchableOpacity onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading appointments">
+            <Text style={{ color: RED, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : !next ? (
         <View style={[styles.apptInner, { backgroundColor: GRAY_LIGHT, alignItems: 'center', gap: 8, paddingVertical: 24 }]}>
           <Ionicons name="calendar-outline" size={32} color={BORDER} />
           <Text style={{ color: GRAY, fontSize: 13, textAlign: 'center' }}>No upcoming appointments</Text>
-          <Text style={{ color: GRAY, fontSize: 11, textAlign: 'center' }}>Book one to get started</Text>
+          <TouchableOpacity onPress={() => onNavigate?.('book-appointment')} activeOpacity={0.7} accessibilityRole="button">
+            <Text style={{ color: TEAL, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>Book an appointment →</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <View style={[styles.apptInner, { backgroundColor: scheme.bg, borderColor: scheme.color + '40', borderWidth: 1 }]}>
@@ -127,6 +133,7 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
               style={[styles.joinBtn, { backgroundColor: scheme.color }]}
               onPress={() => Linking.openURL(next.video_consultation_link!)}
               activeOpacity={0.85}
+              accessibilityRole="link"
             >
               <Ionicons name="videocam" size={16} color={WHITE} />
               <Text style={styles.joinBtnText}>Join Consultation</Text>
@@ -136,6 +143,7 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
               style={[styles.joinBtn, { backgroundColor: scheme.color }]}
               onPress={() => onNavigate?.('my-appointments')}
               activeOpacity={0.85}
+              accessibilityRole="button"
             >
               <Ionicons name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={16} color={WHITE} />
               <Text style={styles.joinBtnText}>View Details</Text>
@@ -145,8 +153,10 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
             style={[styles.rescheduleBtn, { borderColor: scheme.color }]}
             onPress={() => onNavigate?.('my-appointments')}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityHint="Opens My Appointments, where you can reschedule or cancel"
           >
-            <Text style={[styles.rescheduleBtnText, { color: scheme.color }]}>Reschedule</Text>
+            <Text style={[styles.rescheduleBtnText, { color: scheme.color }]}>Reschedule or Cancel</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -154,62 +164,30 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
   );
 }
 
-// ── My Proxies ──────────────────────────────────────────────────────
-
-type Proxy = { name: string; relation: string; access: string; img: string };
-
-const proxies: Proxy[] = [
-  { name: 'Sarah Davis', relation: 'Daughter', access: 'Full Access', img: 'https://i.pravatar.cc/150?img=5' },
-  { name: 'James Davis', relation: 'Son', access: 'View Only', img: 'https://i.pravatar.cc/150?img=12' },
-];
-
-function MyProxies() {
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>My Proxies (Caregivers)</Text>
-        <TouchableOpacity><Text style={styles.link}>Manage</Text></TouchableOpacity>
-      </View>
-
-      {proxies.map((p, i) => (
-        <View key={p.name}>
-          <TouchableOpacity style={styles.proxyRow} activeOpacity={0.7}>
-            <Image source={{ uri: p.img }} style={styles.proxyAvatar} />
-            <View style={styles.proxyInfo}>
-              <Text style={styles.proxyName}>{p.name} <Text style={styles.proxyRelation}>({p.relation})</Text></Text>
-              <Text style={styles.proxyAccess}>{p.access}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={GRAY} />
-          </TouchableOpacity>
-          {i < proxies.length - 1 && <View style={styles.rowDivider} />}
-        </View>
-      ))}
-
-      <TouchableOpacity style={styles.manageLink}>
-        <Text style={styles.manageLinkText}>Add or Manage Proxies →</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 // ── Quick Access ────────────────────────────────────────────────────
 
-type QuickItem = { label: string; icon: IoniconsName };
+type QuickItem = { key: string; label: string; icon: IoniconsName };
 
 const quickItems: QuickItem[] = [
-  { label: 'Medical Records', icon: 'folder-open-outline' },
-  { label: 'Lab Results', icon: 'flask-outline' },
-  { label: 'Imaging Results', icon: 'image-outline' },
-  { label: 'Referrals', icon: 'git-compare-outline' },
+  { key: 'medical-records', label: 'Medical Records', icon: 'folder-open-outline' },
+  { key: 'lab-results',     label: 'Lab Results',     icon: 'flask-outline' },
+  { key: 'imaging-results', label: 'Imaging Results', icon: 'image-outline' },
+  { key: 'prescriptions',   label: 'Prescriptions',   icon: 'medkit-outline' },
 ];
 
-function QuickAccess() {
+function QuickAccess({ onNavigate }: { onNavigate?: (key: string) => void }) {
   return (
     <View style={styles.card}>
       <Text style={[styles.cardTitle, { marginBottom: 8 }]}>Quick Access</Text>
       {quickItems.map((item, i) => (
-        <View key={item.label}>
-          <TouchableOpacity style={styles.quickRow} activeOpacity={0.7}>
+        <View key={item.key}>
+          <TouchableOpacity
+            style={styles.quickRow}
+            activeOpacity={0.7}
+            onPress={() => onNavigate?.(item.key)}
+            accessibilityRole="button"
+            accessibilityLabel={item.label}
+          >
             <Ionicons name={item.icon} size={18} color={GRAY} />
             <Text style={styles.quickLabel}>{item.label}</Text>
             <Ionicons name="chevron-forward" size={16} color={GRAY} />
@@ -217,25 +195,6 @@ function QuickAccess() {
           {i < quickItems.length - 1 && <View style={styles.rowDivider} />}
         </View>
       ))}
-    </View>
-  );
-}
-
-// ── Need Help ───────────────────────────────────────────────────────
-
-function NeedHelp() {
-  return (
-    <View style={styles.helpCard}>
-      <View style={styles.helpText}>
-        <Text style={styles.helpTitle}>Need help?</Text>
-        <Text style={styles.helpSub}>Our support team is here for you.</Text>
-        <TouchableOpacity>
-          <Text style={styles.helpLink}>Contact Support →</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.helpIconBg}>
-        <Ionicons name="headset-outline" size={28} color={PURPLE} />
-      </View>
     </View>
   );
 }
@@ -250,9 +209,7 @@ export function PatientRightSidebar({ onNavigate }: { onNavigate?: (key: string)
         contentContainerStyle={styles.scroll}
       >
         <UpcomingAppointment onNavigate={onNavigate} />
-        <MyProxies />
-        <QuickAccess />
-        <NeedHelp />
+        <QuickAccess onNavigate={onNavigate} />
       </ScrollView>
     </View>
   );
@@ -390,48 +347,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Proxies
-  proxyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    gap: 10,
-  },
-  proxyAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: BORDER,
-  },
-  proxyInfo: {
-    flex: 1,
-  },
-  proxyName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  proxyRelation: {
-    fontWeight: '400',
-    color: GRAY,
-  },
-  proxyAccess: {
-    fontSize: 12,
-    color: TEAL,
-    marginTop: 2,
-  },
   rowDivider: {
     height: 1,
     backgroundColor: BORDER,
-  },
-  manageLink: {
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  manageLinkText: {
-    fontSize: 13,
-    color: TEAL,
-    fontWeight: '500',
   },
 
   // Quick access
@@ -447,41 +365,4 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
 
-  // Need help
-  helpCard: {
-    backgroundColor: PURPLE_BG,
-    borderRadius: 14,
-    padding: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  helpText: {
-    flex: 1,
-    gap: 4,
-  },
-  helpTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: NAVY,
-  },
-  helpSub: {
-    fontSize: 12,
-    color: GRAY,
-  },
-  helpLink: {
-    fontSize: 13,
-    color: TEAL,
-    fontWeight: '500',
-    marginTop: 6,
-  },
-  helpIconBg: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#D8DCF5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-  },
 });

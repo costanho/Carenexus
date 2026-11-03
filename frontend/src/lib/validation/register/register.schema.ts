@@ -9,7 +9,10 @@ export const registerSchema = z
     phone:           z.string()
                        .min(1, 'Phone number is required')
                        .regex(PHONE_REGEX, 'Enter a valid phone number'),
-    password:        z.string().min(8, 'Minimum 8 characters'),
+    password:        z.string()
+                       .min(8, 'Minimum 8 characters')
+                       .regex(/[A-Za-z]/, 'Include at least one letter')
+                       .regex(/\d/, 'Include at least one number'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
     agreed:          z.literal(true, { error: 'You must accept the terms to continue' }),
   })

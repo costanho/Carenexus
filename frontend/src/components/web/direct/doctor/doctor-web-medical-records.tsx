@@ -272,7 +272,7 @@ export default function DoctorWebMedicalRecords() {
       {/* Stats */}
       <View style={styles.statsRow}>
         <StatCard icon="folder-open-outline"   iconBg="#EEF2FF" iconColor={BLUE}   label="Total"         value={stats.total}         />
-        <StatCard icon="stethoscope"            iconBg="#EEF2FF" iconColor={BLUE}   label="Consultations" value={stats.consults}      />
+        <StatCard icon="pulse-outline"            iconBg="#EEF2FF" iconColor={BLUE}   label="Consultations" value={stats.consults}      />
         <StatCard icon="flask-outline"          iconBg="#CCFBF1" iconColor={TEAL}   label="Lab Results"   value={stats.labs}          />
         <StatCard icon="medkit-outline"         iconBg="#D1FAE5" iconColor={GREEN}  label="Prescriptions" value={stats.prescriptions} />
         <StatCard icon="git-compare-outline"    iconBg="#DBEAFE" iconColor={NAVY}   label="Referrals"     value={stats.referrals}     />
@@ -307,7 +307,7 @@ export default function DoctorWebMedicalRecords() {
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}

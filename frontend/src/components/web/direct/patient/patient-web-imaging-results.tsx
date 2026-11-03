@@ -237,7 +237,7 @@ export function PatientWebImagingResults({ onBack }: { onBack?: () => void }) {
     <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.pageHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityRole="button">
           <Ionicons name="arrow-back-outline" size={16} color={TEAL} />
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
@@ -245,7 +245,7 @@ export function PatientWebImagingResults({ onBack }: { onBack?: () => void }) {
           <Text style={styles.pageTitle}>Imaging Results</Text>
           <Text style={styles.pageSub}>Your radiology and imaging history</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh">
           <Ionicons name="refresh-outline" size={18} color={TEAL} />
         </TouchableOpacity>
       </View>

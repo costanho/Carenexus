@@ -1,9 +1,33 @@
 server:
   port: 9000
+  # Behind a load balancer / reverse proxy, Tomcat's RemoteIpValve rewrites the client address from
+  # X-Forwarded-For, but only when the request comes from a trusted internal proxy address.
+  # The application itself never reads X-Forwarded-For directly.
+  forward-headers-strategy: native
 
+# The JWT signing secret has NO default here on purpose: set JWT_SECRET (>= 64 bytes, e.g.
+# `openssl rand -base64 64`). Startup fails if it is missing, too short, or a value that was ever
+# committed to the repo. The 'local' profile below carries a dev-only value; docker-compose reads
+# JWT_SECRET from the root .env (copy .env.example).
 jwt:
-  secret: your-super-secret-key-that-is-at-least-32-characters-long-change-in-production
-  expiration: 900000  # 15 minutes in milliseconds
+  secret: ${JWT_SECRET:}
+  expiration: ${JWT_EXPIRATION:900000}  # 15 minutes in milliseconds
+
+carenexus:
+  cors:
+    # Comma-separated browser origins allowed to call the API. No wildcard.
+    # Production: set CORS_ALLOWED_ORIGINS=https://app.example.com
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006}
+  video:
+    base-url: ${VIDEO_BASE_URL:https://meet.jit.si}
+  # Clinic booking rules. All appointment times are wall-clock times in this zone; the JVM default
+  # zone is set to the same value at startup (CarenexusApiApplication) so every LocalDateTime.now() agrees.
+  scheduling:
+    time-zone: ${SCHEDULING_TIME_ZONE:Africa/Harare}
+    open-hour: ${SCHEDULING_OPEN_HOUR:8}
+    close-hour: ${SCHEDULING_CLOSE_HOUR:18}
+    allow-weekends: ${SCHEDULING_ALLOW_WEEKENDS:true}
+    max-advance-days: ${SCHEDULING_MAX_ADVANCE_DAYS:365}
 
 spring:
   application:
@@ -11,26 +35,34 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: none
+      # Flyway owns the schema; Hibernate only checks that the entities match it and fails fast if not.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+  # Schema migrations only. Demo users and mock clinical data live in classpath:db/seed and are
+  # added by the 'local' and 'docker' profiles below; they must never reach a real environment.
+  # NOTE: a database that already applied the seed versions (2,4-8) and is then run without the
+  # seed location fails Flyway validation ("applied migration not resolved locally"). For such a
+  # database purge the demo rows and set spring.flyway.ignore-migration-patterns: "*:missing".
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
 
+# API docs are off unless explicitly enabled (local/docker profiles, or SWAGGER_ENABLED=true).
 springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+    path: /v3/api-docs
   swagger-ui:
-    enabled: true
+    enabled: ${SWAGGER_ENABLED:false}
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
-  api-docs:
-    path: /v3/api-docs
 
 management:
   endpoints:
@@ -41,8 +73,8 @@ management:
 logging:
   level:
     root: INFO
-    com.carenexus: DEBUG
-    org.springframework.security: DEBUG
+    com.carenexus: INFO
+    org.springframework.security: WARN
 
 ---
 spring:
@@ -56,10 +88,22 @@ spring:
     password: local_dev_password
     driver-class-name: org.postgresql.Driver
 
-  security:
-    oauth2:
-      authorizationserver:
-        issuer: http://localhost:9000
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
+
+# DEV ONLY. JwtUtil refuses this value unless the local/docker/test profile is active.
+jwt:
+  secret: ${JWT_SECRET:local-dev-only-jwt-secret-NOT-FOR-PRODUCTION-0123456789abcdefghijklmnopqrstuvwxyz}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    com.carenexus: DEBUG
 
 ---
 spring:
@@ -73,7 +117,13 @@ spring:
     password: local_dev_password
     driver-class-name: org.postgresql.Driver
 
-  security:
-    oauth2:
-      authorizationserver:
-        issuer: http://carenexus-api:9000
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
+
+# JWT_SECRET comes from the environment (docker-compose reads it from the root .env).
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

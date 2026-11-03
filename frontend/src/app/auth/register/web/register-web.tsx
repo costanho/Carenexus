@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { PhoneInput } from '@/components/shared/phone-input';
 import { parseApiError, register } from '@/lib/auth/auth.service';
+import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { registerSchema } from '@/lib/validation/register/register.schema';
 import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '@/lib/validation/register/register.types';
 import { getPasswordStrength } from '@/lib/validation/register/register.validators';
@@ -21,10 +23,10 @@ import { getPasswordStrength } from '@/lib/validation/register/register.validato
 const { NAVY, WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
 
 const panelPoints: { icon: IoniconsName; text: string }[] = [
-  { icon: 'person-add-outline',       text: 'Create your secure health profile'  },
-  { icon: 'shield-checkmark-outline', text: 'Your data is encrypted and private' },
-  { icon: 'videocam-outline',         text: 'Consult doctors from anywhere'       },
-  { icon: 'notifications-outline',    text: 'Get real-time care updates'          },
+  { icon: 'person-add-outline',       text: 'Create your health profile'          },
+  { icon: 'calendar-outline',         text: 'Book and track appointments'         },
+  { icon: 'document-text-outline',    text: 'View prescriptions and lab results'  },
+  { icon: 'people-outline',           text: 'Give a caregiver access when needed' },
 ];
 
 function FieldError({ message }: { message?: string }) {
@@ -100,7 +102,7 @@ export default function RegisterWeb() {
     setAuthError('');
     setLoading(true);
     try {
-      await register({
+      const res = await register({
         firstName: data.firstName,
         lastName:  data.lastName,
         email:     data.email,
@@ -108,6 +110,13 @@ export default function RegisterWeb() {
         password:  data.password,
         role,
       });
+      if (res.tokens && res.user && ROLE_HOME[res.user.role]) {
+        // Signed in straight away
+        router.replace(ROLE_HOME[res.user.role] as any);
+        return;
+      }
+      // No session issued (e.g. clinician accounts pending verification): show the server's message.
+      showMessage('Account created', res.message ?? 'Your account has been created. Please sign in.');
       router.replace('/auth/login/web/login-web');
     } catch (err) {
       setAuthError(parseApiError(err, 'Registration failed. Please try again.'));
@@ -210,7 +219,7 @@ export default function RegisterWeb() {
             <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
               value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
               rightElement={
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPass ? 'Hide password' : 'Show password'} onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={17} color={GRAY} />
                 </TouchableOpacity>
               }
@@ -231,7 +240,7 @@ export default function RegisterWeb() {
             <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter your password"
               value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
               rightElement={
-                <TouchableOpacity onPress={() => setShowConf(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showConf ? 'Hide password confirmation' : 'Show password confirmation'} onPress={() => setShowConf(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
                   <Ionicons name={showConf ? 'eye-off-outline' : 'eye-outline'} size={17} color={GRAY} />
                 </TouchableOpacity>
               }

@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { caregiverErrorMessage, caregiverSaveErrorMessage, parseList, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
@@ -150,7 +150,7 @@ function ETagInput({ tags, onAdd, onRemove, placeholder }: {
         {tags.map((t, i) => (
           <View key={i} style={styles.tagChip}>
             <Text style={styles.tagChipText}>{t}</Text>
-            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }}>
+            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }} accessibilityRole="button" accessibilityLabel={`Remove ${t}`}>
               <Ionicons name="close" size={11} color={PURPLE} />
             </TouchableOpacity>
           </View>
@@ -170,7 +170,14 @@ function ETagInput({ tags, onAdd, onRemove, placeholder }: {
 
 function EPermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <TouchableOpacity style={styles.permRow} onPress={() => onChange(!value)} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.permRow}
+      onPress={() => onChange(!value)}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+    >
       <Text style={styles.permLabel}>{label}</Text>
       <View style={[styles.toggle, value && styles.toggleOn]}>
         <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
@@ -214,12 +221,16 @@ function PermTile({ icon, label, granted }: { icon: IoniconsName; label: string;
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function PatientProxyWebProfile({
-  dependent,
+  dependent: initialDependent,
   onBack,
+  onNavigate,
 }: {
   dependent: CaregiverDependent;
   onBack: () => void;
+  onNavigate?: (key: string) => void;
 }) {
+  // Local copy so a successful access PATCH is reflected immediately.
+  const [dependent,  setDependent]  = useState<CaregiverDependent>(initialDependent);
   const [patient,    setPatient]    = useState<PatientDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -254,7 +265,12 @@ export default function PatientProxyWebProfile({
   });
 
   useEffect(() => {
+    setDependent(initialDependent);
+  }, [initialDependent]);
+
+  useEffect(() => {
     setLoading(true);
+    setFetchError(null);
     api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`)
       .then(({ data }) => {
         setPatient(data);
@@ -265,10 +281,10 @@ export default function PatientProxyWebProfile({
         setHGender((data.gender as Gender) ?? 'MALE');
         setHBlood((data.bloodType as BloodType) ?? 'A+');
         setHStatus((data.healthStatus as HealthStat) ?? 'STABLE');
-        setHAllergies(JSON.parse(data.allergies || '[]'));
-        setHConditions(JSON.parse(data.chronicConditions || '[]'));
+        setHAllergies(parseList(data.allergies));
+        setHConditions(parseList(data.chronicConditions));
       })
-      .catch(() => setFetchError('Could not load full patient details. Showing available data.'))
+      .catch(err => setFetchError(caregiverErrorMessage(err, 'Could not load full patient details. Showing available data.')))
       .finally(() => setLoading(false));
 
     setALevel(dependent.accessLevel as AccessLevel);
@@ -299,7 +315,7 @@ export default function PatientProxyWebProfile({
       const { data } = await api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`);
       setPatient(data);
       setEditingPersonal(false);
-    } catch { setSaveError('Failed to save personal details.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save personal details.')); }
     finally { setSaving(false); }
   }
 
@@ -312,14 +328,14 @@ export default function PatientProxyWebProfile({
       });
       setPatient(data);
       setEditingHealth(false);
-    } catch { setSaveError('Failed to save health profile.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save health profile.')); }
     finally { setSaving(false); }
   }
 
   async function saveAccess() {
     setSaving(true); setSaveError('');
     try {
-      await api.patch(`/api/caregiver/dependents/${dependent.accessId}`, {
+      const { data } = await api.patch<CaregiverDependent>(`/api/caregiver/dependents/${dependent.accessId}`, {
         accessLevel:              aLevel,
         expiresAt:                aExpires.trim() || null,
         canViewRecords:           aPerms.canViewRecords,
@@ -332,13 +348,13 @@ export default function PatientProxyWebProfile({
         canScheduleAppointments:  aPerms.canScheduleAppointments,
         canManageCarePlan:        aPerms.canManageCarePlan,
       });
+      if (data) setDependent(prev => ({ ...prev, ...data }));
       setEditingAccess(false);
-    } catch { setSaveError('Failed to save access settings.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save access settings.')); }
     finally { setSaving(false); }
   }
 
   const name       = patient ? `${patient.firstName} ${patient.lastName}` : dependent.patientName ?? 'Unknown Patient';
-  const avatarUri  = null;
   const status     = patient?.healthStatus ?? dependent.patientHealthStatus ?? null;
   const dob        = patient?.dateOfBirth ?? dependent.patientDateOfBirth;
   const gender     = patient?.gender ?? dependent.patientGender;
@@ -346,8 +362,8 @@ export default function PatientProxyWebProfile({
   const email      = patient?.email ?? dependent.patientEmail;
   const phone      = patient?.phone;
   const createdAt  = patient?.createdAt;
-  const allergies  = patient ? JSON.parse(patient.allergies || '[]') : [];
-  const conditions = patient ? JSON.parse(patient.chronicConditions || '[]') : [];
+  const allergies  = parseList(patient?.allergies);
+  const conditions = parseList(patient?.chronicConditions);
 
   const sc  = healthColors(status);
   const dc  = dotColor(status);
@@ -372,8 +388,8 @@ export default function PatientProxyWebProfile({
 
       {/* Back + title */}
       <View style={styles.pageHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={18} color={PURPLE} />
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityRole="button">
+          <Ionicons name="arrow-back-outline" size={18} color={PURPLE} importantForAccessibility="no" />
           <Text style={styles.backText}>Back to Dashboard</Text>
         </TouchableOpacity>
         <Text style={styles.pageTitle}>Patient Profile</Text>
@@ -404,12 +420,9 @@ export default function PatientProxyWebProfile({
         </View>
         <View style={styles.heroBody}>
           <View style={styles.heroAvatarWrap}>
-            {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={styles.heroAvatar} />
-              : <View style={[styles.heroAvatar, { backgroundColor: avatarColor(name), alignItems:'center', justifyContent:'center' }]}>
-                  <Text style={styles.heroInitials}>{initials(name)}</Text>
-                </View>
-            }
+            <View style={[styles.heroAvatar, { backgroundColor: avatarColor(name), alignItems:'center', justifyContent:'center' }]}>
+              <Text style={styles.heroInitials}>{initials(name)}</Text>
+            </View>
             <View style={[styles.heroDot, { backgroundColor: dc }]} />
           </View>
           <View style={styles.heroInfo}>
@@ -446,7 +459,7 @@ export default function PatientProxyWebProfile({
         title="Personal Details"
         editAction={
           !editingPersonal
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingPersonal(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingPersonal(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit personal details">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -494,7 +507,7 @@ export default function PatientProxyWebProfile({
         title="Health Profile"
         editAction={
           !editingHealth
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingHealth(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingHealth(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit health profile">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -572,7 +585,7 @@ export default function PatientProxyWebProfile({
         title="Your Access"
         editAction={
           !editingAccess
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingAccess(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingAccess(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit your access">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -662,12 +675,27 @@ export default function PatientProxyWebProfile({
       </SectionCard>
 
       {/* ── Quick Actions ── */}
-      {(!!dependent.canMessageCareTeam || !!dependent.canScheduleAppointments || !!dependent.canViewRecords) && (
+      {onNavigate && (!!dependent.canViewAppointments || !!dependent.canViewLabResults || !!dependent.canViewMedications) && (
         <SectionCard title="Quick Actions">
           <View style={styles.actionsRow}>
-            {!!dependent.canMessageCareTeam    && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="chatbox-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Message Care Team</Text></TouchableOpacity>}
-            {!!dependent.canScheduleAppointments && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="calendar-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Schedule Appointment</Text></TouchableOpacity>}
-            {!!dependent.canViewRecords          && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="document-text-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>View Records</Text></TouchableOpacity>}
+            {!!dependent.canViewAppointments && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('appointments')} accessibilityRole="button">
+                <Ionicons name="calendar-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Appointments</Text>
+              </TouchableOpacity>
+            )}
+            {!!dependent.canViewMedications && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('medications')} accessibilityRole="button">
+                <Ionicons name="medical-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Medications</Text>
+              </TouchableOpacity>
+            )}
+            {!!dependent.canViewLabResults && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('documents-results')} accessibilityRole="button">
+                <Ionicons name="flask-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Lab Results</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </SectionCard>
       )}

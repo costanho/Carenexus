@@ -22,15 +22,17 @@ export interface AuthTokens {
 }
 
 export interface AuthUser {
-  user_id: number;
-  name:    string;
-  email:   string;
-  role:    Role;
+  user_id:   number;
+  system_id: string;
+  name:      string;
+  email:     string;
+  role:      Role;
 }
 
 export interface AuthResponse {
-  tokens: AuthTokens;
-  user:   AuthUser;
+  message?: string;
+  tokens:   AuthTokens;
+  user:     AuthUser;
 }
 
 /** Route each role maps to after login */

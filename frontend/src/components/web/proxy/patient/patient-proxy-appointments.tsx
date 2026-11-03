@@ -1,7 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
+import { useMemo, useState } from 'react';
+import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCaregiverActivity, type CaregiverAppointment } from '@/hooks/use-caregiver-dependents';
+import { useDoctors } from '@/hooks/use-doctors';
+import { showMessage } from '@/lib/ui/dialogs';
+import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -12,29 +15,9 @@ const PURPLE = '#7C3AED';
 const GREEN  = '#10B981';
 const RED    = '#EF4444';
 
-type ApptStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-type ApptType   = 'IN_PERSON' | 'VIDEO' | 'PHONE';
+type Appointment = CaregiverAppointment;
 
-interface Appointment {
-  appointmentId:          number;
-  patientSystemId:        string | null;
-  patientName:            string | null;
-  doctorSystemId:         string | null;
-  scheduledAt:            string;
-  durationMinutes:        number;
-  type:                   ApptType;
-  status:                 ApptStatus;
-  reasonForVisit:         string | null;
-  videoConsultationLink:  string | null;
-  notes:                  string | null;
-}
-
-interface ActivityResponse {
-  appointments:  Appointment[];
-  consultations: unknown[];
-}
-
-function statusColor(s: ApptStatus) {
+function statusColor(s: string) {
   if (s === 'SCHEDULED')  return { bg: '#EDE9FE', text: PURPLE };
   if (s === 'COMPLETED')  return { bg: '#D1FAE5', text: GREEN };
   if (s === 'CANCELLED')  return { bg: '#FEE2E2', text: RED };
@@ -49,7 +32,17 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
 }
 
-function ApptCard({ appt }: { appt: Appointment }) {
+async function openVideoLink(url: string) {
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) throw new Error('unsupported');
+    await Linking.openURL(url);
+  } catch {
+    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
+  }
+}
+
+function ApptCard({ appt, doctorName }: { appt: Appointment; doctorName: string | null }) {
   const { bg, text } = statusColor(appt.status);
   const isVideo    = appt.type === 'VIDEO';
   const isUpcoming = appt.status === 'SCHEDULED';
@@ -62,7 +55,7 @@ function ApptCard({ appt }: { appt: Appointment }) {
           <Text style={styles.cardSub}>{appt.patientName ?? appt.patientSystemId ?? '—'}</Text>
         </View>
         <View style={[styles.badge, { backgroundColor: bg }]}>
-          <Text style={[styles.badgeText, { color: text }]}>{appt.status.replace('_', ' ')}</Text>
+          <Text style={[styles.badgeText, { color: text }]}>{appt.status.replace(/_/g, ' ')}</Text>
         </View>
       </View>
 
@@ -73,16 +66,20 @@ function ApptCard({ appt }: { appt: Appointment }) {
         </View>
         <View style={styles.detail}>
           <Ionicons name="time-outline" size={14} color={GRAY} />
-          <Text style={styles.detailText}>{formatTime(appt.scheduledAt)} · {appt.durationMinutes} min</Text>
+          <Text style={styles.detailText}>
+            {formatTime(appt.scheduledAt)}{appt.durationMinutes ? ` · ${appt.durationMinutes} min` : ''}
+          </Text>
         </View>
         <View style={styles.detail}>
-          <Ionicons name={isVideo ? 'videocam-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
-          <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>{isVideo ? 'Video Call' : 'In Person'}</Text>
+          <Ionicons name={isVideo ? 'videocam-outline' : appt.type === 'PHONE' ? 'call-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
+          <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>
+            {isVideo ? 'Video Call' : appt.type === 'PHONE' ? 'Phone Call' : 'In Person'}
+          </Text>
         </View>
-        {appt.doctorSystemId && (
+        {doctorName && (
           <View style={styles.detail}>
             <Ionicons name="person-outline" size={14} color={GRAY} />
-            <Text style={styles.detailText}>{appt.doctorSystemId}</Text>
+            <Text style={styles.detailText}>{doctorName}</Text>
           </View>
         )}
       </View>
@@ -94,9 +91,16 @@ function ApptCard({ appt }: { appt: Appointment }) {
       )}
 
       {isUpcoming && isVideo && appt.videoConsultationLink && (
-        <TouchableOpacity style={styles.joinBtn} activeOpacity={0.8}>
-          <Ionicons name="videocam-outline" size={15} color={WHITE} />
-          <Text style={styles.joinBtnText}>Join Video Call</Text>
+        <TouchableOpacity
+          style={styles.joinBtn}
+          activeOpacity={0.8}
+          onPress={() => openVideoLink(appt.videoConsultationLink!)}
+          accessibilityRole="link"
+          accessibilityLabel="Open video call link"
+          accessibilityHint="Opens the video link provided by the clinic"
+        >
+          <Ionicons name="videocam-outline" size={15} color={WHITE} importantForAccessibility="no" />
+          <Text style={styles.joinBtnText}>Open Video Link</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -106,24 +110,18 @@ function ApptCard({ appt }: { appt: Appointment }) {
 type Filter = 'all' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export default function PatientProxyAppointments() {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [error,   setError]             = useState<string | null>(null);
-  const [filter,  setFilter]            = useState<Filter>('all');
+  const { appointments: raw, loading, error, refetch } = useCaregiverActivity();
+  const { doctors } = useDoctors();
+  const [filter,  setFilter] = useState<Filter>('all');
 
-  useEffect(() => {
-    setLoading(true);
-    api.get<ActivityResponse>('/api/caregiver/dependents/activity')
-      .then(({ data }) => {
-        const sorted = [...(data.appointments ?? [])].sort(
-          (a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
-        );
-        setAppointments(sorted);
-        setError(null);
-      })
-      .catch(() => setError('Failed to load appointments.'))
-      .finally(() => setLoading(false));
-  }, []);
+  const appointments = useMemo(
+    () => [...raw].sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
+    [raw],
+  );
+  const doctorNames = useMemo(
+    () => new Map(doctors.map(d => [d.doctor_system_id, d.full_name])),
+    [doctors],
+  );
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all',       label: 'All' },
@@ -141,58 +139,59 @@ export default function PatientProxyAppointments() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Appointments</Text>
-          <Text style={styles.pageSub}>Manage appointments for your linked patients</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Appointments</Text>
+          <Text style={styles.pageSub}>Appointments for your linked patients</Text>
         </View>
-        <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.8}>
-          <Ionicons name="add" size={16} color={WHITE} />
-          <Text style={styles.primaryBtnText}>Schedule Appointment</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Stat pills */}
-      <View style={styles.statsRow}>
-        {[
-          { label: 'Total',    value: appointments.length, bg: '#F5F3FF', color: PURPLE },
-          { label: 'Upcoming', value: upcoming,            bg: '#EDE9FE', color: PURPLE },
-          { label: 'Done',     value: completed,           bg: '#D1FAE5', color: GREEN  },
-        ].map(s => (
-          <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
-            <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Filter tabs */}
-      <View style={styles.filterRow}>
-        {filters.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
-            activeOpacity={0.7}
-            onPress={() => setFilter(f.key)}
-          >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* List */}
       {loading ? (
-        <ActivityIndicator size="large" color={PURPLE} style={{ marginTop: 60 }} />
+        <LoadingState label="Loading appointments" />
       ) : error ? (
-        <View style={styles.empty}>
-          <Ionicons name="alert-circle-outline" size={40} color={RED} />
-          <Text style={styles.emptyText}>{error}</Text>
-        </View>
-      ) : visible.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="calendar-outline" size={40} color={BORDER} />
-          <Text style={styles.emptyText}>No appointments found</Text>
-        </View>
+        <ErrorState message={error} onRetry={refetch} />
       ) : (
-        visible.map(a => <ApptCard key={a.appointmentId} appt={a} />)
+        <>
+          {/* Stat pills */}
+          <View style={styles.statsRow}>
+            {[
+              { label: 'Total',    value: appointments.length, bg: '#F5F3FF', color: PURPLE },
+              { label: 'Upcoming', value: upcoming,            bg: '#EDE9FE', color: PURPLE },
+              { label: 'Done',     value: completed,           bg: '#D1FAE5', color: GREEN  },
+            ].map(s => (
+              <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
+                <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
+                <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Filter tabs */}
+          <View style={styles.filterRow}>
+            {filters.map(f => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+                activeOpacity={0.7}
+                onPress={() => setFilter(f.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: filter === f.key }}
+              >
+                <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {visible.length === 0 ? (
+            <EmptyState icon="calendar-outline" title="No appointments found" />
+          ) : (
+            visible.map(a => (
+              <ApptCard
+                key={a.appointmentId}
+                appt={a}
+                doctorName={a.doctorSystemId ? doctorNames.get(a.doctorSystemId) ?? null : null}
+              />
+            ))
+          )}
+        </>
       )}
     </ScrollView>
   );
@@ -206,8 +205,6 @@ const styles = StyleSheet.create({
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
 
-  primaryBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  primaryBtnText: { fontSize: 13, color: WHITE, fontWeight: '600' },
 
   statsRow: { flexDirection: 'row', gap: 12 },
   statPill: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
@@ -239,6 +236,4 @@ const styles = StyleSheet.create({
   joinBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10, alignSelf: 'flex-start' },
   joinBtnText: { fontSize: 13, color: WHITE, fontWeight: '600' },
 
-  empty:     { alignItems: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: GRAY },
 });

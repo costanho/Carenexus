@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '@/lib/auth/auth.interceptor';
-import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { caregiverErrorMessage, caregiverSaveErrorMessage, parseList, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
@@ -22,7 +22,6 @@ const BORDER       = '#E5E7EB';
 const BG           = '#F9FAFB';
 const PURPLE       = '#7C3AED';
 const PURPLE_BG    = '#F5F3FF';
-const PURPLE_LIGHT = '#EDE9FE';
 const GREEN        = '#10B981';
 const ORANGE       = '#F59E0B';
 const RED          = '#EF4444';
@@ -112,7 +111,7 @@ function permissionsForLevel(level: AccessLevel) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function PatientProxyMobileProfile({
-  dependent,
+  dependent: initialDependent,
   onBack,
 }: {
   dependent: CaregiverDependent;
@@ -120,6 +119,10 @@ export default function PatientProxyMobileProfile({
 }) {
   const { s }  = useScale();
   const insets = useSafeAreaInsets();
+
+  // Local copy so a successful access PATCH is reflected immediately.
+  const [dependent, setDependent] = useState<CaregiverDependent>(initialDependent);
+  useEffect(() => { setDependent(initialDependent); }, [initialDependent]);
 
   const [patient,    setPatient]    = useState<PatientDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -152,6 +155,7 @@ export default function PatientProxyMobileProfile({
 
   useEffect(() => {
     setLoading(true);
+    setFetchError(null);
     api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`)
       .then(({ data }) => {
         setPatient(data);
@@ -162,10 +166,10 @@ export default function PatientProxyMobileProfile({
         setHGender((data.gender as Gender) ?? 'MALE');
         setHBlood((data.bloodType as BloodType) ?? 'A+');
         setHStatus((data.healthStatus as HealthStat) ?? 'STABLE');
-        setHAllergies(JSON.parse(data.allergies || '[]'));
-        setHConditions(JSON.parse(data.chronicConditions || '[]'));
+        setHAllergies(parseList(data.allergies));
+        setHConditions(parseList(data.chronicConditions));
       })
-      .catch(() => setFetchError('Could not load full details. Showing available data.'))
+      .catch(err => setFetchError(caregiverErrorMessage(err, 'Could not load full details. Showing available data.')))
       .finally(() => setLoading(false));
 
     setALevel(dependent.accessLevel as AccessLevel);
@@ -196,7 +200,7 @@ export default function PatientProxyMobileProfile({
       const { data } = await api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`);
       setPatient(data);
       setEditingPersonal(false);
-    } catch { setSaveError('Failed to save personal details.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save personal details.')); }
     finally { setSaving(false); }
   }
 
@@ -209,14 +213,14 @@ export default function PatientProxyMobileProfile({
       });
       setPatient(data);
       setEditingHealth(false);
-    } catch { setSaveError('Failed to save health profile.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save health profile.')); }
     finally { setSaving(false); }
   }
 
   async function saveAccess() {
     setSaving(true); setSaveError('');
     try {
-      await api.patch(`/api/caregiver/dependents/${dependent.accessId}`, {
+      const { data } = await api.patch<CaregiverDependent>(`/api/caregiver/dependents/${dependent.accessId}`, {
         accessLevel:              aLevel,
         expiresAt:                aExpires.trim() || null,
         canViewRecords:           aPerms.canViewRecords,
@@ -229,13 +233,13 @@ export default function PatientProxyMobileProfile({
         canScheduleAppointments:  aPerms.canScheduleAppointments,
         canManageCarePlan:        aPerms.canManageCarePlan,
       });
+      if (data) setDependent(prev => ({ ...prev, ...data }));
       setEditingAccess(false);
-    } catch { setSaveError('Failed to save access settings.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save access settings.')); }
     finally { setSaving(false); }
   }
 
   const name       = patient ? `${patient.firstName} ${patient.lastName}` : dependent.patientName ?? 'Unknown Patient';
-  const avatarUri  = null;
   const status     = patient?.healthStatus ?? dependent.patientHealthStatus ?? null;
   const dob        = patient?.dateOfBirth ?? dependent.patientDateOfBirth;
   const gender     = patient?.gender ?? dependent.patientGender;
@@ -243,8 +247,8 @@ export default function PatientProxyMobileProfile({
   const email      = patient?.email ?? dependent.patientEmail;
   const phone      = patient?.phone;
   const createdAt  = patient?.createdAt;
-  const allergies  = patient ? JSON.parse(patient.allergies || '[]') : [];
-  const conditions = patient ? JSON.parse(patient.chronicConditions || '[]') : [];
+  const allergies  = parseList(patient?.allergies);
+  const conditions = parseList(patient?.chronicConditions);
 
   const sc = healthColors(status);
   const dc = dotColor(status);
@@ -270,8 +274,14 @@ export default function PatientProxyMobileProfile({
         <View style={styles.cardHeader}>
           <Text style={[styles.cardTitle, { fontSize: s(14) }]}>{title}</Text>
           {onEdit && (
-            <TouchableOpacity style={[styles.editBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]} onPress={onEdit} activeOpacity={0.7}>
-              <Ionicons name="pencil-outline" size={s(13)} color={PURPLE} />
+            <TouchableOpacity
+              style={[styles.editBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]}
+              onPress={onEdit}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${title.toLowerCase()}`}
+            >
+              <Ionicons name="pencil-outline" size={s(13)} color={PURPLE} importantForAccessibility="no" />
               <Text style={[styles.editBtnText, { fontSize: s(12) }]}>Edit</Text>
             </TouchableOpacity>
           )}
@@ -325,7 +335,7 @@ export default function PatientProxyMobileProfile({
           {tags.map((t, i) => (
             <View key={i} style={[styles.tagChip, { borderRadius: s(12), paddingHorizontal: s(8), paddingVertical: s(4), gap: s(5) }]}>
               <Text style={[styles.tagChipText, { fontSize: s(11) }]}>{t}</Text>
-              <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }}>
+              <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }} accessibilityRole="button" accessibilityLabel={`Remove ${t}`}>
                 <Ionicons name="close" size={s(11)} color={PURPLE} />
               </TouchableOpacity>
             </View>
@@ -347,7 +357,14 @@ export default function PatientProxyMobileProfile({
 
   function MPermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
     return (
-      <TouchableOpacity style={[styles.permRow, { paddingVertical: s(10) }]} onPress={() => onChange(!value)} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={[styles.permRow, { paddingVertical: s(10) }]}
+        onPress={() => onChange(!value)}
+        activeOpacity={0.7}
+        accessibilityRole="switch"
+        accessibilityLabel={label}
+        accessibilityState={{ checked: value }}
+      >
         <Text style={[styles.permLabel, { fontSize: s(13) }]}>{label}</Text>
         <View style={[styles.toggle, { width: s(38), height: s(21), borderRadius: s(11) }, value && styles.toggleOn]}>
           <View style={[styles.toggleThumb, { width: s(17), height: s(17), borderRadius: s(9) }, value && styles.toggleThumbOn]} />
@@ -381,8 +398,8 @@ export default function PatientProxyMobileProfile({
     >
       {/* Back header */}
       <View style={[styles.backHeader, { marginBottom: s(14) }]}>
-        <TouchableOpacity style={[styles.backBtn, { gap: s(5) }]} onPress={onBack} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={s(18)} color={PURPLE} />
+        <TouchableOpacity style={[styles.backBtn, { gap: s(5) }]} onPress={onBack} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Back to dashboard">
+          <Ionicons name="arrow-back-outline" size={s(18)} color={PURPLE} importantForAccessibility="no" />
           <Text style={[styles.backText, { fontSize: s(14) }]}>Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { fontSize: s(16) }]}>Patient Profile</Text>
@@ -407,12 +424,9 @@ export default function PatientProxyMobileProfile({
       <View style={[styles.card, { borderRadius: s(14), padding: s(14), marginBottom: s(12) }]}>
         <View style={[styles.heroRow, { gap: s(12) }]}>
           <View>
-            {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={{ width: s(68), height: s(68), borderRadius: s(34), backgroundColor: BORDER }} />
-              : <View style={{ width: s(68), height: s(68), borderRadius: s(34), backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: WHITE, fontSize: s(20), fontWeight: '700' }}>{initials(name)}</Text>
-                </View>
-            }
+            <View style={{ width: s(68), height: s(68), borderRadius: s(34), backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: WHITE, fontSize: s(20), fontWeight: '700' }}>{initials(name)}</Text>
+            </View>
             <View style={{ width: s(11), height: s(11), borderRadius: s(6), backgroundColor: dc, borderWidth: 2, borderColor: WHITE, position: 'absolute', bottom: s(2), right: s(2) }} />
           </View>
           <View style={{ flex: 1, gap: s(3) }}>
@@ -627,17 +641,6 @@ export default function PatientProxyMobileProfile({
         )}
       </Card>
 
-      {/* Quick Actions */}
-      {(!!dependent.canMessageCareTeam || !!dependent.canScheduleAppointments || !!dependent.canViewRecords) && (
-        <View style={[styles.card, { borderRadius: s(14), padding: s(14), gap: s(10) }]}>
-          <Text style={[styles.cardTitle, { fontSize: s(14) }]}>Quick Actions</Text>
-          <View style={{ gap: s(8) }}>
-            {!!dependent.canMessageCareTeam    && <TouchableOpacity style={[styles.actionBtn, { borderRadius: s(10), paddingVertical: s(11), paddingHorizontal: s(14), gap: s(8) }]} activeOpacity={0.7}><Ionicons name="chatbox-outline" size={s(15)} color={PURPLE} /><Text style={[styles.actionBtnText, { fontSize: s(13) }]}>Message Care Team</Text></TouchableOpacity>}
-            {!!dependent.canScheduleAppointments && <TouchableOpacity style={[styles.actionBtn, { borderRadius: s(10), paddingVertical: s(11), paddingHorizontal: s(14), gap: s(8) }]} activeOpacity={0.7}><Ionicons name="calendar-outline" size={s(15)} color={PURPLE} /><Text style={[styles.actionBtnText, { fontSize: s(13) }]}>Schedule Appointment</Text></TouchableOpacity>}
-            {!!dependent.canViewRecords          && <TouchableOpacity style={[styles.actionBtn, { borderRadius: s(10), paddingVertical: s(11), paddingHorizontal: s(14), gap: s(8) }]} activeOpacity={0.7}><Ionicons name="document-text-outline" size={s(15)} color={PURPLE} /><Text style={[styles.actionBtnText, { fontSize: s(13) }]}>View Records</Text></TouchableOpacity>}
-          </View>
-        </View>
-      )}
     </ScrollView>
   );
 }
@@ -721,6 +724,4 @@ const styles = StyleSheet.create({
   saveBtn:       { alignItems: 'center', justifyContent: 'center', backgroundColor: PURPLE },
   saveBtnText:   { color: WHITE, fontWeight: '700' },
 
-  actionBtn:     { flexDirection: 'row', alignItems: 'center', backgroundColor: PURPLE_BG, borderWidth: 1, borderColor: PURPLE_LIGHT },
-  actionBtnText: { color: PURPLE, fontWeight: '600' },
 });
