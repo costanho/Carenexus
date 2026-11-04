@@ -37,7 +37,8 @@ function apptTypeConfig(t: DoctorConsultation['appointment_type']) {
     case 'IN_PERSON': return { icon: 'location-outline'  as IoniconsName, label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
     case 'VIDEO':     return { icon: 'videocam-outline'   as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
     case 'PHONE':     return { icon: 'call-outline'       as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
-    default:          return { icon: 'calendar-outline'   as IoniconsName, label: 'Unknown',   color: GRAY,   bg: BG2       };
+    // Type not known (appointment not in the schedule response): a neutral label, not "Unknown".
+    default:          return { icon: 'calendar-outline'   as IoniconsName, label: 'Appointment', color: GRAY, bg: BG2     };
   }
 }
 
@@ -315,7 +316,7 @@ export default function DoctorWebConsultation() {
       {/* Page Header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Consultations</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Consultations</Text>
           <Text style={styles.pageSub}>Your full consultation history and active sessions</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>

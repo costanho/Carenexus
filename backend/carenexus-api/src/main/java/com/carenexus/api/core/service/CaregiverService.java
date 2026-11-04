@@ -4,6 +4,8 @@ import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
 import com.carenexus.api.auth.service.AuthService;
 import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
+import com.carenexus.api.common.event.CaregiverApprovalPendingEvent;
+import com.carenexus.api.common.event.CaregiverMessagingRegainedEvent;
 import com.carenexus.api.common.exception.AuthorizationException;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
@@ -57,7 +59,10 @@ import java.util.stream.Collectors;
  * grant or PATCH. Admin changes never approve. Turning a flag off (anyone) clears its approval in the same save.
  * FULL_ACCESS never implies them. See PatientPermission.isGrantedBy.
  *
- * Every successful change publishes CaregiverAccessChangedEvent with the effective values after the save.
+ * Every successful change publishes CaregiverAccessChangedEvent with the effective values after the save. In the
+ * same transaction it may also publish CaregiverMessagingRegainedEvent (messaging effective again after a gap: the
+ * messaging listener ends surviving memberships so history restarts) and CaregiverApprovalPendingEvent (the grant
+ * started / stopped waiting for the patient's approval: in-app notification for the patient).
  *
  * The class default is read-only, so every write method carries its own @Transactional.
  */
@@ -180,7 +185,7 @@ public class CaregiverService {
 
         DependentAccess saved = dependentAccessRepository.save(access);
         auditService.logClinicalAccess("UPDATE", "DEPENDENT_ACCESS", accessId, saved.getPatientSystemId());
-        publishChange(saved);
+        publishChange(before, saved);
         return toEnrichedResponse(saved, true);
     }
 
@@ -248,7 +253,7 @@ public class CaregiverService {
         DependentAccess saved = dependentAccessRepository.save(access);
 
         auditService.logClinicalAccess("CREATE", "DEPENDENT_ACCESS", saved.getAccessId(), saved.getPatientSystemId());
-        publishChange(saved);
+        publishChange(null, saved);
         return toEnrichedResponse(saved, true);
     }
 
@@ -310,6 +315,7 @@ public class CaregiverService {
         }
 
         boolean full = "FULL_ACCESS".equals(accessLevel);
+        DependentAccess before = existing.map(CaregiverService::copyOf).orElse(null);
         DependentAccess access = existing.orElseGet(DependentAccess::new);
         boolean reused = access.getAccessId() != null;
         access.setPatientSystemId(patientSystemId);
@@ -342,7 +348,7 @@ public class CaregiverService {
 
         DependentAccess saved = dependentAccessRepository.save(access);
         auditService.logClinicalAccess("CREATE", "DEPENDENT_ACCESS", saved.getAccessId(), saved.getPatientSystemId());
-        publishChange(saved);
+        publishChange(before, saved);
         return toEnrichedResponse(saved, false);
     }
 
@@ -352,6 +358,9 @@ public class CaregiverService {
      *
      * Setting canMessageCareTeam / canJoinCalls to true approves it when the caller is the patient (also when the
      * flag was already requested but not approved). Admin changes never approve.
+     *
+     * An expired grant can be extended here. Extending (or re-approving) never brings back the caregiver's old
+     * conversation memberships: see CaregiverMessagingRegainedEvent.
      */
     @Transactional
     public CaregiverDependentResponse updateCaregiverAccessAsPatient(String callerSystemId, boolean callerIsAdmin,
@@ -360,6 +369,7 @@ public class CaregiverService {
         if (!Boolean.TRUE.equals(access.getIsActive()) || access.getRevokedAt() != null) {
             throw new ConflictException("This access has been revoked");
         }
+        DependentAccess before = copyOf(access);
         applyChanges(access, request, true);
         if (request != null) {
             boolean callerIsPatient = !callerIsAdmin && access.getPatientSystemId().equals(callerSystemId);
@@ -368,7 +378,7 @@ public class CaregiverService {
         }
         DependentAccess saved = dependentAccessRepository.save(access);
         auditService.logClinicalAccess("UPDATE", "DEPENDENT_ACCESS", accessId, saved.getPatientSystemId());
-        publishChange(saved);
+        publishChange(before, saved);
         return toEnrichedResponse(saved, false);
     }
 
@@ -379,6 +389,7 @@ public class CaregiverService {
     @Transactional
     public void revokeCaregiverAccessAsPatient(String callerSystemId, boolean callerIsAdmin, Integer accessId) {
         DependentAccess access = loadForPatient(callerSystemId, callerIsAdmin, accessId);
+        DependentAccess before = copyOf(access);
         DependentAccess saved = access;
         if (access.getRevokedAt() == null || Boolean.TRUE.equals(access.getIsActive())) {
             access.setIsActive(false);
@@ -388,7 +399,7 @@ public class CaregiverService {
             saved = dependentAccessRepository.save(access);
             auditService.logClinicalAccess("DELETE", "DEPENDENT_ACCESS", accessId, access.getPatientSystemId());
         }
-        publishChange(saved);
+        publishChange(before, saved);
     }
 
     // ==================== HELPERS ====================
@@ -446,7 +457,10 @@ public class CaregiverService {
         access.setCallsApprovedBySystemId(null);
     }
 
-    private void publishChange(DependentAccess access) {
+    /**
+     * @param before the grant as it was before this change (copyOf), or null for a new row
+     */
+    private void publishChange(DependentAccess before, DependentAccess access) {
         boolean active = isCurrentlyActive(access);
         eventPublisher.publishEvent(new CaregiverAccessChangedEvent(
                 access.getAccessId(),
@@ -455,6 +469,37 @@ public class CaregiverService {
                 !active,
                 active && PatientPermission.MESSAGING.isGrantedBy(access),
                 active && PatientPermission.JOIN_CALLS.isGrantedBy(access)));
+
+        if (before != null && !messagingEffective(before) && messagingEffective(access)) {
+            eventPublisher.publishEvent(new CaregiverMessagingRegainedEvent(
+                    access.getAccessId(), access.getPatientSystemId(), access.getCaregiverSystemId(), isExpired(before)));
+        }
+
+        boolean wasPending = before != null && isApprovalPending(before);
+        boolean pending = isApprovalPending(access);
+        if (wasPending != pending) {
+            eventPublisher.publishEvent(new CaregiverApprovalPendingEvent(
+                    access.getAccessId(), access.getPatientSystemId(), access.getCaregiverSystemId(), pending,
+                    pending && Boolean.TRUE.equals(access.getCanMessageCareTeam()) && !PatientPermission.MESSAGING.isGrantedBy(access),
+                    pending && Boolean.TRUE.equals(access.getCanJoinCalls()) && !PatientPermission.JOIN_CALLS.isGrantedBy(access)));
+        }
+    }
+
+    private static boolean messagingEffective(DependentAccess access) {
+        return isCurrentlyActive(access) && PatientPermission.MESSAGING.isGrantedBy(access);
+    }
+
+    /** Not revoked, but past its expiry. */
+    private static boolean isExpired(DependentAccess access) {
+        return Boolean.TRUE.equals(access.getIsActive()) && access.getRevokedAt() == null
+                && access.getExpiresAt() != null && !access.getExpiresAt().isAfter(LocalDateTime.now());
+    }
+
+    /** Active grant with a communication flag requested but not (yet) approved by the patient. */
+    static boolean isApprovalPending(DependentAccess access) {
+        return isCurrentlyActive(access)
+                && ((Boolean.TRUE.equals(access.getCanMessageCareTeam()) && !PatientPermission.MESSAGING.isGrantedBy(access))
+                    || (Boolean.TRUE.equals(access.getCanJoinCalls()) && !PatientPermission.JOIN_CALLS.isGrantedBy(access)));
     }
 
     private static String accessStatus(DependentAccess access) {
@@ -639,9 +684,7 @@ public class CaregiverService {
         boolean active = isCurrentlyActive(access);
         boolean messagingAllowed = active && PatientPermission.MESSAGING.isGrantedBy(access);
         boolean joinCallsAllowed = active && PatientPermission.JOIN_CALLS.isGrantedBy(access);
-        boolean pendingApproval = active
-                && ((Boolean.TRUE.equals(access.getCanMessageCareTeam()) && !PatientPermission.MESSAGING.isGrantedBy(access))
-                    || (Boolean.TRUE.equals(access.getCanJoinCalls()) && !PatientPermission.JOIN_CALLS.isGrantedBy(access)));
+        boolean pendingApproval = isApprovalPending(access);
         CaregiverDependentResponse.CaregiverDependentResponseBuilder builder = CaregiverDependentResponse.builder()
                 .accessId(access.getAccessId())
                 .caregiverSystemId(access.getCaregiverSystemId())

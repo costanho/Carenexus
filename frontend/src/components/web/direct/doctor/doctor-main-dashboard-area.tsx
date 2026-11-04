@@ -5,6 +5,7 @@ import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
 import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
+import { doctorDisplayName } from '@/hooks/use-doctors';
 
 const WHITE   = '#FFFFFF';
 const TEXT    = '#111827';
@@ -147,12 +148,14 @@ function EmptyLine({ icon, text }: { icon: IoniconsName; text: string }) {
 export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: string) => void }) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
+  // Phones: smaller greeting, no date pill, tighter padding (no horizontal overflow at 375 px).
+  const isNarrow = width < 640;
   const { user } = useCurrentUser();
   const { dashboard, loading, error, refetch } = useDoctorDashboard();
 
   const first = dashboard?.first_name || user?.first_name || '';
   const last  = dashboard?.last_name  || user?.last_name  || '';
-  const name  = first ? `Dr. ${first} ${last}`.trim() : 'Doctor';
+  const name  = first ? doctorDisplayName(first, last) : 'Doctor';
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const todayEntries = dashboard?.today ?? [];
@@ -163,17 +166,23 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
   const todayActive  = todayEntries.filter(e => e.status !== 'CANCELLED').length;
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, isNarrow && styles.containerNarrow]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>{greetingForHour()}, {name}</Text>
+        <View style={styles.greetingBlock}>
+          <Text style={[styles.greeting, isNarrow && styles.greetingNarrow]}>{greetingForHour()}, {name}</Text>
           <Text style={styles.greetingSub}>Here's your practice at a glance.</Text>
         </View>
-        <View style={styles.dateBtn}>
-          <Ionicons name="calendar-outline" size={16} color={GRAY} />
-          <Text style={styles.dateText}>{today}</Text>
-        </View>
+        {!isNarrow && (
+          <View style={styles.dateBtn}>
+            <Ionicons name="calendar-outline" size={16} color={GRAY} />
+            <Text style={styles.dateText}>{today}</Text>
+          </View>
+        )}
       </View>
 
       {loading && !dashboard ? (
@@ -236,13 +245,16 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
 const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 24, paddingBottom: 40 },
+  containerNarrow: { padding: 16, paddingBottom: 32 },
 
   // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12,
   },
+  greetingBlock: { flexShrink: 1, minWidth: 0 },
   greeting:    { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
+  greetingNarrow: { fontSize: 20 },
   greetingSub: { fontSize: 14, color: GRAY },
   dateBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -256,7 +268,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24,
   },
   statCard: {
-    flex: 1, minWidth: 160,
+    flex: 1, minWidth: 150,
     backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
     borderRadius: 12, padding: 16,
   },
@@ -283,7 +295,7 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 16,
+    alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8,
   },
   cardTitle:  { fontSize: 16, fontWeight: '700', color: TEXT },
   cardAction: { fontSize: 13, color: BLUE, fontWeight: '500' },

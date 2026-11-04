@@ -51,7 +51,9 @@
     "lint": "expo lint",
     "e2e:build": "EXPO_PUBLIC_API_URL=${E2E_API_URL:-http://localhost:9000} expo export --platform web --output-dir dist",
     "e2e:serve": "node e2e/static-server.mjs dist 8081",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:chrome": "E2E_CHANNEL=chrome playwright test --project=chrome",
+    "e2e:clean": "bash ../scripts/dev-reset-e2e-data.sh"
   },
   "private": true
 }

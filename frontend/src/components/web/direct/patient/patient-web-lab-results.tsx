@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLabResults, type LabResult } from '@/hooks/use-lab-results';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -182,7 +183,7 @@ function LabResultCard({ item }: { item: LabResult }) {
         </View>
         <View style={styles.cardHeaderText}>
           <Text style={styles.cardTitle}>{item.test_name}</Text>
-          <Text style={styles.cardDoctorName}>{item.doctor_name}</Text>
+          <Text style={styles.cardDoctorName}>{tidyDoctorName(item.doctor_name)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusCfg.bg }]}>
           <Ionicons name={statusCfg.icon} size={12} color={statusCfg.color} />
@@ -291,7 +292,7 @@ export function PatientWebLabResults({ onBack }: { onBack?: () => void }) {
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.pageHeaderCenter}>
-          <Text style={styles.pageTitle}>Lab Results</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Lab Results</Text>
           <Text style={styles.pageSub}>Your laboratory test history</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh">

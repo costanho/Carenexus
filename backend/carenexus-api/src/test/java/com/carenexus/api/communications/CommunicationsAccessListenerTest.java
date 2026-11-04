@@ -1,6 +1,7 @@
 package com.carenexus.api.communications;
 
 import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
+import com.carenexus.api.common.event.CaregiverMessagingRegainedEvent;
 import com.carenexus.api.communications.listener.CommunicationsAccessListener;
 import com.carenexus.api.communications.service.ThreadService;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -45,5 +47,25 @@ public class CommunicationsAccessListenerTest {
         when(threadService.removeCaregiverAfterAccessChange(anyString(), anyString())).thenThrow(new IllegalStateException("db"));
         assertDoesNotThrow(() -> listener.onCaregiverAccessChanged(
                 new CaregiverAccessChangedEvent(3, "PAT-00001", "CGV-00001", true, false, false)));
+    }
+
+    @Test
+    public void accessReturnsAfterExpiry_endsSurvivingMemberships_asExpired() {
+        listener.onMessagingRegained(new CaregiverMessagingRegainedEvent(3, "PAT-00001", "CGV-00001", true));
+        verify(threadService).removeCaregiverAfterAccessChange("CGV-00001", "PAT-00001", "ACCESS_EXPIRED");
+    }
+
+    @Test
+    public void accessReturnsAfterRevocation_endsSurvivingMemberships_asRevoked() {
+        listener.onMessagingRegained(new CaregiverMessagingRegainedEvent(3, "PAT-00001", "CGV-00001", false));
+        verify(threadService).removeCaregiverAfterAccessChange("CGV-00001", "PAT-00001", "ACCESS_REVOKED");
+    }
+
+    @Test
+    public void accessReturns_failureIsNotSwallowed_soTheGrantChangeRollsBack() {
+        when(threadService.removeCaregiverAfterAccessChange(anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("db"));
+        assertThrows(IllegalStateException.class, () -> listener.onMessagingRegained(
+                new CaregiverMessagingRegainedEvent(3, "PAT-00001", "CGV-00001", true)));
     }
 }

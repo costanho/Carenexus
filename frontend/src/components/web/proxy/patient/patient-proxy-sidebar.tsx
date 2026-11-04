@@ -21,6 +21,7 @@ const careItems: NavItem[] = [
   { key: 'appointments',       label: 'Appointments',        icon: 'calendar-outline' },
   { key: 'medications',        label: 'Medications',         icon: 'pencil-outline' },
   { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline' },
+  { key: 'notifications',      label: 'Notifications',       icon: 'notifications-outline' },
   { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline', comingSoon: true },
   { key: 'documents-results',  label: 'Documents & Results', icon: 'document-outline' },
   { key: 'health-summary',     label: 'Health Summary',      icon: 'download-outline' },
@@ -28,7 +29,7 @@ const careItems: NavItem[] = [
 
 const accountItems: NavItem[] = [
   { key: 'profile-settings',      label: 'Profile & Settings',    icon: 'settings-outline' },
-  { key: 'notification-settings', label: 'Notification Settings', icon: 'notifications-outline' },
+  { key: 'notification-settings', label: 'Notification Settings', icon: 'options-outline' },
 ];
 
 // White initials need 4.5:1 against every avatar colour.
@@ -75,7 +76,8 @@ function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: { item:
         <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} importantForAccessibility="no" />
         {collapsed && badge > 0 && <View style={styles.badgeDot} />}
       </View>
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}{' '}</Text>
+      {/* The collapsed rail shows icons only; the label stays the accessible name. */}
+      {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}{' '}</Text>}
       {!collapsed && disabled && <SoonPill />}
       {!collapsed && !disabled && badge > 0 && (
         <View style={[styles.badge, active && styles.badgeActive]}>
@@ -99,7 +101,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
   const { dependents, loading, error } = useCaregiverDependents();
   const [expanded, setExpanded] = useState(false);
   // The top navbar bell polls the counts; the sidebar only reads them.
-  const { unreadMessageCount } = useUnreadCounts(false);
+  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
 
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
@@ -236,7 +238,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             active={activeKey === item.key}
             collapsed={collapsed}
             onPress={() => onNavigate?.(item.key)}
-            badge={item.key === 'messages' ? unreadMessageCount : 0}
+            badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
           />
         ))}
 

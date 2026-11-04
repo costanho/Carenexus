@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { describeCallJoin, type CallJoinInfo } from '@/lib/calls/join';
 import type { CallSessionStatus } from '@/lib/calls/types';
 import { useCurrentUser } from './use-current-user';
+import { loadActiveDoctors, type Doctor } from './use-doctors';
 
 export interface Appointment {
   appointment_id:          number;
@@ -24,6 +25,8 @@ export interface Appointment {
   notes:                   string | null;
   created_at:              string;
   updated_at:              string;
+  /** DOC-… id of the appointment's doctor, used to open a private conversation with them. */
+  doctor_system_id:        string | null;
   doctor_name:             string;
   doctor_specialization:   string | null;
   doctor_avatar_url:       string | null;
@@ -80,79 +83,147 @@ export function appointmentCallJoin(a: Appointment, now = Date.now()): CallJoinI
 /** Soft-cancels an appointment (backend sets status CANCELLED). Throws the axios error on failure. */
 export async function cancelAppointment(appointmentId: number): Promise<void> {
   await api.delete(`/api/appointments/${appointmentId}`);
+  await invalidateAppointments();
 }
 
 /** Moves an appointment to a new local date/time via PUT /api/appointments/{id}. Throws the axios error on failure. */
 export async function rescheduleAppointment(appointmentId: number, date: string, time: string): Promise<void> {
   await api.put(`/api/appointments/${appointmentId}`, { scheduledAt: toScheduledAt(date, time) });
+  await invalidateAppointments();
+}
+
+function toAppointment(a: any, doctorMap: Map<string, Doctor>): Appointment {
+  const doctorSystemId = a.doctorSystemId ?? a.doctor_system_id ?? '';
+  const doctor = doctorMap.get(doctorSystemId);
+  return {
+    appointment_id:          a.appointmentId          ?? 0,
+    patient_id:              0,
+    doctor_id:               0,
+    facility_id:             a.facilityId             ?? null,
+    scheduled_at:            a.scheduledAt            ? String(a.scheduledAt) : '',
+    duration_minutes:        a.durationMinutes        ?? 30,
+    type:                    (a.type                  ?? 'IN_PERSON') as Appointment['type'],
+    status:                  (a.status                ?? 'SCHEDULED') as Appointment['status'],
+    reason_for_visit:        a.reasonForVisit         ?? null,
+    video_consultation_link: null,
+    call_status:             a.callStatus             ?? null,
+    call_join_route:         a.callJoinRoute          ?? null,
+    join_window_opens_at:    a.joinWindowOpensAt      ? String(a.joinWindowOpensAt)  : null,
+    join_window_closes_at:   a.joinWindowClosesAt     ? String(a.joinWindowClosesAt) : null,
+    reminder_sent:           a.reminderSent           ? 1 : 0,
+    notes:                   a.notes                  ?? null,
+    created_at:              a.createdAt              ? String(a.createdAt) : '',
+    updated_at:              a.updatedAt              ? String(a.updatedAt) : '',
+    doctor_system_id:        doctorSystemId || null,
+    doctor_name:             doctor?.full_name        ?? (doctorSystemId || 'Unknown Doctor'),
+    doctor_specialization:   doctor?.specialization   ?? null,
+    doctor_avatar_url:       null,
+    facility_name:           null,
+  };
+}
+
+// ─── Shared appointment list ──────────────────────────────────────────────────
+// The dashboard, the right sidebar and My Appointments all show the signed-in patient's
+// appointments. They share one cached list so a booking, reschedule or cancel made in one
+// panel shows in every panel, and the endpoint is requested once per screen, not per panel.
+
+/**
+ * Panels that mount within this window of a load share it (one screen = one request). A screen
+ * opened later refetches, so changes made elsewhere (e.g. by the doctor) show on navigation.
+ * Kept short: with 3 s, a screen opened soon after the last load showed a list that predated a
+ * change the doctor had just made, and nothing refreshed it.
+ */
+const DEDUPE_MS = 1_000;
+
+interface Snapshot {
+  /** Patient system id the list belongs to; null before the first load. */
+  key:          string | null;
+  appointments: Appointment[];
+  /** True only until the first list for `key` arrives; refreshes keep showing the old list. */
+  loading:      boolean;
+  error:        string | null;
+}
+
+let snapshot: Snapshot = { key: null, appointments: [], loading: true, error: null };
+let startedAt = 0;
+let inFlight: { key: string; promise: Promise<void> } | null = null;
+let generation = 0;
+const listeners = new Set<() => void>();
+
+function setSnapshot(next: Snapshot) {
+  snapshot = next;
+  listeners.forEach(l => l());
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+function getSnapshot(): Snapshot {
+  return snapshot;
+}
+
+function loadAppointments(key: string, force: boolean): Promise<void> {
+  if (!force && inFlight?.key === key) return inFlight.promise;
+  const recent = snapshot.key === key && !snapshot.error && startedAt > 0 && Date.now() - startedAt < DEDUPE_MS;
+  if (!force && recent) return Promise.resolve();
+
+  if (snapshot.key !== key) {
+    // Another account (or the first load): never show the previous patient's list.
+    setSnapshot({ key, appointments: [], loading: true, error: null });
+  }
+  startedAt = Date.now();
+
+  const gen = ++generation;
+  const promise = Promise.all([
+    api.get<any[]>(`/api/appointments/patient/${key}`),
+    loadActiveDoctors().catch(() => [] as Doctor[]),
+  ])
+    .then(([apptRes, doctors]) => {
+      if (gen !== generation) return;
+      const doctorMap = new Map<string, Doctor>();
+      doctors.forEach(d => { if (d.doctor_system_id) doctorMap.set(d.doctor_system_id, d); });
+      const mapped = (apptRes.data ?? []).map((a: any) => toAppointment(a, doctorMap));
+      mapped.sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+      setSnapshot({ key, appointments: mapped, loading: false, error: null });
+    })
+    .catch(() => {
+      if (gen !== generation) return;
+      setSnapshot({ ...snapshot, loading: false, error: 'Failed to load appointments.' });
+    })
+    .finally(() => { if (inFlight?.promise === promise) inFlight = null; });
+  inFlight = { key, promise };
+  return promise;
+}
+
+/**
+ * Re-fetches the shared appointment list now (call after booking, rescheduling or cancelling).
+ * Every mounted useAppointments() consumer updates; resolves once the new list is in.
+ */
+export function invalidateAppointments(): Promise<void> {
+  if (!snapshot.key) return Promise.resolve();
+  return loadAppointments(snapshot.key, true);
 }
 
 export function useAppointments(): State {
   const { user, loading: userLoading, error: userError } = useCurrentUser();
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
-  const [tick, setTick]                 = useState(0);
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const key  = user?.system_id ?? null;
 
   useEffect(() => {
-    if (!user) {
-      if (!userLoading) {
-        setError(userError ?? 'Could not load your account.');
-        setLoading(false);
-      }
-      return;
-    }
-    setLoading(true);
+    if (key) loadAppointments(key, false);
+  }, [key]);
 
-    Promise.all([
-      api.get<any[]>(`/api/appointments/patient/${user.system_id}`),
-      api.get<any[]>('/api/doctors/profile/list/active'),
-    ])
-      .then(([apptRes, doctorsRes]) => {
-        const doctorMap = new Map<string, { name: string; specialization: string | null }>();
-        doctorsRes.data.forEach((d: any) => {
-          const systemId = d.doctorSystemId ?? d.doctor_system_id;
-          if (!systemId) return;
-          const name = `Dr. ${d.firstName ?? d.first_name ?? ''} ${d.lastName ?? d.last_name ?? ''}`.trim();
-          doctorMap.set(systemId, { name, specialization: d.specialization ?? null });
-        });
+  const refetch = useCallback(() => {
+    if (key) loadAppointments(key, true);
+  }, [key]);
 
-        const mapped: Appointment[] = apptRes.data.map((a: any) => {
-          const doctorSystemId = a.doctorSystemId ?? a.doctor_system_id ?? '';
-          const doctor = doctorMap.get(doctorSystemId);
-          return {
-            appointment_id:          a.appointmentId          ?? 0,
-            patient_id:              0,
-            doctor_id:               0,
-            facility_id:             a.facilityId             ?? null,
-            scheduled_at:            a.scheduledAt            ? String(a.scheduledAt) : '',
-            duration_minutes:        a.durationMinutes        ?? 30,
-            type:                    (a.type                  ?? 'IN_PERSON') as Appointment['type'],
-            status:                  (a.status                ?? 'SCHEDULED') as Appointment['status'],
-            reason_for_visit:        a.reasonForVisit         ?? null,
-            video_consultation_link: null,
-            call_status:             a.callStatus             ?? null,
-            call_join_route:         a.callJoinRoute          ?? null,
-            join_window_opens_at:    a.joinWindowOpensAt      ? String(a.joinWindowOpensAt)  : null,
-            join_window_closes_at:   a.joinWindowClosesAt     ? String(a.joinWindowClosesAt) : null,
-            reminder_sent:           a.reminderSent           ? 1 : 0,
-            notes:                   a.notes                  ?? null,
-            created_at:              a.createdAt              ? String(a.createdAt) : '',
-            updated_at:              a.updatedAt              ? String(a.updatedAt) : '',
-            doctor_name:             doctor?.name             ?? (doctorSystemId || 'Unknown Doctor'),
-            doctor_specialization:   doctor?.specialization   ?? null,
-            doctor_avatar_url:       null,
-            facility_name:           null,
-          };
-        });
-
-        mapped.sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-        setAppointments(mapped);
-        setError(null);
-      })
-      .catch(() => setError('Failed to load appointments.'))
-      .finally(() => setLoading(false));
-  }, [user?.system_id, userLoading, tick]);
-
-  return { appointments, loading, error, refetch: () => setTick(t => t + 1) };
+  if (!key) {
+    const accountError = userLoading ? null : (userError ?? 'Could not load your account.');
+    return { appointments: [], loading: !accountError, error: accountError, refetch };
+  }
+  // Until this patient's own list arrives, report loading rather than another account's data.
+  if (snap.key !== key) return { appointments: [], loading: true, error: null, refetch };
+  return { appointments: snap.appointments, loading: snap.loading, error: snap.error, refetch };
 }

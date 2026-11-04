@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useConsultations, type Consultation } from '@/hooks/use-consultations';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -18,7 +19,7 @@ const BG     = '#F9FAFB';
 const CARD   = '#FFFFFF';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type FilterKey = 'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'DRAFT' | 'CANCELLED';
+type FilterKey = 'ALL' | 'FOLLOW_UP';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName; stripe: string }> = {
   COMPLETED:   { label: 'Completed',   color: GREEN,  bg: '#ECFDF5', icon: 'checkmark-circle-outline', stripe: GREEN  },
@@ -34,12 +35,21 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; ic
 };
 
 const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'ALL',         label: 'All'         },
-  { key: 'COMPLETED',   label: 'Completed'   },
-  { key: 'IN_PROGRESS', label: 'In Progress' },
-  { key: 'DRAFT',       label: 'Draft'       },
-  { key: 'CANCELLED',   label: 'Cancelled'   },
+  { key: 'ALL',       label: 'All'          },
+  { key: 'FOLLOW_UP', label: 'Follow-up'    },
 ];
+
+/**
+ * Patients see a consultation only once the doctor has finalised it (COMPLETED). Drafts and
+ * in-progress notes are the doctor's working record, and cancelled ones were never recorded.
+ */
+export function isPatientVisibleConsultation(c: Consultation): boolean {
+  return c.status === 'COMPLETED';
+}
+
+function matchesFilter(c: Consultation, filter: FilterKey): boolean {
+  return filter === 'ALL' || (filter === 'FOLLOW_UP' && c.follow_up_required === 1);
+}
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
@@ -48,7 +58,8 @@ function formatDate(iso: string | null) {
 }
 
 function getInitials(name: string) {
-  const parts = name.trim().split(' ');
+  // Skip the "Dr." title so "Dr. James Banda" gives "JB".
+  const parts = name.trim().replace(/^dr(\.\s*|\s+)/i, '').split(' ');
   if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? 'D';
   return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase();
 }
@@ -83,7 +94,7 @@ function ConsultationCard({ item }: { item: Consultation }) {
           </View>
         )}
         <View style={styles.cardHeaderText}>
-          <Text style={styles.doctorName}>{item.doctor_name}</Text>
+          <Text style={styles.doctorName}>{tidyDoctorName(item.doctor_name)}</Text>
           {item.doctor_specialization && (
             <Text style={styles.doctorSpec}>{item.doctor_specialization}</Text>
           )}
@@ -152,7 +163,14 @@ function ConsultationCard({ item }: { item: Consultation }) {
       )}
 
       {/* Expand toggle */}
-      <TouchableOpacity style={styles.expandToggle} onPress={() => setExpanded(e => !e)} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.expandToggle}
+        onPress={() => setExpanded(e => !e)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        aria-expanded={expanded}
+      >
         <Text style={styles.expandToggleText}>{expanded ? 'Hide ▲' : 'Show full record ▼'}</Text>
       </TouchableOpacity>
     </View>
@@ -174,14 +192,14 @@ function StatCard({ value, label, color, icon }: { value: number; label: string;
 }
 
 export function PatientWebConsultationHistory({ onBack }: { onBack?: () => void }) {
-  const { consultations, loading, error, refetch } = useConsultations();
+  const { consultations: all, loading, error, refetch } = useConsultations();
   const [filter, setFilter] = useState<FilterKey>('ALL');
 
-  const filtered    = filter === 'ALL' ? consultations : consultations.filter(c => c.status === filter);
-  const total       = consultations.length;
-  const completed   = consultations.filter(c => c.status === 'COMPLETED').length;
-  const inProgress  = consultations.filter(c => c.status === 'IN_PROGRESS').length;
-  const drafts      = consultations.filter(c => c.status === 'DRAFT').length;
+  const consultations = all.filter(isPatientVisibleConsultation);
+  const filtered      = consultations.filter(c => matchesFilter(c, filter));
+  const total         = consultations.length;
+  const followUps     = consultations.filter(c => matchesFilter(c, 'FOLLOW_UP')).length;
+  const withDiagnosis = consultations.filter(c => !!c.diagnosis).length;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -192,7 +210,7 @@ export function PatientWebConsultationHistory({ onBack }: { onBack?: () => void 
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.pageHeaderCenter}>
-          <Text style={styles.pageTitle}>Consultation History</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Consultation History</Text>
           <Text style={styles.pageSub}>Your complete clinical record</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh">
@@ -202,23 +220,25 @@ export function PatientWebConsultationHistory({ onBack }: { onBack?: () => void 
 
       {/* Stats row */}
       <View style={styles.statsRow}>
-        <StatCard value={total}      label="Total"       color={INDIGO} icon="document-text-outline"      />
-        <StatCard value={completed}  label="Completed"   color={GREEN}  icon="checkmark-circle-outline"   />
-        <StatCard value={inProgress} label="In Progress" color={INDIGO} icon="hourglass-outline"          />
-        <StatCard value={drafts}     label="Drafts"      color={AMBER}  icon="create-outline"             />
+        <StatCard value={total}         label="Total"          color={INDIGO} icon="document-text-outline" />
+        <StatCard value={withDiagnosis} label="With diagnosis" color={GREEN}  icon="medal-outline"         />
+        <StatCard value={followUps}     label="Follow-ups"     color={AMBER}  icon="calendar-outline"      />
       </View>
 
       {/* Filter tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
         {FILTERS.map(f => {
           const on    = filter === f.key;
-          const count = f.key === 'ALL' ? total : consultations.filter(c => c.status === f.key).length;
+          const count = f.key === 'ALL' ? total : followUps;
           return (
             <TouchableOpacity
               key={f.key}
               style={[styles.filterTab, on && styles.filterTabActive]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              aria-selected={on}
             >
               <Text style={[styles.filterTabText, on && styles.filterTabTextActive]}>{f.label}</Text>
               <View style={[styles.filterCount, on ? styles.filterCountActive : styles.filterCountInactive]}>
@@ -249,7 +269,7 @@ export function PatientWebConsultationHistory({ onBack }: { onBack?: () => void 
         <View style={styles.centerState}>
           <Ionicons name="calendar-outline" size={48} color={BORDER} />
           <Text style={styles.centerStateText}>
-            {filter === 'ALL' ? 'No consultations found.' : `No ${FILTERS.find(f => f.key === filter)?.label.toLowerCase()} consultations.`}
+            {filter === 'ALL' ? 'No completed consultations yet.' : 'No consultations need a follow-up.'}
           </Text>
         </View>
       ) : (

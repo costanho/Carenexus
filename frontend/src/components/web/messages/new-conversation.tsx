@@ -3,12 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiErrorMessage } from '@/hooks/use-appointments';
 import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { caregiverMessagingState } from '@/hooks/use-caregiver-messaging';
 import { useDoctorPatients } from '@/hooks/use-doctor-patients';
 import { useMessageRecipients } from '@/hooks/use-message-recipients';
 import { usePageActive } from '@/hooks/use-page-active';
 import { createThread, newClientId, sendMessage } from '@/lib/communications/api';
 import { clearDraft, loadDraft, newConversationDraftKey, saveDraft, threadDraftKey } from '@/lib/communications/drafts';
 import { roleLabel } from '@/lib/communications/format';
+import { onMessagingReset } from '@/lib/communications/session';
 import {
   MAX_MESSAGE_LENGTH, MAX_SUBJECT_LENGTH, OFFLINE_SEND_TEXT, URGENT_HELPER_TEXT,
   type ConversationType, type MessagingMode, type Thread,
@@ -23,6 +25,11 @@ interface Props {
   onCreated:  (thread: Thread) => void;
 }
 
+const TYPE_SUB: Record<ConversationType, string> = {
+  PRIVATE:   'Between a doctor and the patient or one caregiver',
+  CARE_TEAM: 'The patient, their doctors and approved caregivers',
+};
+
 /** Start a private or care-team conversation about one patient. */
 export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props) {
   const { accent, accentBg } = useTheme();
@@ -36,7 +43,9 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
   const [busy,      setBusy]      = useState(false);
   const [error,     setError]     = useState<string | null>(null);
 
-  // Retry-safe ids: reused if the user presses Start again after a failure.
+  // Retry-safe ids: reused if the user presses Start again after a failure with the same choices.
+  // A new patient, type or set of people is a different conversation, and a changed first message
+  // is a different message, so those get fresh ids (a lost-response retry must not land elsewhere).
   const clientThreadId  = useRef(newClientId());
   const clientMessageId = useRef(newClientId());
 
@@ -45,23 +54,44 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
   const effectivePatient = isPatient ? (recipients.data?.patientSystemId ?? mySystemId) : patientId;
   const draftKey = mySystemId && effectivePatient ? newConversationDraftKey(mySystemId, effectivePatient) : null;
 
-  // Restore the first-message draft for this patient.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The debounced save that has not run yet, written straight away when the form closes or the patient changes. */
+  const unsaved   = useRef<{ key: string; value: string } | null>(null);
+  function flushDraft() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    const p = unsaved.current;
+    unsaved.current = null;
+    if (p) saveDraft(p.key, p.value);
+  }
+
+  // Restore the first-message draft for this patient (the previous patient's is saved first).
   useEffect(() => {
     setBody(draftKey ? loadDraft(draftKey) : '');
+    return flushDraft;
   }, [draftKey]);
 
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  // Sign-out drops every draft; a save still waiting must not write this one back on unmount.
+  useEffect(() => onMessagingReset(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    unsaved.current = null;
+  }), []);
+
   function changeBody(v: string) {
     setBody(v);
     if (!draftKey) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    const key = draftKey;
-    saveTimer.current = setTimeout(() => saveDraft(key, v), 400);
+    unsaved.current = { key: draftKey, value: v };
+    saveTimer.current = setTimeout(flushDraft, 400);
   }
 
   // Reset recipient choice when the patient or type changes.
   useEffect(() => { setSelected([]); setError(null); }, [patientId, type]);
+
+  const selectionKey = selected.slice().sort().join(',');
+  useEffect(() => { clientThreadId.current = newClientId(); }, [effectivePatient, type, selectionKey]);
+  useEffect(() => { clientMessageId.current = newClientId(); }, [effectivePatient, type, selectionKey, body, urgent]);
 
   const list = recipients.data?.recipients ?? [];
   const options = useMemo(
@@ -125,6 +155,8 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
         showMessage('Message not sent', `${apiErrorMessage(e, 'Your conversation was started, but the message was not sent.')} Your text is kept in the message box.`);
       }
     }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    unsaved.current = null;
     if (draftKey) clearDraft(draftKey);
     setBusy(false);
     onCreated(thread);
@@ -165,16 +197,15 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
                     accessibilityRole="radio"
                     accessibilityState={{ checked: on, disabled: !available }}
                     aria-checked={on}
-                    accessibilityLabel={t === 'PRIVATE' ? 'Private conversation with one doctor' : 'Care team conversation'}
+                    // Same words as the visible title and description (WCAG 2.5.3, label in name).
+                    accessibilityLabel={t === 'PRIVATE'
+                      ? `Private conversation, ${TYPE_SUB.PRIVATE.toLowerCase()}`
+                      : `Care team conversation, ${TYPE_SUB.CARE_TEAM.toLowerCase()}`}
                   >
                     <Ionicons name={t === 'PRIVATE' ? 'person-outline' : 'people-outline'} size={16} color={on ? accent : GRAY} importantForAccessibility="no" />
                     <View style={styles.flex}>
                       <Text style={[styles.typeTitle, on && { color: accent }]}>{t === 'PRIVATE' ? 'Private' : 'Care team'}</Text>
-                      <Text style={styles.typeSub}>
-                        {t === 'PRIVATE'
-                          ? 'Between a doctor and the patient or one caregiver'
-                          : 'The patient, their doctors and approved caregivers'}
-                      </Text>
+                      <Text style={styles.typeSub}>{TYPE_SUB[t]}</Text>
                     </View>
                   </TouchableOpacity>
                 );
@@ -258,7 +289,10 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
               />
               <Text style={[styles.urgentLabel, urgent && { color: RED }]}>Mark as urgent</Text>
             </View>
-            {urgent && <Text style={styles.note}>{URGENT_HELPER_TEXT}</Text>}
+            {/* Always mounted so screen readers announce the helper when the switch turns on. */}
+            <View accessibilityLiveRegion="polite">
+              {urgent && <Text style={styles.note}>{URGENT_HELPER_TEXT}</Text>}
+            </View>
           </>
         )}
 
@@ -309,10 +343,10 @@ function CaregiverPatientPicker({ value, onChange }: { value: string | null; onC
           {active.map(d => {
             const name = d.patientName ?? 'Your loved one';
             const on = value === d.patientSystemId;
-            const allowed = d.messagingAllowed;
-            const reason = allowed ? null
-              : d.canMessageCareTeam ? `Waiting for ${name} to approve messaging`
-              : 'Messaging is not allowed for your access';
+            // Same rule as every other caregiver screen: "waiting" needs a pending request, not just the flag.
+            const state = caregiverMessagingState(d);
+            const allowed = state.status === 'ALLOWED';
+            const reason = state.status === 'WAITING' ? `Waiting for ${name} to approve messaging` : state.reason;
             return (
               <TouchableOpacity
                 key={d.accessId}

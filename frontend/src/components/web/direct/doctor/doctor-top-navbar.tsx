@@ -1,14 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
 import { NotificationBell } from '../../notifications/notification-bell';
+import { doctorDisplayName } from '@/hooks/use-doctors';
 
 const BG       = '#FFFFFF';
 const BORDER   = '#E5E7EB';
 const TEXT     = '#111827';
 const GRAY     = '#6B7280';
 const RED      = '#B91C1C';
+
+/** Below this window width the bar drops the name block and the Sign Out text (phones). */
+const NARROW_MAX = 640;
 
 export interface DoctorTopNavbarProps {
   onMenuPress?:    () => void;
@@ -20,12 +24,14 @@ export interface DoctorTopNavbarProps {
 export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: DoctorTopNavbarProps) {
   const { user } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
-  const fullName  = user ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Doctor';
+  const { width } = useWindowDimensions();
+  const narrow = width < NARROW_MAX;
+  const fullName  = user ? doctorDisplayName(user.first_name, user.last_name) || 'Doctor' : 'Doctor';
   const avatarUri = user?.avatar_url ?? null;
   const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
 
   return (
-    <View style={styles.navbar}>
+    <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
       {/* Left: hamburger */}
       <View style={styles.left}>
         {!!onMenuPress && (
@@ -46,7 +52,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
         {onOpenThread && (
           <>
             <NotificationBell theme={{ accent: '#4F46E5', accentBg: '#EEF2FF' }} onOpenThread={onOpenThread} />
-            <View style={styles.divider} />
+            {!narrow && <View style={styles.divider} />}
           </>
         )}
 
@@ -58,23 +64,30 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
           disabled={!onProfilePress}
           accessibilityRole="button"
           // Named by its visible text (name and role, WCAG 2.5.3); the initials are decorative.
+          // On phones the text is hidden, so the same words become the label.
+          accessibilityLabel={narrow ? `${fullName} Doctor` : undefined}
         >
           {avatarUri
             ? <Image source={{ uri: avatarUri }} style={styles.avatar} />
-            : <View style={[styles.avatar, styles.avatarFallback]} importantForAccessibility="no-hide-descendants"><Text style={styles.avatarInitials}>{initials}</Text></View>
+            : <View style={[styles.avatar, styles.avatarFallback]} importantForAccessibility="no-hide-descendants" {...({ 'aria-hidden': true } as object)}>
+                {/* On phones the button is labelled by name, so it shows no other visible words (WCAG 2.5.3). */}
+                {narrow ? <Ionicons name="person" size={18} color="#FFFFFF" /> : <Text style={styles.avatarInitials}>{initials}</Text>}
+              </View>
           }
-          <View>
-            <Text style={styles.doctorName}>{fullName}{' '}</Text>
-            <Text style={styles.doctorRole}>Doctor</Text>
-          </View>
-          {!!onProfilePress && <Ionicons name="chevron-forward" size={16} color={GRAY} />}
+          {!narrow && (
+            <View style={styles.nameBlock}>
+              <Text style={styles.doctorName} numberOfLines={1}>{fullName}{' '}</Text>
+              <Text style={styles.doctorRole}>Doctor</Text>
+            </View>
+          )}
+          {!!onProfilePress && !narrow && <Ionicons name="chevron-forward" size={16} color={GRAY} {...({ 'aria-hidden': true } as object)} />}
         </TouchableOpacity>
 
-        <View style={styles.divider} />
+        {!narrow && <View style={styles.divider} />}
 
         {/* Sign Out */}
         <TouchableOpacity
-          style={styles.logoutBtn}
+          style={[styles.logoutBtn, narrow && styles.logoutBtnNarrow]}
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
@@ -88,7 +101,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
             size={18}
             color={RED}
           />
-          <Text style={styles.logoutText}>{loading ? '…' : 'Sign Out'}</Text>
+          {!narrow && <Text style={styles.logoutText}>{loading ? '…' : 'Sign Out'}</Text>}
         </TouchableOpacity>
       </View>
     </View>
@@ -107,8 +120,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 16,
   },
+  navbarNarrow: {
+    height: 64,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
   left: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -121,6 +140,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 4,
+    minWidth: 0,
   },
   divider: {
     width: 1,
@@ -132,6 +152,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  nameBlock: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   avatar: {
     width: 38,
@@ -168,6 +194,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA',
     backgroundColor: '#FFF5F5',
+  },
+  logoutBtnNarrow: {
+    paddingHorizontal: 8,
+    marginLeft: 4,
   },
   logoutText: {
     fontSize: 13,

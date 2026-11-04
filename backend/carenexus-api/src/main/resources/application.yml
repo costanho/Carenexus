@@ -45,6 +45,8 @@ carenexus:
     sweeper-interval-ms: 60000
   messaging:
     max-body-length: 4000
+    # Ends conversation memberships of caregivers whose grant expired (CaregiverAccessExpirySweeper).
+    access-expiry-sweep-interval-ms: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:60000}
 
 spring:
   application:
@@ -70,7 +72,7 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
 
-# API docs are off unless explicitly enabled (local/docker profiles, or SWAGGER_ENABLED=true).
+# API docs are off unless explicitly enabled (SWAGGER_ENABLED=true; the local profile turns them on by default).
 springdoc:
   api-docs:
     enabled: ${SWAGGER_ENABLED:false}
@@ -160,8 +162,9 @@ carenexus:
     api-secret: ${LIVEKIT_API_SECRET:secret}
     webhook-enabled: true
 
+# API docs stay off in the docker profile unless SWAGGER_ENABLED=true (the image can be deployed beyond a laptop).
 springdoc:
   api-docs:
-    enabled: true
+    enabled: ${SWAGGER_ENABLED:false}
   swagger-ui:
-    enabled: true
+    enabled: ${SWAGGER_ENABLED:false}

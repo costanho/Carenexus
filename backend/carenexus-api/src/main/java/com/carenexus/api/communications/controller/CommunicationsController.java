@@ -9,6 +9,8 @@ import com.carenexus.api.communications.dto.response.ThreadResponse;
 import com.carenexus.api.communications.service.RecipientService;
 import com.carenexus.api.communications.service.ThreadService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
  *
  * - GET    /api/communications/recipients?patientSystemId=
  * - GET    /api/communications/threads?patientSystemId=&archived=false&page=0&size=20
- * - POST   /api/communications/threads                          201 created / 200 existing
+ * - POST   /api/communications/threads                          201 created / 200 existing (also after a concurrent retry)
  * - GET    /api/communications/threads/{threadId}
  * - POST   /api/communications/threads/{threadId}/members       CARE_TEAM only
  * - DELETE /api/communications/threads/{threadId}/members/{systemId}   204
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/communications")
 @RequiredArgsConstructor
+@Slf4j
 public class CommunicationsController {
 
     private final RecipientService recipientService;
@@ -50,8 +53,20 @@ public class CommunicationsController {
 
     @PostMapping("/threads")
     public ResponseEntity<ThreadResponse> createThread(@RequestBody CreateThreadRequest request) {
-        ThreadService.ThreadResult result = threadService.createThread(request);
-        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.thread());
+        try {
+            ThreadService.ThreadResult result = threadService.createThread(request);
+            return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.thread());
+        } catch (DataIntegrityViolationException race) {
+            // Two concurrent creates with the same clientThreadId: ux_message_threads_client_thread rejected the
+            // second insert (its transaction rolled back). Return the stored thread, looked up in a new transaction.
+            String clientThreadId = request != null ? request.getClientThreadId() : null;
+            return threadService.findOwnThreadByClientId(clientThreadId)
+                    .map(existing -> {
+                        log.info("Duplicate create resolved to existing thread {}", existing.getThreadId());
+                        return ResponseEntity.ok(existing);
+                    })
+                    .orElseThrow(() -> race);
+        }
     }
 
     @GetMapping("/threads/{threadId}")

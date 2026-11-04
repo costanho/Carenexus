@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
+import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { callStatusLabel } from '@/lib/calls/join';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
@@ -21,7 +22,8 @@ const TEAL   = '#0D9488';
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type DateFilter   = 'today' | 'week' | 'all';
 type AppStatus    = ScheduleEntry['status'];
-type StatusFilter = 'ALL' | AppStatus;
+/** ACTIVE (the default) hides cancelled appointments, like the dashboard's Today count. */
+type StatusFilter = 'ACTIVE' | 'ALL' | AppStatus;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,11 +87,11 @@ function consultLabel(c: ScheduleEntry['consultation']) {
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
+function StatCard({ icon, iconBg, iconColor, label, value, testID }: {
+  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number; testID?: string;
 }) {
   return (
-    <View style={styles.statCard}>
+    <View style={styles.statCard} testID={testID}>
       <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={20} color={iconColor} />
       </View>
@@ -101,7 +103,12 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
 
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
-function AppCard({ entry }: { entry: ScheduleEntry }) {
+function AppCard({ entry, onMessage, messaging }: {
+  entry:      ScheduleEntry;
+  /** Opens the private conversation with this patient; omitted when Messages is not available. */
+  onMessage?: (entry: ScheduleEntry) => void;
+  messaging?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const sc    = statusConfig(entry.status);
   const tc    = typeConfig(entry.type);
@@ -167,6 +174,21 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
             iconSize={12}
           />
 
+          {!!onMessage && (
+            <TouchableOpacity
+              style={[styles.metaPill, messaging && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={messaging}
+              onPress={() => onMessage(entry)}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${entry.patient_name}`}
+              accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={12} color={BLUE} />
+              <Text style={[styles.metaText, { color: BLUE }]}>Message patient</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={styles.viewBtn}
             activeOpacity={0.8}
@@ -203,10 +225,14 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DoctorWebSchedule() {
+export default function DoctorWebSchedule({ onOpenThread }: {
+  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { entries, loading, error, refetch } = useDoctorSchedule();
+  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('today');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
 
   const todayStart = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0);          return d; }, []);
   const todayEnd   = useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999);      return d; }, []);
@@ -214,7 +240,11 @@ export default function DoctorWebSchedule() {
 
   const stats = useMemo(() => ({
     total:     entries.length,
-    today:     entries.filter(e => { const d = new Date(e.scheduled_at); return d >= todayStart && d <= todayEnd; }).length,
+    // Same rule as the dashboard's "Today's Appointments": cancelled appointments do not count.
+    today:     entries.filter(e => {
+      const d = new Date(e.scheduled_at);
+      return d >= todayStart && d <= todayEnd && e.status !== 'CANCELLED';
+    }).length,
     completed: entries.filter(e => e.status === 'COMPLETED').length,
     upcoming:  entries.filter(e => e.status === 'SCHEDULED' || e.status === 'IN_PROGRESS').length,
   }), [entries, todayStart, todayEnd]);
@@ -227,7 +257,8 @@ export default function DoctorWebSchedule() {
         if (dateFilter === 'week')  return d >= todayStart && d <= weekEnd;
         return true;
       })
-      .filter(e => statusFilter === 'ALL' || e.status === statusFilter)
+      .filter(e => statusFilter === 'ALL'
+        || (statusFilter === 'ACTIVE' ? e.status !== 'CANCELLED' : e.status === statusFilter))
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   }, [entries, dateFilter, statusFilter, todayStart, todayEnd, weekEnd]);
 
@@ -240,7 +271,8 @@ export default function DoctorWebSchedule() {
   ];
 
   const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'ALL',         label: 'All'         },
+    { key: 'ACTIVE',      label: 'Active'      },
+    { key: 'ALL',         label: 'All incl. cancelled' },
     { key: 'SCHEDULED',   label: 'Scheduled'   },
     { key: 'IN_PROGRESS', label: 'In Progress' },
     { key: 'COMPLETED',   label: 'Completed'   },
@@ -249,11 +281,11 @@ export default function DoctorWebSchedule() {
     { key: 'RESCHEDULED', label: 'Rescheduled' },
   ];
 
-  if (loading) {
+  if (loading && entries.length === 0) {
     return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
   }
 
-  if (error) {
+  if (error && entries.length === 0) {
     return (
       <View style={styles.center}>
         <Ionicons name="alert-circle-outline" size={48} color={RED} />
@@ -271,7 +303,7 @@ export default function DoctorWebSchedule() {
       {/* Page Header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>My Schedule</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">My Schedule</Text>
           <Text style={styles.pageSub}>Manage your appointments and consultations</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -283,7 +315,7 @@ export default function DoctorWebSchedule() {
       {/* Stats Row */}
       <View style={styles.statsRow}>
         <StatCard icon="calendar-outline"         iconBg="#EEF2FF" iconColor={BLUE}  label="Total"     value={stats.total}     />
-        <StatCard icon="today-outline"            iconBg="#D1FAE5" iconColor={GREEN} label="Today"     value={stats.today}     />
+        <StatCard icon="today-outline"            iconBg="#D1FAE5" iconColor={GREEN} label="Today"     value={stats.today}     testID="schedule-stat-today" />
         <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed" value={stats.completed} />
         <StatCard icon="time-outline"             iconBg="#EEF2FF" iconColor={BLUE}  label="Upcoming"  value={stats.upcoming}  />
       </View>
@@ -297,6 +329,8 @@ export default function DoctorWebSchedule() {
               style={[styles.dateTab, dateFilter === f.key && styles.dateTabActive]}
               onPress={() => setDateFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ selected: dateFilter === f.key }}
             >
               <Text style={[styles.dateTabText, dateFilter === f.key && styles.dateTabTextActive]}>{f.label}</Text>
             </TouchableOpacity>
@@ -309,6 +343,8 @@ export default function DoctorWebSchedule() {
               style={[styles.pill, statusFilter === f.key && styles.pillActive]}
               onPress={() => setStatusFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ selected: statusFilter === f.key }}
             >
               <Text style={[styles.pillText, statusFilter === f.key && styles.pillTextActive]}>{f.label}</Text>
             </TouchableOpacity>
@@ -331,7 +367,14 @@ export default function DoctorWebSchedule() {
           {groups.map(g => (
             <View key={g.label} style={styles.group}>
               <Text style={styles.groupLabel}>{g.label}</Text>
-              {g.items.map(e => <AppCard key={e.appointment_id} entry={e} />)}
+              {g.items.map(e => (
+                <AppCard
+                  key={e.appointment_id}
+                  entry={e}
+                  onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
+                  messaging={pendingPatient === e.patient_system_id}
+                />
+              ))}
             </View>
           ))}
         </View>

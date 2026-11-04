@@ -9,9 +9,10 @@ import {
 } from 'react-native';
 import { z } from 'zod';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { useDoctors } from '@/hooks/use-doctors';
-import { apiErrorMessage, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
+import { doctorInitial, useDoctors } from '@/hooks/use-doctors';
+import { apiErrorMessage, invalidateAppointments, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
 import { api } from '@/lib/auth/auth.interceptor';
+import { ariaHidden, ariaPressed } from './a11y';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -149,6 +150,7 @@ export function CalendarPicker({ value, onChange }: { value: string; onChange: (
               accessibilityRole="button"
               accessibilityLabel={date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
               accessibilityState={{ disabled: isPast, selected: !!isSel }}
+              {...ariaPressed(!!isSel)}
             >
               <View style={[
                 styles.calDayCircle,
@@ -224,13 +226,16 @@ export function TimePicker({ value, onChange }: { value: string; onChange: (v: s
       {/* AM / PM */}
       <View>
         <Text style={styles.timeSubLabel}>AM / PM</Text>
-        <View style={styles.ampmRow}>
+        <View style={styles.ampmRow} accessibilityRole="radiogroup" accessibilityLabel="AM or PM">
           {(['AM', 'PM'] as const).map(ap => (
             <TouchableOpacity
               key={ap}
               style={[styles.ampmBtn, ampm === ap && styles.ampmBtnActive]}
               onPress={() => { setAmpm(ap); emit(hour, minute, ap); }}
               activeOpacity={0.7}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: !!value && ampm === ap }}
+              aria-checked={!!value && ampm === ap}
             >
               <Text style={[styles.ampmText, ampm === ap && styles.ampmTextActive]}>{ap}</Text>
             </TouchableOpacity>
@@ -241,13 +246,16 @@ export function TimePicker({ value, onChange }: { value: string; onChange: (v: s
       {/* Hour */}
       <View>
         <Text style={styles.timeSubLabel}>Hour</Text>
-        <View style={styles.hourGrid}>
+        <View style={styles.hourGrid} accessibilityRole="radiogroup" accessibilityLabel="Hour">
           {HOURS.map(h => (
             <TouchableOpacity
               key={h}
               style={[styles.hourBtn, hour === h && styles.hourBtnActive]}
               onPress={() => { setHour(h); emit(h, minute, ampm); }}
               activeOpacity={0.7}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: !!value && hour === h }}
+              aria-checked={!!value && hour === h}
             >
               <Text style={[styles.hourText, hour === h && styles.hourTextActive]}>{h}</Text>
             </TouchableOpacity>
@@ -258,13 +266,16 @@ export function TimePicker({ value, onChange }: { value: string; onChange: (v: s
       {/* Minute */}
       <View>
         <Text style={styles.timeSubLabel}>Minute</Text>
-        <View style={styles.minuteRow}>
+        <View style={styles.minuteRow} accessibilityRole="radiogroup" accessibilityLabel="Minute">
           {MINUTES.map(m => (
             <TouchableOpacity
               key={m}
               style={[styles.minuteBtn, minute === m && styles.minuteBtnActive]}
               onPress={() => { setMinute(m); emit(hour, m, ampm); }}
               activeOpacity={0.7}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: !!value && minute === m }}
+              aria-checked={!!value && minute === m}
             >
               <Text style={[styles.minuteText, minute === m && styles.minuteTextActive]}>
                 :{String(m).padStart(2, '0')}
@@ -364,6 +375,8 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
         notes:            data.notes ?? null,
       });
       setSuccess(true);
+      // Every panel that lists appointments (right sidebar, dashboard) picks up the new one.
+      invalidateAppointments();
     } catch (e: any) {
       setAuthError(apiErrorMessage(e, 'Failed to book appointment. Please try again.'));
     } finally {
@@ -378,7 +391,7 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
           <View style={styles.successIcon}>
             <Ionicons name="checkmark-circle" size={56} color={TEAL} />
           </View>
-          <Text style={styles.successTitle}>Appointment Booked!</Text>
+          <Text style={styles.successTitle} accessibilityRole="header">Appointment Booked!</Text>
           <Text style={styles.successSub}>
             Your appointment with {selectedDoctor?.full_name ?? 'your doctor'} has been scheduled.
             You can view or manage it under My Appointments.
@@ -402,7 +415,7 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
         {/* Header */}
         <View style={styles.pageHeader}>
           <View>
-            <Text style={styles.pageTitle}>Book Appointment</Text>
+            <Text style={styles.pageTitle} accessibilityRole="header">Book Appointment</Text>
             <Text style={styles.pageSub}>Schedule a visit with your healthcare provider</Text>
           </View>
         </View>
@@ -423,13 +436,14 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                       activeOpacity={0.8}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
+                      {...ariaPressed(on)}
                     >
                       {on && (
-                        <View style={[styles.typeCheck, { backgroundColor: t.color }]}>
+                        <View style={[styles.typeCheck, { backgroundColor: t.color }]} {...ariaHidden}>
                           <Ionicons name="checkmark" size={10} color={WHITE} />
                         </View>
                       )}
-                      <Ionicons name={t.icon} size={22} color={on ? t.color : GRAY} />
+                      <Ionicons name={t.icon} size={22} color={on ? t.color : GRAY} {...ariaHidden} />
                       <Text style={[styles.typeLabel, on && { color: t.color, fontWeight: '700' }]}>{t.label}</Text>
                       <Text style={[styles.typeDesc, on && { color: t.color }]}>{t.desc}</Text>
                     </TouchableOpacity>
@@ -497,15 +511,16 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                           activeOpacity={0.8}
                           accessibilityRole="button"
                           accessibilityState={{ selected: on }}
+                          {...ariaPressed(on)}
                         >
-                          <View style={[styles.doctorAvatar, on && { borderColor: TEAL }]}>
-                            <Text style={styles.doctorAvatarText}>{d.first_name[0]}</Text>
+                          <View style={[styles.doctorAvatar, on && { borderColor: TEAL }]} {...ariaHidden}>
+                            <Text style={styles.doctorAvatarText}>{doctorInitial(d.full_name)}</Text>
                           </View>
                           <View style={styles.doctorInfo}>
                             <Text style={[styles.doctorName, on && { color: TEAL }]}>{d.full_name}</Text>
                             <Text style={styles.doctorSpec}>{d.specialization ?? ''}</Text>
                           </View>
-                          {on && <Ionicons name="checkmark-circle" size={20} color={TEAL} />}
+                          {on && <Ionicons name="checkmark-circle" size={20} color={TEAL} {...ariaHidden} />}
                         </TouchableOpacity>
                       );
                     })}
@@ -569,7 +584,7 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
           <Text style={styles.sectionTitle}>Duration</Text>
           <Controller control={control} name="duration_minutes"
             render={({ field: { onChange, value } }) => (
-              <View style={styles.durationRow}>
+              <View style={styles.durationRow} accessibilityRole="radiogroup" accessibilityLabel="Duration">
                 {DURATIONS.map(d => {
                   const on = value === d.value;
                   return (
@@ -578,6 +593,9 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                       style={[styles.durationBtn, on && styles.durationBtnActive]}
                       onPress={() => onChange(d.value)}
                       activeOpacity={0.8}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                      aria-checked={on}
                     >
                       <Text style={[styles.durationLabel, on && styles.durationLabelActive]}>{d.label}</Text>
                     </TouchableOpacity>

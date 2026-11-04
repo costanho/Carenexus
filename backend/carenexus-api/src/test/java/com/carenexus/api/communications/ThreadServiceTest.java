@@ -102,6 +102,20 @@ public class ThreadServiceTest {
     }
 
     @Test
+    public void addMember_locksThreadRowBeforeReadingTheBoundary() {
+        callerIs(DOCTOR, "DOCTOR", careTeam, member(DOCTOR, "DOCTOR"));
+        when(messageRepository.findMaxMessageId(41)).thenReturn(905);
+        when(memberRepository.findByThreadIdAndSystemId(41, CAREGIVER)).thenReturn(Optional.empty());
+
+        threadService.addMembers(41, new AddThreadMembersRequest(List.of(CAREGIVER)));
+
+        // Same lock as MessageService.sendMessage, taken before MAX(message_id) is read
+        var order = inOrder(threadRepository, messageRepository);
+        order.verify(threadRepository).findForUpdateById(41);
+        order.verify(messageRepository).findMaxMessageId(41);
+    }
+
+    @Test
     public void addMember_reAddingFormerMember_resetsRowWithNewBoundary() {
         callerIs(PATIENT, "PATIENT", careTeam, member(PATIENT, "PATIENT"));
         when(messageRepository.findMaxMessageId(41)).thenReturn(950);

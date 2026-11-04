@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
+import { doctorDisplayName } from './use-doctors';
 
 export interface DoctorConsultation {
   consultation_id:            number;
@@ -50,8 +51,11 @@ export function useDoctorConsultations(): State {
     Promise.all([
       api.get<any[]>(`/api/consultations/doctor/${user.system_id}`),
       api.get<any[]>('/api/doctors/patients'),
+      // ConsultationResponse has no appointment type/status; take them from the doctor's schedule
+      // (APPOINTMENT rows carry appointmentType / appointmentStatus). Optional: badges fall back.
+      api.get<any[]>('/api/doctors/schedule').then(r => r.data).catch(() => []),
     ])
-      .then(([consultRes, patientsRes]) => {
+      .then(([consultRes, patientsRes, scheduleRows]) => {
         // Build patientSystemId → full name map from the doctor's patient list
         const nameMap = new Map<string, string>();
         patientsRes.data.forEach((p: any) => {
@@ -60,6 +64,17 @@ export function useDoctorConsultations(): State {
           const combined = `${p.firstName ?? p.first_name ?? ''} ${p.lastName ?? p.last_name ?? ''}`.trim();
           const name = p.fullName ?? p.full_name ?? combined ?? 'Unknown Patient';
           nameMap.set(systemId, name);
+        });
+
+        // appointmentId → its type and status
+        const apptMap = new Map<number, { type: DoctorConsultation['appointment_type']; status: string | null }>();
+        (Array.isArray(scheduleRows) ? scheduleRows : []).forEach((e: any) => {
+          if (e?.type !== 'APPOINTMENT' || e.appointmentId == null) return;
+          const t = e.appointmentType;
+          apptMap.set(e.appointmentId, {
+            type:   t === 'IN_PERSON' || t === 'VIDEO' || t === 'PHONE' ? t : null,
+            status: e.appointmentStatus ?? null,
+          });
         });
 
         const mapped: DoctorConsultation[] = consultRes.data.map((r: any) => ({
@@ -81,12 +96,12 @@ export function useDoctorConsultations(): State {
           started_at:                 r.startedAt                 ? String(r.startedAt) : null,
           completed_at:               r.completedAt               ? String(r.completedAt) : null,
           created_at:                 r.createdAt                 ? String(r.createdAt) : '',
-          doctor_name:                user.first_name ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Unknown Doctor',
+          doctor_name:                user.first_name ? doctorDisplayName(user.first_name, user.last_name) : 'Unknown Doctor',
           doctor_specialization:      null,
           doctor_avatar_url:          null,
           patient_name:               nameMap.get(r.patientSystemId) ?? 'Unknown Patient',
-          appointment_type:           null,
-          appointment_status:         null,
+          appointment_type:           r.appointmentType ?? apptMap.get(r.appointmentId)?.type ?? null,
+          appointment_status:         r.appointmentStatus ?? apptMap.get(r.appointmentId)?.status ?? null,
         }));
 
         mapped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());

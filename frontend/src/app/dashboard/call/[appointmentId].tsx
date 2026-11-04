@@ -2,21 +2,29 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Head from 'expo-router/head';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CallScreen } from '@/components/web/call/call-screen';
+import { getUser } from '@/lib/auth/auth.storage';
+import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { parseAppointmentId } from '@/lib/calls/join';
 
 export default function CallRoute() {
   const router = useRouter();
   const { appointmentId } = useLocalSearchParams<{ appointmentId: string }>();
-  const raw = Array.isArray(appointmentId) ? appointmentId[0] : appointmentId;
-  const id  = raw && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  const id = parseAppointmentId(appointmentId);
 
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  // A missing or malformed id ("undefined", "abc", "0") never reaches the call screen or the API.
+  if (id === null) {
+    const backHome = async () => {
+      const user = await getUser();
+      router.replace((user && ROLE_HOME[user.role] ? ROLE_HOME[user.role] : '/') as any);
+    };
     return (
       <View style={styles.root}>
+        <Head><title>Call not available · CareNexus</title></Head>
         <Text style={styles.title} accessibilityRole="header">Call not available</Text>
         <Text style={styles.body}>This call link is not valid.</Text>
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => router.replace('/' as any)}
+          onPress={backHome}
           accessibilityRole="button"
           accessibilityLabel="Back to dashboard"
         >

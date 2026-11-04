@@ -65,6 +65,10 @@ services:
       LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-ws://localhost:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      # Swagger UI and /v3/api-docs stay off unless explicitly enabled on a trusted machine.
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      # How often lapsed caregiver grants are swept (ends their conversation memberships).
+      MESSAGING_ACCESS_EXPIRY_SWEEP_MS: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:-60000}
     ports:
       - "9000:9000"
     depends_on:

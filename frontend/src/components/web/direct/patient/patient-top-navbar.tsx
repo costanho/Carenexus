@@ -15,9 +15,11 @@ interface Props {
   onProfilePress?: () => void;
   /** Open the messages section on a thread (from a notification). */
   onOpenThread?: (threadId: number) => void;
+  /** Opens the caregiver access screen (from a caregiver approval notification). */
+  onOpenCaregiverAccess?: () => void;
 }
 
-export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, onOpenThread }: Props) {
+export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, onOpenThread, onOpenCaregiverAccess }: Props) {
   const { width } = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
@@ -52,7 +54,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
 
       <View style={styles.right}>
         {onOpenThread && (
-          <NotificationBell theme={{ accent: '#0F766E', accentBg: '#E8F5F4' }} onOpenThread={onOpenThread} />
+          <NotificationBell theme={{ accent: '#0F766E', accentBg: '#E8F5F4' }} onOpenThread={onOpenThread} onOpenCaregiverAccess={onOpenCaregiverAccess} />
         )}
 
         {/* Profile */}

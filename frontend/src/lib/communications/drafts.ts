@@ -1,9 +1,11 @@
 // Per-thread message drafts, kept in sessionStorage on web (cleared when the tab closes).
 // Key: carenexus.draft.v1.{currentUserSystemId}.{threadId}  (new conversation: ...new.{patientSystemId})
+// Drafts are cleared on sign-out (see ./session.ts).
 
 const PREFIX = 'carenexus.draft.v1';
 
-function storage(): Storage | null {
+/** The tab's sessionStorage, or null where it is missing or blocked. Shared with the outbox. */
+export function storage(): Storage | null {
   try {
     return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null;
   } catch {
@@ -44,4 +46,26 @@ export function clearDraft(key: string): void {
   } catch {
     // ignore
   }
+}
+
+/** Removes every stored key that starts with `prefix` and, when `keepUser` is given, is not that user's. */
+export function removeStoredKeys(prefix: string, keepUser?: string | null): void {
+  try {
+    const s = storage();
+    if (!s) return;
+    const keep = keepUser ? `${prefix}.${keepUser}.` : null;
+    const doomed: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i);
+      if (k && k.startsWith(`${prefix}.`) && !(keep && k.startsWith(keep))) doomed.push(k);
+    }
+    doomed.forEach(k => s.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
+/** Drops all drafts in this tab (sign-out), or all but `keepUser`'s (a different user signed in). */
+export function clearAllDrafts(keepUser?: string | null): void {
+  removeStoredKeys(PREFIX, keepUser);
 }

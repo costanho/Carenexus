@@ -101,6 +101,10 @@ public class DependentAccess {
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
 
+    /** Set by CaregiverAccessExpirySweeper once a lapsed grant's conversation memberships were ended (V22). */
+    @Column(name = "expiry_processed_at")
+    private LocalDateTime expiryProcessedAt;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = true;

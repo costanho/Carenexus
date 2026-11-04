@@ -84,10 +84,16 @@ function formatDate(value: string | null | undefined) {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
 }
 
+/**
+ * True for a real calendar date in YYYY-MM-DD form. Checks the parts in UTC so the result does not
+ * depend on the device time zone (local midnight is the previous UTC day east of UTC).
+ */
 function isValidDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const utc = new Date(Date.UTC(y, mo - 1, d));
+  return utc.getUTCFullYear() === y && utc.getUTCMonth() === mo - 1 && utc.getUTCDate() === d;
 }
 
 function isFutureDate(value: string) {

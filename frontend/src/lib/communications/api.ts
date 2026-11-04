@@ -1,4 +1,5 @@
 import { api } from '@/lib/auth/auth.interceptor';
+import { installSignOutReset } from './session';
 import type {
   AppNotification,
   CreateThreadBody,
@@ -13,6 +14,9 @@ import type {
 } from './types';
 
 // One function per messaging / notification endpoint (CONTRACT.md 7.3, 7.4).
+
+// Drafts, outbox and unread counts are cleared when the user signs out.
+installSignOutReset();
 
 export async function fetchRecipients(patientSystemId?: string | null): Promise<RecipientsResponse> {
   const params = patientSystemId ? { patientSystemId } : undefined;

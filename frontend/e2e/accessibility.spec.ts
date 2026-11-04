@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import {
-  type Clients, admitByLabel, cancelLeftoverE2EAppointments, createLiveableVideoAppointment, disposeAll, loginAll,
+  type Clients, admitByLabel, cancelLeftoverE2EAppointments, clientId, createLiveableVideoAppointment, disposeAll, loginAll,
   markThreadRead, messagesWithBody, privateThreadThomasJames, restoreSarahConsent,
 } from './support/api';
 import { JAMES, LABELS, SARAH, THOMAS, runTag } from './support/env';
@@ -119,6 +119,13 @@ test.describe('accessibility', () => {
   });
 
   test('doctor and caregiver messages screens: axe and 375 px', async ({ browser }) => {
+    // Both inboxes need a conversation to show: the global e2e cleanup leaves none behind, so open
+    // the Thomas-James private thread and a care-team thread with Sarah (tagged e2e-, cleaned up).
+    await privateThreadThomasJames(api.thomas);
+    await api.sarah.ok(api.sarah.post('/api/communications/threads', {
+      patientSystemId: THOMAS.systemId, type: 'CARE_TEAM', subject: `e2e-a11y ${runTag()}`,
+      memberSystemIds: [JAMES.systemId], clientThreadId: clientId(),
+    }), 'create care team thread for Sarah');
     for (const user of [JAMES, SARAH]) {
       const up = await newUserPage(browser, user);
       pages.push(up);

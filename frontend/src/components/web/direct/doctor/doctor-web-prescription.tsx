@@ -282,7 +282,7 @@ export default function DoctorWebPrescription() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Prescriptions</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Prescriptions</Text>
           <Text style={styles.pageSub}>Medication prescriptions for all your patients</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>

@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
 import { caregiverErrorMessage, caregiverSaveErrorMessage, parseList, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { caregiverCallsStatus, caregiverMessagingState, useCareTeamConversation } from '@/hooks/use-caregiver-messaging';
+import { MessageCareTeamButton } from './message-care-team-button';
 
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
@@ -99,14 +101,8 @@ function permissionsForLevel(level: AccessLevel) {
   return {};
 }
 
+/** Messaging / joining calls for the caregiver: effective now, waiting for the patient (pendingApproval), or off. */
 type CommState = 'ALLOWED' | 'WAITING' | 'NOT_ALLOWED';
-
-/** Messaging / joining calls for the caregiver: effective now, requested but not approved yet, or off. */
-function commState(requested: boolean, allowed: boolean): CommState {
-  if (allowed) return 'ALLOWED';
-  if (requested) return 'WAITING';
-  return 'NOT_ALLOWED';
-}
 
 function commLabel(state: CommState, patientFirstName: string) {
   if (state === 'ALLOWED') return 'Allowed';
@@ -245,7 +241,7 @@ function SectionCard({ title, children, editAction }: { title: string; children:
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">{title}</Text>
         {editAction}
       </View>
       {children}
@@ -279,10 +275,13 @@ export default function PatientProxyWebProfile({
   dependent: initialDependent,
   onBack,
   onNavigate,
+  onOpenThread,
 }: {
   dependent: CaregiverDependent;
   onBack: () => void;
   onNavigate?: (key: string) => void;
+  /** Switches the dashboard to Messages on this thread (used by "Message Care Team"). */
+  onOpenThread?: (threadId: number) => void;
 }) {
   // Local copy so a successful access PATCH is reflected immediately.
   const [dependent,  setDependent]  = useState<CaregiverDependent>(initialDependent);
@@ -320,6 +319,7 @@ export default function PatientProxyWebProfile({
   });
   // Communication requests: can only be turned off here
   const [aComm, setAComm] = useState({ canMessageCareTeam: false, canJoinCalls: false });
+  const careTeam = useCareTeamConversation(onOpenThread);
 
   useEffect(() => {
     setDependent(initialDependent);
@@ -439,8 +439,8 @@ export default function PatientProxyWebProfile({
   const lc  = accessColors(dependent.accessLevel);
   const currentALevel = aLevel;
   const patientFirstName = (patient?.firstName ?? dependent.patientName?.split(' ')[0] ?? '').trim() || 'the patient';
-  const messagingState = commState(!!dependent.canMessageCareTeam, !!dependent.messagingAllowed);
-  const callsState     = commState(!!dependent.canJoinCalls, !!dependent.joinCallsAllowed);
+  const messagingState: CommState = caregiverMessagingState(dependent).status;
+  const callsState:     CommState = caregiverCallsStatus(dependent);
   const currentLc     = accessColors(currentALevel);
 
   const PERMS: { key: keyof typeof aPerms; icon: IoniconsName; label: string }[] = [
@@ -463,7 +463,7 @@ export default function PatientProxyWebProfile({
           <Ionicons name="arrow-back-outline" size={18} color={PURPLE} importantForAccessibility="no" />
           <Text style={styles.backText}>Back to Dashboard</Text>
         </TouchableOpacity>
-        <Text style={styles.pageTitle}>Patient Profile</Text>
+        <Text style={styles.pageTitle} accessibilityRole="header">Patient Profile</Text>
         <Text style={styles.pageSub}>Proxy access overview for this patient</Text>
       </View>
 
@@ -769,22 +769,30 @@ export default function PatientProxyWebProfile({
       </SectionCard>
 
       {/* ── Quick Actions ── */}
-      {onNavigate && (!!dependent.canViewAppointments || !!dependent.canViewLabResults || !!dependent.canViewMedications) && (
+      {(onOpenThread || (onNavigate && (!!dependent.canViewAppointments || !!dependent.canViewLabResults || !!dependent.canViewMedications))) && (
         <SectionCard title="Quick Actions">
+          {onOpenThread && (
+            <MessageCareTeamButton
+              dependent={dependent}
+              onPress={careTeam.open}
+              busy={careTeam.openingFor === dependent.accessId}
+              error={careTeam.error}
+            />
+          )}
           <View style={styles.actionsRow}>
-            {!!dependent.canViewAppointments && (
+            {onNavigate && !!dependent.canViewAppointments && (
               <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('appointments')} accessibilityRole="button">
                 <Ionicons name="calendar-outline" size={15} color={PURPLE} importantForAccessibility="no" />
                 <Text style={styles.actionBtnText}>View Appointments</Text>
               </TouchableOpacity>
             )}
-            {!!dependent.canViewMedications && (
+            {onNavigate && !!dependent.canViewMedications && (
               <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('medications')} accessibilityRole="button">
                 <Ionicons name="medical-outline" size={15} color={PURPLE} importantForAccessibility="no" />
                 <Text style={styles.actionBtnText}>View Medications</Text>
               </TouchableOpacity>
             )}
-            {!!dependent.canViewLabResults && (
+            {onNavigate && !!dependent.canViewLabResults && (
               <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('documents-results')} accessibilityRole="button">
                 <Ionicons name="flask-outline" size={15} color={PURPLE} importantForAccessibility="no" />
                 <Text style={styles.actionBtnText}>View Lab Results</Text>

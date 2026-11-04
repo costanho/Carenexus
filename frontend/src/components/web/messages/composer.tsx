@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { clearDraft, loadDraft, saveDraft } from '@/lib/communications/drafts';
+import { onMessagingReset } from '@/lib/communications/session';
 import { MAX_MESSAGE_LENGTH, URGENT_HELPER_TEXT } from '@/lib/communications/types';
 import { BORDER, GRAY, LIGHT, RED, TEXT, WHITE, useTheme } from './ui';
 
@@ -20,24 +21,41 @@ export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) 
   const [text,   setText]   = useState(() => (draftKey ? loadDraft(draftKey) : ''));
   const [urgent, setUrgent] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The debounced save that has not run yet, so it can be written straight away on a switch. */
+  const unsaved   = useRef<{ key: string; value: string } | null>(null);
   const keyRef    = useRef(draftKey);
   const inputRef  = useRef<TextInput>(null);
 
-  // Restore the draft when switching threads.
+  function flushDraft() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    const p = unsaved.current;
+    unsaved.current = null;
+    if (p) saveDraft(p.key, p.value);
+  }
+
+  // Restore the draft when switching threads; the previous thread's last keystrokes are saved first.
   useEffect(() => {
     keyRef.current = draftKey;
     setText(draftKey ? loadDraft(draftKey) : '');
     setUrgent(false);
+    return flushDraft;
   }, [draftKey]);
 
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  // Sign-out drops every draft; a save still waiting must not write this one back on unmount.
+  useEffect(() => onMessagingReset(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    unsaved.current = null;
+  }), []);
 
   function change(value: string) {
     setText(value);
     const key = keyRef.current;
     if (!key) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveDraft(key, value), DRAFT_DEBOUNCE_MS);
+    unsaved.current = { key, value };
+    saveTimer.current = setTimeout(flushDraft, DRAFT_DEBOUNCE_MS);
   }
 
   const trimmed  = text.trim();
@@ -46,10 +64,12 @@ export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) 
 
   function submit() {
     if (!canSend) return;
+    // The text is safe once handed over: unconfirmed sends are kept in the thread's outbox.
     onSend(trimmed, urgent);
     setText('');
     setUrgent(false);
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    unsaved.current = null;
     if (keyRef.current) clearDraft(keyRef.current);
     // The send button turns disabled once the box is empty, which would drop keyboard focus to the
     // page body; keep the user in the message box instead.
@@ -120,7 +140,10 @@ export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) 
           {tooLong ? `Messages can be at most ${MAX_MESSAGE_LENGTH} characters` : `${trimmed.length}/${MAX_MESSAGE_LENGTH}`}
         </Text>
       </View>
-      {urgent && <Text style={styles.helper}>{URGENT_HELPER_TEXT}</Text>}
+      {/* Always mounted so screen readers announce the helper when the switch turns on. */}
+      <View accessibilityLiveRegion="polite">
+        {urgent && <Text style={styles.helper}>{URGENT_HELPER_TEXT}</Text>}
+      </View>
     </View>
   );
 }

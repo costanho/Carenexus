@@ -318,7 +318,7 @@ public class AuthService {
         String email = normalizeEmail(request == null ? null : request.getEmail());
         String password = request == null ? null : request.getPassword();
         if (email == null || email.isEmpty() || password == null || password.isEmpty()) {
-            throw new RuntimeException("Invalid credentials");
+            throw new RuntimeException("Email and password are required");
         }
 
         loginAttemptThrottle.checkAllowed(email, ipAddress);
@@ -361,10 +361,11 @@ public class AuthService {
         return exact.isPresent() ? exact : userRepository.findFirstByEmailIgnoreCaseOrderByUserIdAsc(normalizedEmail);
     }
 
+    /** Unknown account and wrong password get the same 401 and text (no account enumeration). */
     private RuntimeException failLogin(String email, String ipAddress, String userAgent, String reason) {
         loginAttemptThrottle.recordFailure(email, ipAddress);
         auditFailedLogin(email, ipAddress, userAgent, reason);
-        return new RuntimeException("Invalid credentials");
+        return new InvalidCredentialsException();
     }
 
     private void auditFailedLogin(String email, String ipAddress, String userAgent, String reason) {

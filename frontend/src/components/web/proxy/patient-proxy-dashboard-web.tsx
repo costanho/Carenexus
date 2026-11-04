@@ -15,6 +15,9 @@ const ProxyProfileSettings      = lazy(() => import('./patient/patient-proxy-pro
 const ProxyNotificationSettings = lazy(() => import('./patient/patient-proxy-notification-settings'));
 const ProxyAddDependent         = lazy(() => import('./patient/patient-proxy-web-add-dependent'));
 const ProxyPatientProfile       = lazy(() => import('./patient/patient-proxy-web-profile'));
+const NotificationList          = lazy(() => import('../notifications/notification-list').then(m => ({ default: m.NotificationList })));
+
+const PROXY_THEME = { accent: '#7C3AED', accentBg: '#F5F3FF' };
 
 function Loader() {
   return (
@@ -64,16 +67,18 @@ export function PatientProxyDashboardWeb() {
         return <Suspense fallback={<Loader />}><ProxyHealthSummary /></Suspense>;
       case 'profile-settings':
         return <Suspense fallback={<Loader />}><ProxyProfileSettings onNavigate={navigate} onSelectPatient={selectPatient} /></Suspense>;
+      case 'notifications':
+        return <Suspense fallback={<Loader />}><NotificationList theme={PROXY_THEME} onOpenThread={openThread} /></Suspense>;
       case 'notification-settings':
         return <Suspense fallback={<Loader />}><ProxyNotificationSettings /></Suspense>;
       case 'add-dependent':
         return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => navigate('dashboard')} onCancel={() => navigate('dashboard')} /></Suspense>;
       case 'patient-profile':
         return selectedDependent
-          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} /></Suspense>
-          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
+          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} onOpenThread={openThread} /></Suspense>
+          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
       default:
-        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
+        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
     }
   }
 

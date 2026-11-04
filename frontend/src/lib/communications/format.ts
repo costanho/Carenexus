@@ -59,7 +59,12 @@ export function otherMembers(thread: Thread, mySystemId: string | null | undefin
 export function threadTitle(thread: Thread, mySystemId: string | null | undefined): string {
   if (thread.subject && thread.subject.trim()) return thread.subject.trim();
   const others = otherMembers(thread, mySystemId);
-  if (others.length === 0) return thread.type === 'CARE_TEAM' ? 'Care team conversation' : 'Conversation';
+  if (others.length === 0) {
+    // Everyone else has left: say who it is about rather than a bare "Conversation", which would
+    // also read like (and collide with) the generic conversation controls.
+    if (thread.patientName && thread.patientSystemId !== mySystemId) return `About ${thread.patientName}`;
+    return thread.type === 'CARE_TEAM' ? 'Care team conversation' : 'Private conversation';
+  }
   if (others.length <= 2) return others.map(m => m.label).join(', ');
   return `${others[0].label} and ${others.length - 1} others`;
 }

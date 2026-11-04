@@ -40,6 +40,9 @@ carenexus:
     # Tests drive the job worker and the sweeper explicitly (CallJobService.runOnce / CallExpirySweeper.sweepOnce).
     worker-enabled: false
     sweeper-interval-ms: 3600000
+  messaging:
+    # Tests run CaregiverAccessExpirySweeper.sweepOnce explicitly.
+    access-expiry-sweep-interval-ms: 3600000
 
 management:
   endpoints:

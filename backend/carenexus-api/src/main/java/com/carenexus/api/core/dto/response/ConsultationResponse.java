@@ -19,6 +19,10 @@ public class ConsultationResponse {
     @JsonProperty("appointmentId")
     private Integer appointmentId;
 
+    /** Type of the linked appointment: IN_PERSON | VIDEO | PHONE (null when unknown). */
+    @JsonProperty("appointmentType")
+    private String appointmentType;
+
     @JsonProperty("patientSystemId")
     private String patientSystemId;
 

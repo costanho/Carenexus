@@ -22,6 +22,8 @@ public class ThreadMember {
     public static final String REASON_LEFT = "LEFT";
     public static final String REASON_REMOVED_BY_MEMBER = "REMOVED_BY_MEMBER";
     public static final String REASON_ACCESS_REVOKED = "ACCESS_REVOKED";
+    /** The caregiver's grant expired (V22). */
+    public static final String REASON_ACCESS_EXPIRED = "ACCESS_EXPIRED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -64,7 +66,7 @@ public class ThreadMember {
     @Column(name = "removed_by_system_id", length = 20)
     private String removedBySystemId;
 
-    /** LEFT | REMOVED_BY_MEMBER | ACCESS_REVOKED */
+    /** LEFT | REMOVED_BY_MEMBER | ACCESS_REVOKED | ACCESS_EXPIRED */
     @Column(name = "removal_reason", length = 30)
     private String removalReason;
 

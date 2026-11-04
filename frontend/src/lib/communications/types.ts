@@ -19,7 +19,10 @@ export interface Recipient {
   role:             MemberRole;
   label:            string;
   canStartPrivate:  boolean;
+  /** May be included when the caller starts a care-team conversation. */
   canAddToCareTeam: boolean;
+  /** The caller may add this person to an existing care-team conversation (patient or doctor only). */
+  canAddToExistingCareTeam: boolean;
 }
 
 export interface RecipientsResponse {
@@ -112,6 +115,10 @@ export interface AppNotification {
   threadId:        number | null;
   messageId:       number | null;
   patientSystemId: string | null;
+  /** In-app route for non-message notifications (e.g. a caregiver approval request). */
+  actionUrl:       string | null;
+  /** CAREGIVER_ACCESS for caregiver approval requests; null for message notifications. */
+  target:          'CAREGIVER_ACCESS' | null;
 }
 
 export interface UnreadCounts {

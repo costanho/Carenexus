@@ -4,6 +4,8 @@ import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
 import com.carenexus.api.auth.service.AuthService;
 import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
+import com.carenexus.api.common.event.CaregiverApprovalPendingEvent;
+import com.carenexus.api.common.event.CaregiverMessagingRegainedEvent;
 import com.carenexus.api.common.exception.AuthorizationException;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
@@ -88,11 +90,16 @@ public class CaregiverServiceConsentTest {
     }
 
     private CaregiverAccessChangedEvent lastEvent() {
+        List<CaregiverAccessChangedEvent> events = events(CaregiverAccessChangedEvent.class);
+        assertFalse(events.isEmpty(), "a CaregiverAccessChangedEvent was published");
+        return events.get(events.size() - 1);
+    }
+
+    /** Every published event of one type, in order (a change may also publish regained / approval events). */
+    private <T> List<T> events(Class<T> type) {
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-        verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
-        Object last = captor.getAllValues().get(captor.getAllValues().size() - 1);
-        assertInstanceOf(CaregiverAccessChangedEvent.class, last);
-        return (CaregiverAccessChangedEvent) last;
+        verify(eventPublisher, atLeast(0)).publishEvent(captor.capture());
+        return captor.getAllValues().stream().filter(type::isInstance).map(type::cast).toList();
     }
 
     // ==================== CAREGIVER: NARROW ONLY ====================
@@ -426,5 +433,78 @@ public class CaregiverServiceConsentTest {
                         .expiresAt("2020-01-01").build()));
         assertEquals("Access expiry must be in the future", past.getMessage());
         verify(dependentAccessRepository, never()).save(any());
+    }
+
+    // ==================== ACCESS RETURNS / APPROVAL REQUESTS ====================
+
+    private static DependentAccess messagingGrant() {
+        DependentAccess access = activeGrant();
+        access.setCanMessageCareTeam(true);
+        access.setMessagingApprovedAt(Instant.now().minusSeconds(3600));
+        access.setMessagingApprovedBySystemId(PATIENT);
+        return access;
+    }
+
+    @Test
+    public void patientExtendsExpiredGrant_publishesMessagingRegained_withExpiredGap() {
+        DependentAccess access = messagingGrant();
+        access.setExpiresAt(LocalDateTime.now().minusDays(1)); // lapsed
+        stored(access);
+
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().expiresAt(LocalDateTime.now().plusDays(30).toString()).build());
+
+        // The messaging listener ends surviving memberships in this transaction: history restarts after the gap.
+        assertEquals(List.of(new CaregiverMessagingRegainedEvent(ACCESS_ID, PATIENT, CAREGIVER, true)),
+                events(CaregiverMessagingRegainedEvent.class));
+        assertTrue(lastEvent().messagingAllowed());
+    }
+
+    @Test
+    public void patientReapprovesMessaging_publishesMessagingRegained_withoutExpiry() {
+        DependentAccess access = activeGrant();
+        access.setCanMessageCareTeam(true); // requested, not approved
+        stored(access);
+
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canMessageCareTeam(true).build());
+
+        assertEquals(List.of(new CaregiverMessagingRegainedEvent(ACCESS_ID, PATIENT, CAREGIVER, false)),
+                events(CaregiverMessagingRegainedEvent.class));
+    }
+
+    @Test
+    public void extendingAnActiveGrant_doesNotPublishMessagingRegained() {
+        DependentAccess access = messagingGrant();
+        access.setExpiresAt(LocalDateTime.now().plusDays(2));
+        stored(access);
+
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().expiresAt(LocalDateTime.now().plusDays(30).toString()).build());
+
+        assertTrue(events(CaregiverMessagingRegainedEvent.class).isEmpty());
+    }
+
+    @Test
+    public void adminRequestsMessaging_patientIsAskedToApprove_thenApprovalClearsIt() {
+        DependentAccess access = activeGrant();
+        stored(access);
+
+        // Admin changes never approve: the grant now waits for the patient
+        caregiverService.updateCaregiverAccessAsPatient("ADM-00001", true, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canJoinCalls(true).build());
+        assertEquals(List.of(new CaregiverApprovalPendingEvent(ACCESS_ID, PATIENT, CAREGIVER, true, false, true)),
+                events(CaregiverApprovalPendingEvent.class));
+
+        // A second unrelated change while still pending publishes nothing new (transitions only)
+        caregiverService.updateCaregiverAccessAsPatient("ADM-00001", true, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canViewImaging(true).build());
+        assertEquals(1, events(CaregiverApprovalPendingEvent.class).size());
+
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canJoinCalls(true).build());
+        List<CaregiverApprovalPendingEvent> approvals = events(CaregiverApprovalPendingEvent.class);
+        assertEquals(2, approvals.size());
+        assertFalse(approvals.get(1).pending());
     }
 }

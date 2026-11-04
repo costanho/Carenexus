@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
 
 // Small shared building blocks for the call screens (no LiveKit imports here).
@@ -25,6 +25,24 @@ export const C = {
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
+/** Delay before a consequential call button (Start call, End call) accepts a press after it appears. */
+export const ARM_DELAY_MS = 1_000;
+
+/**
+ * False for `delayMs` after mount, then true. A button that ignores presses right after it appears cannot be hit
+ * by a click or Enter meant for whatever was at that spot a moment earlier (layout changes while the call status
+ * updates). 0 = armed at once.
+ */
+export function useArmed(delayMs = 0): boolean {
+  const [armed, setArmed] = useState(delayMs <= 0);
+  useEffect(() => {
+    if (delayMs <= 0) return;
+    const t = setTimeout(() => setArmed(true), delayMs);
+    return () => clearTimeout(t);
+  }, [delayMs]);
+  return armed;
+}
+
 export function CallButton(props: {
   label:    string;
   onPress:  () => void;
@@ -34,11 +52,14 @@ export function CallButton(props: {
   busy?:    boolean;
   accessibilityLabel?: string;
   style?:   StyleProp<ViewStyle>;
+  /** Ignore presses for this long after the button appears (see useArmed). Never focused automatically. */
+  armDelayMs?: number;
 }) {
   const v = props.variant ?? 'primary';
   const bg = v === 'primary' ? C.indigo : v === 'danger' ? C.red : v === 'secondary' ? C.surface : 'transparent';
   const fg = v === 'primary' || v === 'danger' ? '#FFFFFF' : C.indigo;
-  const disabled = props.disabled || props.busy;
+  const armed = useArmed(props.armDelayMs ?? 0);
+  const disabled = props.disabled || props.busy || !armed;
   return (
     <TouchableOpacity
       onPress={props.onPress}

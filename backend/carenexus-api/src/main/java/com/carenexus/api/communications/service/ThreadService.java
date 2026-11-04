@@ -199,10 +199,30 @@ public class ThreadService {
         return new ThreadResult(toResponse(caller, thread), true);
     }
 
+    /**
+     * Retry lookup after a unique-index race on (created_by_system_id, client_thread_id): called by the controller
+     * after the losing createThread rolled back, in its own transaction. Access is checked again.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ThreadResponse> findOwnThreadByClientId(String clientThreadId) {
+        Caller caller = accessService.requireCaller();
+        if (clientThreadId == null || clientThreadId.isBlank()) {
+            return Optional.empty();
+        }
+        return threadRepository.findByCreatedBySystemIdAndClientThreadId(caller.systemId(), clientThreadId.trim())
+                .map(existing -> {
+                    ThreadAccess access = accessService.requireThreadAccess(caller, existing.getThreadId());
+                    return toResponse(caller, access.thread());
+                });
+    }
+
     // ==================== MEMBERS ====================
 
     public ThreadResponse addMembers(Integer threadId, AddThreadMembersRequest request) {
         Caller caller = accessService.requireCaller();
+        // Same thread row lock as sendMessage: a send committing between reading MAX(message_id) and saving the
+        // new member would otherwise land below the boundary (hidden from the new member) or above it.
+        threadRepository.findForUpdateById(threadId);
         ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
         MessageThread thread = access.thread();
         if (!thread.isCareTeam()) {
@@ -319,6 +339,16 @@ public class ThreadService {
      * @return number of memberships removed
      */
     public int removeCaregiverAfterAccessChange(String caregiverSystemId, String patientSystemId) {
+        return removeCaregiverAfterAccessChange(caregiverSystemId, patientSystemId, ThreadMember.REASON_ACCESS_REVOKED);
+    }
+
+    /**
+     * As above with an explicit reason: ACCESS_REVOKED, or ACCESS_EXPIRED when the grant lapsed. Also used when
+     * access RETURNS (re-grant, extension of a lapsed grant, re-approval): any membership that survived the lapse is
+     * ended so the caregiver has to be added again and gets a NEW history boundary (nothing sent while they had no
+     * access becomes visible).
+     */
+    public int removeCaregiverAfterAccessChange(String caregiverSystemId, String patientSystemId, String reason) {
         List<ThreadMember> memberships = memberRepository.findActiveByUserAndPatient(caregiverSystemId, patientSystemId);
         if (memberships.isEmpty()) {
             return 0;
@@ -327,7 +357,7 @@ public class ThreadService {
         for (ThreadMember member : memberships) {
             member.setRemovedAt(now);
             member.setRemovedBySystemId(null);
-            member.setRemovalReason(ThreadMember.REASON_ACCESS_REVOKED);
+            member.setRemovalReason(reason);
             member.setArchivedAt(null);
         }
         memberRepository.saveAll(memberships);

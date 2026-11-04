@@ -6,6 +6,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/lib/communications/api';
+import { onMessagingReset } from '@/lib/communications/session';
 import type { AppNotification, UnreadCounts } from '@/lib/communications/types';
 import { usePolling } from './use-page-active';
 
@@ -18,11 +19,25 @@ const COUNTS_POLL_MS = 30_000;
 const EMPTY: UnreadCounts = { unreadCount: 0, unreadMessageCount: 0 };
 let counts: UnreadCounts = EMPTY;
 let inFlight: Promise<void> | null = null;
+/** Bumped on sign-out so a request started for the previous user cannot write its counts. */
+let generation = 0;
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach(l => l());
 }
+
+/** Forget the cached counts (sign-out), so the next user never sees the previous user's badge. */
+export function resetUnreadCounts(): void {
+  generation += 1;
+  inFlight = null;
+  if (counts !== EMPTY) {
+    counts = EMPTY;
+    emit();
+  }
+}
+
+onMessagingReset(resetUnreadCounts);
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
@@ -36,8 +51,10 @@ function getSnapshot(): UnreadCounts {
 /** Re-fetch unread counts now (e.g. after reading a thread or a notification). */
 export function refreshUnreadCounts(): Promise<void> {
   if (inFlight) return inFlight;
-  inFlight = fetchUnreadCounts()
+  const gen = generation;
+  const request: Promise<void> = fetchUnreadCounts()
     .then(data => {
+      if (gen !== generation) return;
       const next = {
         unreadCount:        Number(data?.unreadCount ?? 0),
         unreadMessageCount: Number(data?.unreadMessageCount ?? 0),
@@ -48,8 +65,9 @@ export function refreshUnreadCounts(): Promise<void> {
       }
     })
     .catch(() => { /* keep the last known counts */ })
-    .finally(() => { inFlight = null; });
-  return inFlight;
+    .finally(() => { if (inFlight === request) inFlight = null; });
+  inFlight = request;
+  return request;
 }
 
 let pollers = 0;

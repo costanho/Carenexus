@@ -30,7 +30,7 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
 
   const recipients = useMessageRecipients(thread.patientSystemId, canManage && adding);
   const memberIds  = new Set(thread.members.map(m => m.systemId));
-  const candidates = (recipients.data?.recipients ?? []).filter(r => r.canAddToCareTeam && !memberIds.has(r.systemId));
+  const candidates = (recipients.data?.recipients ?? []).filter(r => r.canAddToExistingCareTeam && !memberIds.has(r.systemId));
 
   async function add() {
     if (selected.length === 0) return;

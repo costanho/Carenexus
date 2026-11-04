@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 public class Notification {
 
     public static final String TYPE_MESSAGE = "MESSAGE";
+    public static final String TYPE_SYSTEM = "SYSTEM";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

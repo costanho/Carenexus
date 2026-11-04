@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -71,7 +72,7 @@ function PrescriptionCard({ item }: { item: Prescription }) {
           {item.generic_name && (
             <Text style={styles.cardGeneric}>{item.generic_name}</Text>
           )}
-          <Text style={styles.cardDoctorName}>{item.doctor_name}</Text>
+          <Text style={styles.cardDoctorName}>{tidyDoctorName(item.doctor_name)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusCfg.bg }]}>
           <Ionicons name={statusCfg.icon} size={12} color={statusCfg.color} />
@@ -184,7 +185,7 @@ export function PatientWebPrescription({ onBack }: { onBack?: () => void }) {
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.pageHeaderCenter}>
-          <Text style={styles.pageTitle}>Prescriptions</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Prescriptions</Text>
           <Text style={styles.pageSub}>Your medication history</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh">

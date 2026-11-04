@@ -20,5 +20,9 @@ public class RecipientResponse {
 
     private Boolean canStartPrivate;
 
+    /** Can be included in a new CARE_TEAM conversation started by the caller. */
     private Boolean canAddToCareTeam;
+
+    /** Caller may add this person to an existing CARE_TEAM conversation (caller is the patient or a doctor). */
+    private Boolean canAddToExistingCareTeam;
 }

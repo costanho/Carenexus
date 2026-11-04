@@ -1,6 +1,7 @@
 package com.carenexus.api.calls.service;
 
 import com.carenexus.api.auth.model.User;
+import com.carenexus.api.communications.service.CommunicationLabels;
 
 /** Display labels shown in the call UI and used as the provider token name. */
 public final class CallLabels {
@@ -19,7 +20,7 @@ public final class CallLabels {
     }
 
     public static String doctor(User doctor) {
-        return "Dr. " + fullName(doctor);
+        return CommunicationLabels.withDoctorTitle(fullName(doctor));
     }
 
     public static String patient(User patient) {

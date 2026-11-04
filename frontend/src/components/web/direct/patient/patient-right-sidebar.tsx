@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { appointmentCallJoin, isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { ariaLevel } from './a11y';
+import { CallTimePending } from './call-time-pending';
 
 const TEAL      = '#0D9488';
 const TEAL_BG   = '#E8F5F4';
@@ -49,7 +51,10 @@ function formatApptTime(iso: string) {
 
 // ── Upcoming Appointment ────────────────────────────────────────────
 
-function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => void }) {
+function UpcomingAppointment({ onNavigate, onMessageDoctor }: {
+  onNavigate?: (key: string) => void;
+  onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
+}) {
   const onViewAll = () => onNavigate?.('my-appointments');
   const { appointments, loading, error, refetch } = useAppointments();
 
@@ -62,7 +67,7 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>Upcoming Appointment</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header" {...ariaLevel(2)}>Upcoming Appointment</Text>
         <TouchableOpacity onPress={onViewAll} activeOpacity={0.7} accessibilityRole="link">
           <Text style={[styles.link, { color: scheme.color }]}>View all</Text>
         </TouchableOpacity>
@@ -128,8 +133,10 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
             </View>
           )}
 
-          {/* Actions */}
-          {appointmentCallJoin(next) ? (
+          {/* Actions. A video call whose time still needs the clinic's confirmation shows a note, not a button. */}
+          {next.call_status === 'NEEDS_TIME_CONFIRMATION' && appointmentCallJoin(next) ? (
+            <CallTimePending style={{ marginTop: 8 }} />
+          ) : appointmentCallJoin(next) ? (
             <CallJoinButton
               info={appointmentCallJoin(next)}
               withName={next.doctor_name}
@@ -159,6 +166,19 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
           >
             <Text style={[styles.rescheduleBtnText, { color: scheme.color }]}>Reschedule or Cancel</Text>
           </TouchableOpacity>
+          {onMessageDoctor && next.doctor_system_id ? (
+            <TouchableOpacity
+              style={styles.messageBtn}
+              onPress={() => onMessageDoctor(next.doctor_system_id!, next.doctor_name)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${next.doctor_name}`}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={15} color={GRAY} importantForAccessibility="no" />
+              {/* The doctor's name is already on the card; the accessible name carries it. */}
+              <Text style={styles.messageBtnText} numberOfLines={1}>Message</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
     </View>
@@ -170,6 +190,7 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
 type QuickItem = { key: string; label: string; icon: IoniconsName };
 
 const quickItems: QuickItem[] = [
+  { key: 'messages',        label: 'Message your care team', icon: 'chatbubbles-outline' },
   { key: 'medical-records', label: 'Medical Records', icon: 'folder-open-outline' },
   { key: 'lab-results',     label: 'Lab Results',     icon: 'flask-outline' },
   { key: 'imaging-results', label: 'Imaging Results', icon: 'image-outline' },
@@ -179,7 +200,7 @@ const quickItems: QuickItem[] = [
 function QuickAccess({ onNavigate }: { onNavigate?: (key: string) => void }) {
   return (
     <View style={styles.card}>
-      <Text style={[styles.cardTitle, { marginBottom: 8 }]}>Quick Access</Text>
+      <Text style={[styles.cardTitle, { marginBottom: 8 }]} accessibilityRole="header" {...ariaLevel(2)}>Quick Access</Text>
       {quickItems.map((item, i) => (
         <View key={item.key}>
           <TouchableOpacity
@@ -202,14 +223,18 @@ function QuickAccess({ onNavigate }: { onNavigate?: (key: string) => void }) {
 
 // ── Main export ─────────────────────────────────────────────────────
 
-export function PatientRightSidebar({ onNavigate }: { onNavigate?: (key: string) => void }) {
+export function PatientRightSidebar({ onNavigate, onMessageDoctor }: {
+  onNavigate?: (key: string) => void;
+  /** Opens a private conversation with this doctor in Messages. */
+  onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
+}) {
   return (
     <View style={styles.sidebar}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        <UpcomingAppointment onNavigate={onNavigate} />
+        <UpcomingAppointment onNavigate={onNavigate} onMessageDoctor={onMessageDoctor} />
         <QuickAccess onNavigate={onNavigate} />
       </ScrollView>
     </View>
@@ -346,6 +371,25 @@ const styles = StyleSheet.create({
     color: TEAL,
     fontWeight: '500',
     fontSize: 14,
+  },
+
+  messageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: WHITE,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  messageBtnText: {
+    color: '#374151',
+    fontWeight: '500',
+    fontSize: 13,
+    flexShrink: 1,
   },
 
   rowDivider: {

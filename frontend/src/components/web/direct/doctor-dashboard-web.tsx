@@ -45,7 +45,7 @@ export function DoctorDashboardWeb() {
     if (activeKey === 'schedule') {
       return (
         <Suspense fallback={loader}>
-          <DoctorWebSchedule />
+          <DoctorWebSchedule onOpenThread={openThread} />
         </Suspense>
       );
     }
@@ -59,14 +59,14 @@ export function DoctorDashboardWeb() {
     if (activeKey === 'appointments') {
       return (
         <Suspense fallback={loader}>
-          <DoctorWebAppointment />
+          <DoctorWebAppointment onOpenThread={openThread} />
         </Suspense>
       );
     }
     if (activeKey === 'patients') {
       return (
         <Suspense fallback={loader}>
-          <DoctorWebPatients />
+          <DoctorWebPatients onOpenThread={openThread} />
         </Suspense>
       );
     }

@@ -15,21 +15,32 @@ interface Props {
   theme?:       MessagesTheme;
   /** Called for a MESSAGE notification with a thread. */
   onOpenThread: (threadId: number) => void;
+  /** Patient only: called for a caregiver approval request (opens the caregiver access screen). */
+  onOpenCaregiverAccess?: () => void;
   /** Called after any notification is activated (e.g. close a dropdown). */
-  onActivated?: () => void;
+  onActivated?: (item: AppNotification) => void;
+  /** Dropdown only: shows a Close button in the header. */
+  onClose?:     () => void;
   /** Compact = dropdown panel; otherwise a full page section with a title. */
   compact?:     boolean;
 }
 
-export function NotificationList({ theme = DEFAULT_THEME, onOpenThread, onActivated, compact }: Props) {
+export function NotificationList({ theme = DEFAULT_THEME, onOpenThread, onOpenCaregiverAccess, onActivated, onClose, compact }: Props) {
   const { online } = usePageActive();
   const n = useNotifications();
   const unread = n.notifications.filter(x => !x.read).length;
 
   async function activate(item: AppNotification) {
     if (!item.read) n.markRead(item.notificationId).catch(() => {});
-    onActivated?.();
+    onActivated?.(item);
     if (item.type === 'MESSAGE' && item.threadId != null) onOpenThread(item.threadId);
+    else if (item.target === 'CAREGIVER_ACCESS') onOpenCaregiverAccess?.();
+  }
+
+  function hintFor(item: AppNotification): string | undefined {
+    if (item.type === 'MESSAGE' && item.threadId != null) return 'Opens the conversation';
+    if (item.target === 'CAREGIVER_ACCESS' && onOpenCaregiverAccess) return 'Opens your caregiver access settings';
+    return undefined;
   }
 
   async function markAll() {
@@ -45,11 +56,18 @@ export function NotificationList({ theme = DEFAULT_THEME, onOpenThread, onActiva
       <View style={[styles.wrap, !compact && styles.page]}>
         <View style={styles.header}>
           <Text style={compact ? styles.panelTitle : styles.pageTitle} accessibilityRole="header">Notifications</Text>
-          {unread > 0 && (
-            <TouchableOpacity onPress={markAll} accessibilityRole="button" accessibilityLabel="Mark all notifications as read" style={styles.linkBtn}>
-              <Text style={[styles.link, { color: theme.accent }]}>Mark all as read</Text>
-            </TouchableOpacity>
-          )}
+          <View style={styles.headerActions}>
+            {unread > 0 && (
+              <TouchableOpacity onPress={markAll} accessibilityRole="button" accessibilityLabel="Mark all notifications as read" style={styles.linkBtn}>
+                <Text style={[styles.link, { color: theme.accent }]}>Mark all as read</Text>
+              </TouchableOpacity>
+            )}
+            {onClose && (
+              <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close notifications" style={styles.closeBtn}>
+                <Ionicons name="close" size={18} color={GRAY} importantForAccessibility="no" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
         {!online && <Banner tone="warning" icon="cloud-offline-outline" text="You're offline. Notifications will refresh when you reconnect." />}
 
@@ -70,7 +88,7 @@ export function NotificationList({ theme = DEFAULT_THEME, onOpenThread, onActiva
                     activeOpacity={0.75}
                     accessibilityRole="button"
                     accessibilityLabel={`${item.title}, ${shortTime(item.createdAt)}, ${item.message}${item.read ? '' : ', unread'}`}
-                    accessibilityHint={item.type === 'MESSAGE' && item.threadId != null ? 'Opens the conversation' : undefined}
+                    accessibilityHint={hintFor(item)}
                   >
                     <View style={[styles.iconWrap, urgent && styles.iconUrgent]}>
                       <Ionicons
@@ -112,7 +130,9 @@ const styles = StyleSheet.create({
   header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: BORDER, backgroundColor: WHITE },
   panelTitle: { fontSize: 15, fontWeight: '700', color: TEXT },
   pageTitle:  { fontSize: 20, fontWeight: '700', color: TEXT },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   linkBtn:    { paddingVertical: 4, paddingHorizontal: 4 },
+  closeBtn:   { padding: 4, borderRadius: 6 },
   link:       { fontSize: 12, fontWeight: '600' },
   panelScroll:{ maxHeight: 420 },
   pageList:   { paddingBottom: 24 },

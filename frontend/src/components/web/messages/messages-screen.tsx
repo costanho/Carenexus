@@ -1,15 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
-import { type LayoutChangeEvent, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type LayoutChangeEvent, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { apiErrorMessage } from '@/hooks/use-appointments';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { refreshUnreadCounts } from '@/hooks/use-notifications';
 import { usePageActive } from '@/hooks/use-page-active';
 import { useThreads } from '@/hooks/use-threads';
 import { setThreadArchived } from '@/lib/communications/api';
-import type { MessagingMode, Thread } from '@/lib/communications/types';
+import { clearAllDrafts } from '@/lib/communications/drafts';
+import { clearAllOutboxes } from '@/lib/communications/outbox';
+import type { Message, MessagingMode, Thread } from '@/lib/communications/types';
 import { showMessage } from '@/lib/ui/dialogs';
+import { CaregiverMessagingStatus } from './caregiver-messaging-status';
 import { NewConversation } from './new-conversation';
+import { type PatientOption, PatientFilter } from './patient-filter';
 import { ThreadList } from './thread-list';
 import { ThreadView } from './thread-view';
 import { BG, BORDER, Banner, DEFAULT_THEME, Empty, GRAY, type MessagesTheme, TEXT, ThemeContext, WHITE } from './ui';
@@ -40,16 +44,25 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
   const [archived, setArchived] = useState(false);
   const [pane,     setPane]     = useState<Pane>({ kind: 'none' });
   const [known,    setKnown]    = useState<Record<number, Thread>>({});
+  const [patient,  setPatient]  = useState<PatientOption | null>(null);
 
-  const threads = useThreads({ archived });
+  const threads = useThreads({ archived, patientSystemId: patient?.systemId ?? null });
   const wide = width === 0 || width >= WIDE_MIN;
   const mySystemId = user?.system_id ?? null;
   const myRole = user?.role ?? mode;
+
+  // Unsent text of anyone else who used this tab is never shown and need not be kept.
+  useEffect(() => {
+    if (!mySystemId) return;
+    clearAllDrafts(mySystemId);
+    clearAllOutboxes(mySystemId);
+  }, [mySystemId]);
 
   // Open a thread requested by the shell (notification click).
   useEffect(() => {
     if (openThreadId == null) return;
     setArchived(false);
+    setPatient(null);
     setPane({ kind: 'thread', id: openThreadId });
     onOpenThreadHandled?.();
   }, [openThreadId, onOpenThreadHandled]);
@@ -71,10 +84,25 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threads.patch]);
 
+  // My own send: show it as the newest preview at the top straight away, then confirm with the server.
+  const onSent = useCallback((threadId: number, m: Message) => {
+    threads.bump(threadId, {
+      lastMessage: {
+        messageId: m.messageId, senderSystemId: m.senderSystemId, senderLabel: m.senderLabel,
+        preview: Array.from(m.body).slice(0, 120).join(''), urgent: m.urgent, sentAt: m.sentAt,
+      },
+      lastMessageAt: m.sentAt,
+    });
+    threads.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads.bump, threads.refetch]);
+
   async function archiveFromList(t: Thread) {
     try {
       await threads.archive(t.threadId, !archived);
-      if (selectedId === t.threadId) setKnown(k => ({ ...k, [t.threadId]: { ...t, archived: !archived } }));
+      // The open thread's header follows `known` (see ThreadView), so keep it in step.
+      setKnown(k => ({ ...k, [t.threadId]: { ...(k[t.threadId] ?? t), archived: !archived } }));
+      threads.refetch();
     } catch (e) {
       showMessage('Could not update conversation', apiErrorMessage(e, 'Please try again.'));
     }
@@ -82,6 +110,8 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
 
   async function archiveFromThread(threadId: number, value: boolean) {
     await setThreadArchived(threadId, value);
+    setKnown(k => (k[threadId] ? { ...k, [threadId]: { ...k[threadId], archived: value } } : k));
+    threads.patch(threadId, { archived: value });
     threads.refetch();
   }
 
@@ -100,6 +130,20 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
   function onLayout(e: LayoutChangeEvent) {
     const w = Math.round(e.nativeEvent.layout.width);
     if (w !== width) setWidth(w);
+  }
+
+  // Inbox / Archived tabs: arrow keys (and Home/End) move between them, one tab stop (roving tabindex).
+  const tabRefs = useRef<Record<string, any>>({});
+  function onTabKey(e: any) {
+    const key = e?.nativeEvent?.key ?? e?.key;
+    let next: boolean | null = null;
+    if (key === 'ArrowRight' || key === 'ArrowLeft') next = !archived;
+    else if (key === 'Home') next = false;
+    else if (key === 'End') next = true;
+    if (next == null) return;
+    e.preventDefault?.();
+    setArchived(next);
+    tabRefs.current[String(next)]?.focus?.();
   }
 
   const showList  = wide || pane.kind === 'none';
@@ -124,14 +168,21 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
             <Text style={styles.newBtnText}>New</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.tabs} accessibilityRole="tablist">
+        <View
+          style={styles.tabs}
+          accessibilityRole="tablist"
+          aria-label="Conversation folders"
+          {...(Platform.OS === 'web' ? { onKeyDown: onTabKey } : {})}
+        >
           {[{ key: false, label: 'Inbox' }, { key: true, label: 'Archived' }].map(tab => {
             const on = archived === tab.key;
             return (
               <TouchableOpacity
                 key={tab.label}
+                ref={(r: any) => { tabRefs.current[String(tab.key)] = r; }}
                 style={[styles.tab, on && { borderBottomColor: theme.accent }]}
                 onPress={() => setArchived(tab.key)}
+                {...({ tabIndex: on ? 0 : -1 } as object)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
                 aria-selected={on}
@@ -142,6 +193,7 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
             );
           })}
         </View>
+        <PatientFilter mode={mode} value={patient?.systemId ?? null} onChange={setPatient} />
       </View>
       <ThreadList
         threads={threads.threads}
@@ -158,6 +210,8 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
         onLoadMore={threads.loadMore}
         onArchive={archiveFromList}
         onNew={archived ? undefined : () => setPane({ kind: 'new' })}
+        filterName={patient?.name ?? null}
+        emptyExtra={mode === 'CAREGIVER' && !archived ? <CaregiverMessagingStatus patientSystemId={patient?.systemId ?? null} /> : null}
       />
     </View>
   );
@@ -172,6 +226,7 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
       onBack={wide ? undefined : () => setPane({ kind: 'none' })}
       onThreadChanged={remember}
       onRead={onRead}
+      onSent={onSent}
       onArchived={archiveFromThread}
       onClosed={closePane}
     />

@@ -210,7 +210,7 @@ CREATE TABLE thread_members (
   left_at                   TIMESTAMPTZ,
   removed_at                TIMESTAMPTZ,
   removed_by_system_id      VARCHAR(20) REFERENCES users(system_id) ON DELETE SET NULL,
-  removal_reason            VARCHAR(30) CHECK (removal_reason IN ('LEFT','REMOVED_BY_MEMBER','ACCESS_REVOKED')),
+  removal_reason            VARCHAR(30) CHECK (removal_reason IN ('LEFT','REMOVED_BY_MEMBER','ACCESS_REVOKED')),  -- V22 adds 'ACCESS_EXPIRED' (4.7)
   CONSTRAINT ux_thread_members_thread_user UNIQUE (thread_id, system_id)
 );
 COMMENT ON TABLE thread_members IS 'Conversation membership. Active = left_at IS NULL AND removed_at IS NULL. A member sees messages with message_id > history_start_message_id';
@@ -391,6 +391,17 @@ UPDATE dependent_access
 
 ---
 
+### 4.7 V22 (platform): `V22__caregiver_access_expiry.sql`
+```sql
+ALTER TABLE thread_members DROP CONSTRAINT IF EXISTS thread_members_removal_reason_check;
+ALTER TABLE thread_members ADD CONSTRAINT thread_members_removal_reason_check
+  CHECK (removal_reason IN ('LEFT','REMOVED_BY_MEMBER','ACCESS_REVOKED','ACCESS_EXPIRED'));
+ALTER TABLE dependent_access ADD COLUMN expiry_processed_at TIMESTAMP;
+CREATE INDEX idx_dependent_access_expiring ON dependent_access (expires_at)
+  WHERE is_active = TRUE AND revoked_at IS NULL AND expires_at IS NOT NULL;
+```
+`DependentAccess.expiryProcessedAt` (LocalDateTime) is written only by `CaregiverAccessExpirySweeper` (6.1). A grant is due when it is active, not revoked, `expires_at <= now` and `expiry_processed_at IS NULL OR expiry_processed_at < expires_at` (so a grant that is extended and lapses again is processed again).
+
 ## 5. Permissions (owner: permissions)
 
 ### 5.1 PatientPermission
@@ -514,8 +525,18 @@ public record CaregiverAccessChangedEvent(
 }
 
 public record UserLoggedOutEvent(String systemId) { }
+
+// Published by CaregiverService when MESSAGING becomes effective again after it was not (re-grant of a revoked
+// row, extension of a lapsed grant, re-approval). Handled SYNCHRONOUSLY (plain @EventListener, same transaction).
+public record CaregiverMessagingRegainedEvent(Integer accessId, String patientSystemId, String caregiverSystemId,
+        boolean wasExpired) { }
+
+// Published by CaregiverService when a grant starts (pending = true) or stops waiting for the patient's approval of
+// can_message_care_team / can_join_calls. Transitions only. Handled SYNCHRONOUSLY.
+public record CaregiverApprovalPendingEvent(Integer accessId, String patientSystemId, String caregiverSystemId,
+        boolean pending, boolean messagingRequested, boolean callsRequested) { }
 ```
-Published by permissions via `ApplicationEventPublisher.publishEvent(...)` inside the changing transaction.
+Published by permissions via `ApplicationEventPublisher.publishEvent(...)` inside the changing transaction. The expiry sweeper (6.1) also publishes `CaregiverAccessChangedEvent(revoked = true)` for every lapsed grant it processes.
 
 `com.carenexus.api.calls.event.AppointmentCallRelevantChangeEvent` (video-api internal):
 ```java
@@ -532,6 +553,16 @@ Listeners (each in its own `@Component`, method annotated `@TransactionalEventLi
 | CaregiverAccessChangedEvent, `revoked \|\| !messagingAllowed` | `communications.listener.CommunicationsAccessListener` (messaging-api) | For every active `thread_members` row of the caregiver in threads with `patient_system_id = patientSystemId`: `removed_at = now`, `removal_reason = 'ACCESS_REVOKED'`, `archived_at = null`; mark that caregiver's unread notifications for those threads read. Not re-added automatically when access returns. |
 | CaregiverAccessChangedEvent, `revoked \|\| !joinCallsAllowed` | `calls.listener.CallAccessListener` (video-api) | For the caregiver's open participant rows (REQUESTED/ADMITTED) in sessions of this patient's appointments: status REMOVED, `removal_reason='ACCESS_REVOKED'`, `removed_at=revoked_at=now`; if it was ADMITTED: `removal_pending=true` and enqueue REMOVE_PARTICIPANT. |
 | UserLoggedOutEvent | `calls.listener.CallAccessListener` (video-api) | Same as above for all open rows of `systemId` (any role) with reason `LOGGED_OUT`. |
+
+Synchronous listeners (plain `@EventListener`, run inside the publisher's transaction; a failure fails the grant change):
+
+| Event | Listener | Action |
+|---|---|---|
+| CaregiverMessagingRegainedEvent | `communications.listener.CommunicationsAccessListener.onMessagingRegained` | Ends every still-active membership of the caregiver in this patient's threads (`removal_reason = wasExpired ? 'ACCESS_EXPIRED' : 'ACCESS_REVOKED'`), marks their notifications for those threads read. A membership that survived a revocation or lapse (for example because the AFTER_COMMIT clean-up failed and only logged) can therefore never carry its old history boundary into the new grant: the caregiver must be added again and sees only messages sent after that. |
+| CaregiverApprovalPendingEvent | `communications.listener.CaregiverApprovalNotificationListener` | `pending`: SYSTEM notification for the patient (7.4). Not pending: that patient's unread approval notifications from this caregiver are marked read. |
+
+### 6.1 Grant expiry (`communications.job.CaregiverAccessExpirySweeper`)
+Nothing is published when a grant simply passes `expires_at`. Request-time checks already deny it; the sweeper makes membership match. Every `carenexus.messaging.access-expiry-sweep-interval-ms` (default 60000, env `MESSAGING_ACCESS_EXPIRY_SWEEP_MS`) it takes up to 200 due grants (4.7) and, each in its own transaction with the row locked and re-checked: ends the caregiver's memberships in this patient's threads with `ACCESS_EXPIRED` (and marks their notifications for those threads read), stamps `expiry_processed_at = now`, and publishes `CaregiverAccessChangedEvent(revoked = true, messagingAllowed = false, joinCallsAllowed = false)` so calls drop the caregiver's open rows. Extending a lapsed grant (PATCH `expiresAt`) never restores memberships (CaregiverMessagingRegainedEvent above), whether or not the sweeper already ran.
 
 ---
 
@@ -565,11 +596,11 @@ Pagination envelope (thread list, notifications): `{ "content": [...], "page": 0
 { "patientSystemId": "PAT-00001", "patientName": "Thomas Dube",
   "recipients": [
     { "systemId": "DOC-00002", "name": "Amara Osei", "role": "DOCTOR", "label": "Dr. Amara Osei",
-      "canStartPrivate": true, "canAddToCareTeam": true },
+      "canStartPrivate": true, "canAddToCareTeam": true, "canAddToExistingCareTeam": true },
     { "systemId": "CGV-00001", "name": "Sarah Dube", "role": "CAREGIVER", "label": "Sarah Dube (Caregiver for Thomas Dube)",
-      "canStartPrivate": false, "canAddToCareTeam": true } ] }
+      "canStartPrivate": false, "canAddToCareTeam": true, "canAddToExistingCareTeam": true } ] }
 ```
-`canStartPrivate` is true only when the pair (caller, recipient) is an allowed PRIVATE shape.
+`canStartPrivate` is true only when the pair (caller, recipient) is an allowed PRIVATE shape. `canAddToCareTeam`: the person may be included when the caller STARTS a CARE_TEAM conversation (any caller who can act for P, caregivers included). `canAddToExistingCareTeam`: the caller may add the person to an EXISTING CARE_TEAM conversation, true only when the caller is the patient or a doctor (caregivers get 403 from `POST /threads/{id}/members`, so it is false for every recipient when the caller is a caregiver). Use `canAddToExistingCareTeam` (or `Thread.canManageMembers`) for "Add people" UI on an existing thread.
 
 **GET `/api/communications/threads?patientSystemId=&archived=false&page=0&size=20`**
 Threads where the caller is an active member and passes the access rule; `patientSystemId` optional filter; `archived=false` (default) excludes threads with the caller's `archived_at` set, `archived=true` returns only those. Order `last_message_at DESC NULLS LAST, thread_id DESC`. Avoid N+1 (compute the caregiver's allowed patients / doctor's related patients once per request). 200 `PageResponse<Thread>`.
@@ -594,7 +625,8 @@ Threads where the caller is an active member and passes the access rule; `patien
 ```
 - Caller must be able to act for P and is added automatically. For CARE_TEAM the patient P is added automatically. `subject` optional (max 200, 400 "Subject must be at most 200 characters"). `clientThreadId` optional (8-64 chars `[A-Za-z0-9_-]`).
 - PRIVATE: `memberSystemIds` must contain exactly the one other member; shape must be allowed (400 "A private conversation is between a doctor and the patient or one of their caregivers"). If an active PRIVATE thread with exactly these two active members and the same patient exists, return it with 200 (no duplicate). Otherwise create, 201.
-- CARE_TEAM: all members eligible (400 "{name} cannot be added to this conversation"), at least one doctor (400 "A care team conversation needs at least one doctor"). If `clientThreadId` was already used by the caller, return that thread with 200.
+- CARE_TEAM: all members eligible (400 "{name} cannot be added to this conversation"), at least one doctor (400 "A care team conversation needs at least one doctor"). If `clientThreadId` was already used by the caller, return that thread with 200. This also holds for concurrent retries: when two requests with the same `clientThreadId` race and the unique index `ux_message_threads_client_thread` rejects the second insert, the controller looks the stored thread up in a new transaction (access re-checked) and returns it with 200, never 409/500.
+- `POST /threads/{id}/members` takes the same thread row lock as sending (`SELECT ... FOR UPDATE` on `message_threads`) before reading `MAX(message_id)` for the new member's history boundary, so a concurrent send is either fully before or fully after the boundary.
 - New members: `history_start_message_id = 0` (thread is new), `last_read_message_id = 0`, `added_by_system_id = caller`.
 - Response: `Thread`.
 
@@ -634,7 +666,11 @@ At most one of `before`/`after` (400 "Use either before or after, not both"); `l
 Sets the caller's `last_read_message_id = max(current, min(value, thread.last_message_id))`; marks the caller's notifications of this thread with `message_id <= value` read (`is_read = true`, `read_at = now`). 200 `{ "lastReadMessageId": 902, "unreadCount": 0 }`.
 
 ### 7.4 Notifications
-Created only by `NotificationService` inside the send transaction: one row per recipient, `type='MESSAGE'`, `priority = urgent ? 'HIGH' : 'NORMAL'`, `title = urgent ? "Urgent message" : "New message"`, `message = "{senderLabel} sent a message about {patientName}"` (for the patient recipient: `"{senderLabel} sent you a message"`), `thread_id`, `message_id`, `patient_system_id`, `actor_system_id = sender`, `action_url = NULL`, `icon = 'chatbubble-outline'`. Never include the body. Unique `(system_id, message_id)` protects retries.
+MESSAGE notifications are created only by `NotificationService` inside the send transaction: one row per recipient, `type='MESSAGE'`, `priority = urgent ? 'HIGH' : 'NORMAL'`, `title = urgent ? "Urgent message" : "New message"`, `message = "{senderLabel} sent a message about {patientName}"`, except `"{senderLabel} sent you a message"` when the recipient IS the patient or the sender IS the patient (never "Thomas Dube sent a message about Thomas Dube"), `thread_id`, `message_id`, `patient_system_id`, `actor_system_id = sender`, `action_url = NULL`, `icon = 'chatbubble-outline'`. Never include the body or the subject. Unique `(system_id, message_id)` protects retries.
+
+Preference: a recipient whose `user_settings.message_notifications` is false (UI key `new_message`, `PATCH /api/profile/settings/notifications { "messageNotifications": false }`) gets no MESSAGE notification rows. In-app notifications are the only channel, so this is the whole opt-out. The inbox is unaffected: `Thread.unreadCount`, `hasUrgentUnread` and urgent highlighting come from read positions, not notifications. `unreadMessageCount` (it counts MESSAGE notifications) stays 0 for such a user. No settings row means on.
+
+Caregiver approval requests (SYSTEM): when a grant starts waiting for the patient's approval (6, CaregiverApprovalPendingEvent; today: a caregiver-created dependent with requested flags, or an admin turning a flag on), the patient gets `type='SYSTEM'`, `title = "Caregiver approval needed"`, `message = "{caregiverName} is waiting for your approval to message your care team" | "... to join your video calls" | "... to message your care team and join your video calls"`, `priority = 'NORMAL'`, `icon = 'people-outline'`, `action_url = '/dashboard/patient?section=my-proxies'`, `patient_system_id = patient`, `actor_system_id = caregiver`, no thread/message ids. It is marked read when the request is approved, withdrawn or the grant is revoked. Not governed by `message_notifications` (it asks for consent). Grants that were already pending before this change (V15 re-approval) do not get one.
 
 | Method | Path | Success |
 |---|---|---|
@@ -643,7 +679,8 @@ Created only by `NotificationService` inside the send transaction: one row per r
 | POST | `/api/notifications/{notificationId}/read` | 204; 404 "Notification not found" if not the caller's |
 | POST | `/api/notifications/read-all` | 204 |
 
-`Notification`: `{ "notificationId": 7, "type": "MESSAGE", "title": "New message", "message": "Dr. Amara Osei sent a message about Thomas Dube", "priority": "NORMAL", "read": false, "readAt": null, "createdAt": "2026-11-03T08:15:00Z", "threadId": 41, "messageId": 902, "patientSystemId": "PAT-00001" }`.
+`Notification`: `{ "notificationId": 7, "type": "MESSAGE", "title": "New message", "message": "Dr. Amara Osei sent a message about Thomas Dube", "priority": "NORMAL", "read": false, "readAt": null, "createdAt": "2026-11-03T08:15:00Z", "threadId": 41, "messageId": 902, "patientSystemId": "PAT-00001", "actionUrl": null, "target": null }`.
+`target`: what activating the notification opens. `null` for MESSAGE (use `threadId`); `"CAREGIVER_ACCESS"` for approval requests: the patient web dashboard opens its caregiver-access section (sidebar key `my-proxies`, `PatientWebCaregiverAccess`). `actionUrl` carries the same target as a route (`/dashboard/patient?section=my-proxies`); clients should switch on `target`.
 Notifications are for any role including ADMIN (their own rows only).
 
 ---
@@ -807,7 +844,9 @@ carenexus:
     sweeper-interval-ms: 60000
   messaging:
     max-body-length: 4000
+    access-expiry-sweep-interval-ms: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:60000}   # 6.1
 ```
+API docs: `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` are `${SWAGGER_ENABLED:false}` in the base document AND in the `docker` profile (Swagger UI and `/v3/api-docs` are not public unless `SWAGGER_ENABLED=true`); only the `local` profile turns them on.
 `local` profile (DEV ONLY values):
 ```yaml
 carenexus:
@@ -902,7 +941,13 @@ Screen flow:
 7. Doctor admission panel (in call): polls GET every 3 s; lists REQUESTED participants with label and Admit / Deny, admitted participants with Remove; shows "Removal pending" for `removalPending`. Sound/visual cue for new requests.
 8. While connected, poll GET every 5 s; if `callStatus` is ENDED/CANCELLED or `myParticipant.status` is not ADMITTED, disconnect and show the message.
 9. Leave (everyone): POST leave, disconnect, back to dashboard; copy "Leaving does not end the appointment." End call (doctor only): `confirmAction('End call for everyone?', 'Everyone will be disconnected. Your consultation notes are not changed.', 'End call', true)` -> POST end.
-Join buttons (all listed appointment components): for VIDEO appointments with `callJoinRoute` and status SCHEDULED/RESCHEDULED, show "Join video call" (`router.push(callJoinRoute)`); before the window label "Opens at HH:mm CAT" (still navigable); NEEDS_TIME_CONFIRMATION label "Confirm time" for doctors, "Time to be confirmed" for others. Proxy: show only when the dependent's `joinCallsAllowed` is true. Remove every `Linking.openURL(videoConsultationLink)`. Mobile components: replace Join with the text "Join video consultations from the CareNexus web app."
+Join buttons (all listed appointment components): for VIDEO appointments with `callJoinRoute` and status SCHEDULED/RESCHEDULED, show "Join video call" (`router.push(callJoinRoute)`); before the window label "Opens at HH:mm CAT" (still navigable); NEEDS_TIME_CONFIRMATION label "Confirm time" for doctors. For patients and caregivers NEEDS_TIME_CONFIRMATION is informational: `describeCallJoin` returns `{ route: null, label: "Time to be confirmed", informational: true }` and `CallJoinButton` renders a neutral status label, never a button. `describeCallJoin` returns null (no control) when `callJoinRoute` is not `/dashboard/call/{positive integer}`, and the call route shows "Call not available" for an invalid id without calling the API.
+Call safety (`call-screen.web.tsx`, `call-room.web.tsx`, `call-ui.tsx`):
+- Only the doctor's Start call / Rejoin call / Retry buttons call POST start; no effect, timer, poll result or reconnect does. No call control is focused automatically.
+- Start call / Rejoin call / Retry and the in-call End call ignore presses for `ARM_DELAY_MS` (1 s) after they appear (`CallButton armDelayMs`, `useArmed`), so a click or Enter aimed at what was there a moment earlier cannot start or end the call. End call is set apart from Leave and control buttons have a fixed minimum width so a label change does not shift them.
+- End call always asks `confirmAction(...)` first. Leave only POSTs leave, which never ends the call (also for doctors).
+- Device check: each `getUserMedia` request times out after `DEVICE_TIMEOUT_MS` (8 s). A microphone that does not answer shows "Could not access the microphone" with "Check again" and "Join without microphone" (camera: "Could not access the camera", "Check again", "Join without camera"). A stream that arrives after its preview was stopped, released or timed out is stopped at once.
+- The camera/microphone published on joining follow the device check (`cameraEnabled = camera on AND working`). The user's on/off choice, including in-call toggles, is kept in `sessionStorage` (`carenexus.call.devicePrefs`) and is the starting point of the next lobby visit in that tab. Proxy: show only when the dependent's `joinCallsAllowed` is true. Remove every `Linking.openURL(videoConsultationLink)`. Mobile components: replace Join with the text "Join video consultations from the CareNexus web app."
 
 ---
 
@@ -931,3 +976,7 @@ These are what the code actually does. Where they conflict with an earlier secti
 - **Calls, provider not configured:** `DisabledCallProvider` is used instead, and its provider jobs fail without retrying (`LiveKit is not configured`), so the session moves to FAILED.
 - **Calls, `CallAccessListener`:** the work runs in a `REQUIRES_NEW` `TransactionTemplate`, not under a method-level `@Transactional`. The behaviour is the same.
 - **Frontend, `CallParticipant.removedReason`:** optional. The backend does not send it yet, and the UI does not rely on it.
+- **Auth, `POST /api/auth/login`:** a wrong password and an unknown email both answer 401 `Invalid email or password` (throttling and audit unchanged; 429 when throttled). Missing email or password is 400 `Email and password are required`. An inactive account with the right password stays 400 (`Account is inactive`, or the clinician-pending message). The auth interceptor never refreshes on `/api/auth/*` 401s, so the login screen shows the server message.
+- **Consultations (`/api/consultations/**`):** DRAFT and IN_PROGRESS consultations (unfinished notes) are visible to doctors and admins only. Patients and caregivers never get them in lists (`/patient/{id}`, `/appointment/{id}`, `/me/draft` and `/me/in-progress` are empty, caregiver activity feed), and `GET /{id}` of one is 404 `Consultation not found` for them. Every `ConsultationResponse` carries `appointmentType` (`IN_PERSON | VIDEO | PHONE`, the linked appointment's type).
+- **Appointments, doctor reschedule:** checked, no backend change needed. The appointment's doctor may move it with `PATCH /api/appointments/{id}/reschedule` or `PATCH /api/doctors/appointments/{id}/mark-rescheduled` (body `{ "scheduledAt": "...", "durationMinutes": 30 }`); the missing piece is the web UI action.
+- **Frontend dashboard role gate:** `src/app/dashboard/_layout.tsx` always renders the Stack and gates each screen (`screenLayout`): a screen of another role never mounts; the user is replaced to their own `ROLE_HOME`. The role homes are declared first so a navigator fallback never lands on `call/[appointmentId]`.

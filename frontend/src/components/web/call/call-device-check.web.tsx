@@ -5,17 +5,58 @@ import { C, CallButton, Notice } from './call-ui';
 
 // Camera/microphone check shown before joining. Web only (uses navigator.mediaDevices).
 
-export type DeviceState = 'idle' | 'pending' | 'ok' | 'denied' | 'missing' | 'in-use' | 'unsupported' | 'error';
+export type DeviceState = 'idle' | 'pending' | 'ok' | 'denied' | 'missing' | 'in-use' | 'unsupported' | 'timeout' | 'error';
 
 export interface DeviceChoices {
+  /** Microphone on AND working: publish it when joining. */
   micEnabled:    boolean;
+  /** Camera on AND working: publish it when joining. Never true unless the user left the camera on. */
   cameraEnabled: boolean;
   audioDeviceId: string | undefined;
   videoDeviceId: string | undefined;
+  /** The user's own on/off choice (kept by the call screen so a later lobby visit starts the same way). */
+  micWanted?:    boolean;
+  cameraWanted?: boolean;
+}
+
+/** How long a camera/microphone request may stay unanswered before the check reports it. */
+export const DEVICE_TIMEOUT_MS = 8_000;
+
+class DeviceTimeoutError extends Error {
+  constructor() {
+    super('Device request timed out');
+    this.name = 'DeviceTimeoutError';
+  }
+}
+
+/**
+ * getUserMedia that gives up after `ms` (a browser prompt hidden behind another window, or a stuck driver, can
+ * leave the request pending forever). A stream that arrives after the timeout is stopped at once.
+ */
+function getUserMediaWithTimeout(constraints: MediaStreamConstraints, ms: number): Promise<MediaStream> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => { settled = true; reject(new DeviceTimeoutError()); }, ms);
+    navigator.mediaDevices.getUserMedia(constraints).then(
+      stream => {
+        if (settled) { stream.getTracks().forEach(t => t.stop()); return; }
+        settled = true;
+        clearTimeout(timer);
+        resolve(stream);
+      },
+      err => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 function classify(e: any): DeviceState {
   const name = e?.name ?? '';
+  if (name === 'DeviceTimeoutError') return 'timeout';
   if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') return 'denied';
   if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') return 'missing';
   if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') return 'in-use';
@@ -34,6 +75,7 @@ const STATE_TEXT: Record<DeviceState, string> = {
   'missing':     'Not found',
   'in-use':      'In use by another app',
   'unsupported': 'Not supported in this browser',
+  'timeout':     'Not responding',
   'error':       'Could not start',
 };
 
@@ -43,13 +85,16 @@ export function CallDeviceCheck(props: {
   /** When true the preview is released (e.g. while connecting to the room). */
   released:   boolean;
   onChange:   (choices: DeviceChoices) => void;
+  /** The user's earlier on/off choices (default on). A camera turned off stays off and is not even opened. */
+  initialMicOn?: boolean;
+  initialCamOn?: boolean;
 }) {
   const { autoStart, released, onChange } = props;
   const [started, setStarted]   = useState(autoStart);
   const [micState, setMicState] = useState<DeviceState>('idle');
   const [camState, setCamState] = useState<DeviceState>('idle');
-  const [micOn, setMicOn]       = useState(true);
-  const [camOn, setCamOn]       = useState(true);
+  const [micOn, setMicOn]       = useState(props.initialMicOn ?? true);
+  const [camOn, setCamOn]       = useState(props.initialCamOn ?? true);
   const [mics, setMics]         = useState<MediaDeviceInfo[]>([]);
   const [cams, setCams]         = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId]       = useState<string | undefined>(undefined);
@@ -61,10 +106,15 @@ export function CallDeviceCheck(props: {
   const videoStream = useRef<MediaStream | null>(null);
   const audioCtx    = useRef<AudioContext | null>(null);
   const rafId       = useRef<number | null>(null);
+  // Bumped on every stop: a request that resolves after its preview was stopped (released for the call,
+  // unmounted, re-checked) must not keep a live microphone or camera open in the background.
+  const audioGen    = useRef(0);
+  const videoGen    = useRef(0);
 
   useEffect(() => { if (autoStart) setStarted(true); }, [autoStart]);
 
   const stopAudio = useCallback(() => {
+    audioGen.current += 1;
     if (rafId.current != null) cancelAnimationFrame(rafId.current);
     rafId.current = null;
     audioCtx.current?.close().catch(() => {});
@@ -75,6 +125,7 @@ export function CallDeviceCheck(props: {
   }, []);
 
   const stopVideo = useCallback(() => {
+    videoGen.current += 1;
     videoStream.current?.getTracks().forEach(t => t.stop());
     videoStream.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -92,11 +143,13 @@ export function CallDeviceCheck(props: {
 
   const startAudio = useCallback(async (deviceId?: string) => {
     stopAudio();
+    const gen = audioGen.current;
     setMicState('pending');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await getUserMediaWithTimeout({
         audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-      });
+      }, DEVICE_TIMEOUT_MS);
+      if (gen !== audioGen.current) { stream.getTracks().forEach(t => t.stop()); return; }
       audioStream.current = stream;
       setMicState('ok');
       const track = stream.getAudioTracks()[0];
@@ -125,17 +178,19 @@ export function CallDeviceCheck(props: {
         rafId.current = requestAnimationFrame(tick);
       }
     } catch (e) {
-      setMicState(classify(e));
+      if (gen === audioGen.current) setMicState(classify(e));
     }
   }, [stopAudio]);
 
   const startVideo = useCallback(async (deviceId?: string) => {
     stopVideo();
+    const gen = videoGen.current;
     setCamState('pending');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await getUserMediaWithTimeout({
         video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 960 }, height: { ideal: 540 } },
-      });
+      }, DEVICE_TIMEOUT_MS);
+      if (gen !== videoGen.current) { stream.getTracks().forEach(t => t.stop()); return; }
       videoStream.current = stream;
       setCamState('ok');
       const settingsId = stream.getVideoTracks()[0]?.getSettings().deviceId;
@@ -145,7 +200,7 @@ export function CallDeviceCheck(props: {
         videoRef.current.play().catch(() => {});
       }
     } catch (e) {
-      setCamState(classify(e));
+      if (gen === videoGen.current) setCamState(classify(e));
     }
   }, [stopVideo]);
 
@@ -189,6 +244,8 @@ export function CallDeviceCheck(props: {
       cameraEnabled: camOn && camState === 'ok',
       audioDeviceId: micId,
       videoDeviceId: camId,
+      micWanted:     micOn,
+      cameraWanted:  camOn,
     });
   }, [micOn, camOn, micState, camState, micId, camId, onChange]);
 
@@ -210,6 +267,19 @@ export function CallDeviceCheck(props: {
 
   function toggleMic() {
     setMicOn(on => !on);
+  }
+
+  /** Give up on a microphone that does not respond: join listening only (others will not hear you). */
+  function joinWithoutMic() {
+    stopAudio();
+    setMicOn(false);
+    setMicState('idle');
+  }
+
+  function joinWithoutCamera() {
+    stopVideo();
+    setCamOn(false);
+    setCamState('idle');
   }
 
   if (!started) {
@@ -265,7 +335,7 @@ export function CallDeviceCheck(props: {
       </View>
 
       <View style={styles.statusList}>
-        <StatusLine icon="mic-outline" label="Microphone" state={micState} />
+        <StatusLine icon="mic-outline" label="Microphone" state={micState} offText={!micOn && micState === 'idle' ? 'Turned off' : undefined} />
         <StatusLine icon="videocam-outline" label="Camera" state={camOn ? camState : 'idle'} offText={camOn ? undefined : 'Turned off'} />
       </View>
 
@@ -329,6 +399,34 @@ export function CallDeviceCheck(props: {
       {inUse && (
         <Notice tone="warning" title="A device is in use">
           <Text style={styles.noticeText}>Close other apps or tabs that use the camera or microphone, then choose "Check again".</Text>
+        </Notice>
+      )}
+      {micState === 'timeout' && (
+        <Notice tone="warning" title="Could not access the microphone">
+          <View style={styles.timeoutBody}>
+            <Text style={styles.noticeText}>
+              Your browser did not respond. Check that no other app is using the microphone and that this page may use it.
+            </Text>
+            <View style={styles.timeoutActions}>
+              <CallButton label="Check again" icon="refresh-outline" variant="secondary" onPress={() => startAudio(micId)}
+                accessibilityLabel="Check again: microphone" />
+              <CallButton label="Join without microphone" icon="mic-off-outline" variant="secondary" onPress={joinWithoutMic} />
+            </View>
+          </View>
+        </Notice>
+      )}
+      {camOn && camState === 'timeout' && (
+        <Notice tone="warning" title="Could not access the camera">
+          <View style={styles.timeoutBody}>
+            <Text style={styles.noticeText}>
+              Your browser did not respond. Check that no other app is using the camera and that this page may use it.
+            </Text>
+            <View style={styles.timeoutActions}>
+              <CallButton label="Check again" icon="refresh-outline" variant="secondary" onPress={() => startVideo(camId)}
+                accessibilityLabel="Check again: camera" />
+              <CallButton label="Join without camera" icon="videocam-off-outline" variant="secondary" onPress={joinWithoutCamera} />
+            </View>
+          </View>
         </Notice>
       )}
       {micState === 'unsupported' && (
@@ -434,4 +532,6 @@ const styles = StyleSheet.create({
   noticeText:     { fontSize: 13, color: C.muted, lineHeight: 19 },
   linkBtn:        { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingVertical: 6 },
   linkText:       { fontSize: 13, color: C.indigo, fontWeight: '600' },
+  timeoutBody:    { gap: 10 },
+  timeoutActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

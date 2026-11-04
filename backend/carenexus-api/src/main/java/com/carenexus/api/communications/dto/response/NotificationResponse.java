@@ -32,4 +32,10 @@ public class NotificationResponse {
     private Integer messageId;
 
     private String patientSystemId;
+
+    /** App route to open, e.g. the patient's caregiver-access screen; null for MESSAGE notifications. */
+    private String actionUrl;
+
+    /** What the notification opens: CAREGIVER_ACCESS, or null (MESSAGE notifications use threadId). */
+    private String target;
 }

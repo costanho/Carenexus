@@ -19,6 +19,10 @@ export const THOMAS: DemoUser = {
 export const JAMES: DemoUser = {
   email: 'james.banda@carenexus.com', password: 'doctor@banda', role: 'doctor', systemId: 'DOC-00002', name: 'James Banda',
 };
+// Seed V2 patient with medical records and lab results (Thomas has none in the dev seed).
+export const LINDA: DemoUser = {
+  email: 'linda.moyo@carenexus.com', password: 'patient@123', role: 'patient', systemId: 'PAT-00001', name: 'Linda Moyo',
+};
 // Sarah's system id depends on insert order, so it is looked up at runtime (see api.ts `me`).
 export const SARAH: DemoUser = {
   email: 'sarah.dube@carenexus.com', password: 'proxy@sarah', role: 'proxy', systemId: '', name: 'Sarah Dube',

@@ -69,10 +69,12 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .deviceInfo("iPhone 14")
                 .build();
 
+        // 401 with the same generic text as an unknown email (no account enumeration)
         mockMvc.perform(post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Invalid email or password"));
     }
 
     @Test
@@ -87,7 +89,19 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Invalid email or password"));
+    }
+
+    @Test
+    public void testLogin_MissingPassword_is400() throws Exception {
+        LoginRequest request = LoginRequest.builder().email("linda@example.com").password("").build();
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Email and password are required"));
     }
 
     @Test

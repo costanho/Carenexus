@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
+import { loadActiveDoctors } from './use-doctors';
 
 export interface Consultation {
   consultation_id:           number;
@@ -55,15 +56,15 @@ export function useConsultations(): State {
 
     Promise.all([
       api.get<any[]>(`/api/consultations/patient/${user.system_id}`),
-      api.get<any[]>('/api/doctors/profile/list/active'),
+      loadActiveDoctors(),
     ])
       .then(([consultRes, doctorsRes]) => {
         const doctorMap = new Map<string, { name: string; specialization: string | null }>();
-        doctorsRes.data.forEach((d: any) => {
-          const systemId = d.doctorSystemId ?? d.doctor_system_id;
+        // Shared cached list; full_name already carries a single "Dr." title.
+        doctorsRes.forEach(d => {
+          const systemId = d.doctor_system_id;
           if (!systemId) return;
-          const name = `Dr. ${d.firstName ?? d.first_name ?? ''} ${d.lastName ?? d.last_name ?? ''}`.trim();
-          doctorMap.set(systemId, { name, specialization: d.specialization ?? null });
+          doctorMap.set(systemId, { name: d.full_name, specialization: d.specialization ?? null });
         });
 
         const mapped: Consultation[] = consultRes.data.map((r: any) => {

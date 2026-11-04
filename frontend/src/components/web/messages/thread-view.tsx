@@ -7,6 +7,7 @@ import { apiErrorMessage } from '@/hooks/use-appointments';
 import { type LocalMessage, useThreadMessages } from '@/hooks/use-thread-messages';
 import { fetchThread, httpStatus } from '@/lib/communications/api';
 import { threadDraftKey } from '@/lib/communications/drafts';
+import { threadOutboxKey } from '@/lib/communications/outbox';
 import { clockTime, dayHeading, dayKey, fullTime, threadTitle } from '@/lib/communications/format';
 import { NO_THREAD_ACCESS_TEXT, type Message, type Thread } from '@/lib/communications/types';
 import { showMessage } from '@/lib/ui/dialogs';
@@ -25,13 +26,15 @@ interface Props {
   onBack?:        () => void;
   onThreadChanged:(thread: Thread) => void;
   onRead:         (threadId: number, unreadCount: number) => void;
+  /** One of my messages was confirmed by the server. */
+  onSent?:        (threadId: number, message: Message) => void;
   onArchived:     (threadId: number, archived: boolean) => Promise<void>;
   /** The user left or lost the conversation; close it and refresh the list. */
   onClosed:       () => void;
 }
 
 export function ThreadView({
-  threadId, initialThread, mySystemId, myRole, onBack, onThreadChanged, onRead, onArchived, onClosed,
+  threadId, initialThread, mySystemId, myRole, onBack, onThreadChanged, onRead, onSent, onArchived, onClosed,
 }: Props) {
   const { accent } = useTheme();
   const [thread,        setThread]        = useState<Thread | null>(initialThread);
@@ -41,7 +44,8 @@ export function ThreadView({
   const [showMembers,   setShowMembers]   = useState(false);
   const [archiving,     setArchiving]     = useState(false);
 
-  const msgs = useThreadMessages(threadId, { onRead });
+  const outboxKey = mySystemId ? threadOutboxKey(mySystemId, threadId) : null;
+  const msgs = useThreadMessages(threadId, { outboxKey, onRead, onSent });
   const forbidden = threadDenied || msgs.forbidden;
   const notFound  = threadMissing || msgs.notFound;
 
@@ -65,6 +69,13 @@ export function ThreadView({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
+
+  // Archived is per user and can change from the list while this thread is open: follow the parent's copy.
+  const parentArchived = initialThread?.threadId === threadId ? initialThread.archived : undefined;
+  useEffect(() => {
+    if (parentArchived === undefined) return;
+    setThread(t => (t && t.archived !== parentArchived ? { ...t, archived: parentArchived } : t));
+  }, [parentArchived]);
 
   // ── Scrolling: stick to the bottom for new messages, keep position when loading older ones ──
   const scrollRef      = useRef<ScrollView>(null);
@@ -165,6 +176,9 @@ export function ThreadView({
       {forbidden && <Banner tone="danger" icon="lock-closed-outline" text={NO_THREAD_ACCESS_TEXT} />}
       {notFound && <Banner tone="danger" icon="help-circle-outline" text="This conversation could not be found." />}
       {threadError && !forbidden && !notFound && <Banner tone="info" icon="alert-circle-outline" text={threadError} />}
+      {msgs.stale && !forbidden && !notFound && (
+        <Banner tone="warning" icon="sync-outline" text="Not up to date. Could not reach CareNexus, retrying…" />
+      )}
 
       {showMembers && thread && !forbidden && (
         <MemberManager

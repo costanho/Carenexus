@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import type { ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { initials, shortTime, threadTitle } from '@/lib/communications/format';
 import type { MessagingMode, Thread } from '@/lib/communications/types';
@@ -22,21 +23,27 @@ interface Props {
   onLoadMore:   () => void;
   onArchive:    (thread: Thread) => void;
   onNew?:       () => void;
+  /** Name of the patient the list is filtered to, if any (empty-state wording). */
+  filterName?:  string | null;
+  /** Extra content for the empty inbox (e.g. a caregiver's messaging access per loved one). */
+  emptyExtra?:  ReactNode;
 }
 
 export function ThreadList({
   threads, loading, error, hasMore, loadingMore, archived, mode, mySystemId, selectedId,
-  onSelect, onRetry, onLoadMore, onArchive, onNew,
+  onSelect, onRetry, onLoadMore, onArchive, onNew, filterName, emptyExtra,
 }: Props) {
   const { accent } = useTheme();
 
   if (loading && threads.length === 0) return <Loading label="Loading conversations" />;
   if (error && threads.length === 0) return <ErrorBlock message={error} onRetry={onRetry} />;
   if (threads.length === 0) {
+    const about = filterName ? ` about ${filterName}` : '';
     return archived ? (
-      <Empty icon="archive-outline" title="No archived conversations" sub="Conversations you archive appear here. A new message moves a conversation back to your inbox." />
+      <Empty icon="archive-outline" title={`No archived conversations${about}`} sub="Conversations you archive appear here. A new message moves a conversation back to your inbox." />
     ) : (
-      <Empty icon="chatbubbles-outline" title="No conversations yet" sub="Start a conversation with your care team. Messages are saved here.">
+      <Empty icon="chatbubbles-outline" title={filterName ? `No conversations${about}` : 'No conversations yet'} sub="Start a conversation with your care team. Messages are saved here.">
+        {emptyExtra}
         {onNew && (
           <TouchableOpacity
             style={[styles.newBtn, { backgroundColor: accent }]}

@@ -260,7 +260,7 @@ export default function DoctorWebMedicalRecords() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Medical Records</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Medical Records</Text>
           <Text style={styles.pageSub}>All records for patients associated with you</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>

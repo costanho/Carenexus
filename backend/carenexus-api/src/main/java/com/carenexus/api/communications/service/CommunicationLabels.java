@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Display names and labels for conversation participants (contract 7.2):
@@ -13,6 +14,9 @@ import java.util.Locale;
  * CAREGIVER "First Last (Caregiver for PatientFirst PatientLast)".
  */
 public final class CommunicationLabels {
+
+    /** A leading "Dr." / "Dr" title, any case. */
+    private static final Pattern DOCTOR_TITLE = Pattern.compile("dr(\\.|\\s|$)", Pattern.CASE_INSENSITIVE);
 
     private CommunicationLabels() {
     }
@@ -33,12 +37,20 @@ public final class CommunicationLabels {
 
     public static String label(String name, String role, String patientName) {
         if ("DOCTOR".equals(role)) {
-            return "Dr. " + name;
+            return withDoctorTitle(name);
         }
         if ("CAREGIVER".equals(role)) {
             return name + " (Caregiver for " + patientName + ")";
         }
         return name;
+    }
+
+    /** "Dr. " + name, unless the stored name already carries the title (some seed rows store "Dr. Michael"). */
+    public static String withDoctorTitle(String name) {
+        if (name == null || name.isBlank()) {
+            return name;
+        }
+        return DOCTOR_TITLE.matcher(name).lookingAt() ? name : "Dr. " + name;
     }
 
     public static String label(User user, String fallbackSystemId, String patientName) {

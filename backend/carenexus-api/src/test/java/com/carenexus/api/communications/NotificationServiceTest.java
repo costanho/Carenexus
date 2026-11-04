@@ -1,5 +1,6 @@
 package com.carenexus.api.communications;
 
+import com.carenexus.api.auth.model.User;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.communications.model.Message;
 import com.carenexus.api.communications.model.MessageThread;
@@ -8,6 +9,8 @@ import com.carenexus.api.communications.repository.NotificationRepository;
 import com.carenexus.api.communications.service.CommunicationsAccessService;
 import com.carenexus.api.communications.service.CommunicationsAccessService.Caller;
 import com.carenexus.api.communications.service.NotificationService;
+import com.carenexus.api.core.model.UserSettings;
+import com.carenexus.api.core.repository.UserSettingsRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -18,7 +21,9 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.data.domain.Page;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,6 +40,7 @@ public class NotificationServiceTest {
 
     @Mock private NotificationRepository notificationRepository;
     @Mock private CommunicationsAccessService accessService;
+    @Mock private UserSettingsRepository userSettingsRepository;
 
     @InjectMocks
     private NotificationService notificationService;
@@ -98,5 +104,78 @@ public class NotificationServiceTest {
 
         ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> notificationService.markRead(7));
         assertEquals("Notification not found", ex.getMessage());
+    }
+
+    @Test
+    public void messageFromThePatient_neverSaysAboutThePatientThemself() {
+        Message fromPatient = Message.builder().messageId(903).threadId(41).senderSystemId(PATIENT)
+                .body("My readings are attached").isUrgent(false).build();
+
+        notificationService.createMessageNotification(DOCTOR, thread, fromPatient, "Thomas Dube", "Thomas Dube");
+        notificationService.createMessageNotification(CAREGIVER, thread, fromPatient, "Thomas Dube", "Thomas Dube");
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(2)).save(captor.capture());
+        for (Notification n : captor.getAllValues()) {
+            assertEquals("Thomas Dube sent you a message", n.getMessage());
+            assertEquals("New message", n.getTitle());
+            assertFalse(n.getMessage().contains("readings"));
+        }
+    }
+
+    @Test
+    public void messageNotificationsTurnedOff_noRowIsCreated() {
+        UserSettings off = new UserSettings();
+        off.setSystemId(CAREGIVER);
+        off.setMessageNotifications(false);
+        when(userSettingsRepository.findBySystemId(CAREGIVER)).thenReturn(Optional.of(off));
+        Message message = Message.builder().messageId(904).senderSystemId(DOCTOR).isUrgent(true).build();
+
+        notificationService.createMessageNotification(CAREGIVER, thread, message, "Dr. Amara Osei", "Thomas Dube");
+        notificationService.createMessageNotification(PATIENT, thread, message, "Dr. Amara Osei", "Thomas Dube");
+
+        // Only the patient (no settings row = default on) gets a notification
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
+        assertEquals(PATIENT, captor.getValue().getSystemId());
+    }
+
+    @Test
+    public void caregiverApprovalRequest_notifiesPatient_withCaregiverAccessTarget() {
+        User sarah = User.builder().systemId(CAREGIVER).firstName("Sarah").lastName("Dube").role("CAREGIVER").build();
+        when(accessService.usersById(anyCollection())).thenReturn(new java.util.HashMap<>(Map.of(CAREGIVER, sarah)));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        notificationService.createCaregiverApprovalNotification(PATIENT, CAREGIVER, true, true);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        Notification n = captor.getValue();
+        assertEquals(PATIENT, n.getSystemId());
+        assertEquals("SYSTEM", n.getType());
+        assertEquals("Caregiver approval needed", n.getTitle());
+        assertEquals("Sarah Dube is waiting for your approval to message your care team and join your video calls", n.getMessage());
+        assertEquals(NotificationService.ACTION_CAREGIVER_ACCESS, n.getActionUrl());
+        assertEquals(CAREGIVER, n.getActorSystemId());
+        assertNull(n.getThreadId());
+
+        n.setNotificationId(9);
+        n.setCreatedAt(LocalDateTime.now());
+        Caller patient = new Caller(PATIENT, "PATIENT");
+        when(accessService.caller()).thenReturn(patient);
+        when(accessService.accessibleThreadIds(patient)).thenReturn(List.of());
+        when(notificationRepository.findVisible(eq(PATIENT), anyCollection(), eq(false), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(n)));
+        var listed = notificationService.list(false, 0, 20).getContent().get(0);
+        assertEquals("CAREGIVER_ACCESS", listed.getTarget());
+        assertEquals(NotificationService.ACTION_CAREGIVER_ACCESS, listed.getActionUrl());
+    }
+
+    @Test
+    public void caregiverApprovalResolved_marksThePatientsNotificationRead() {
+        notificationService.resolveCaregiverApprovalNotifications(PATIENT, CAREGIVER);
+
+        verify(notificationRepository).markReadForActorAndAction(eq(PATIENT), eq(CAREGIVER),
+                eq(NotificationService.ACTION_CAREGIVER_ACCESS), any(LocalDateTime.class));
     }
 }

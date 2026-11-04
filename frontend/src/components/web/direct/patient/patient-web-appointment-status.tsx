@@ -7,6 +7,8 @@ import {
 import { useEffect, useState } from 'react';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { doctorInitial } from '@/hooks/use-doctors';
+import { CallTimePending } from './call-time-pending';
 import { CalendarPicker, TimePicker } from './patient-web-appointment';
 
 const TEAL   = '#0D9488';
@@ -15,6 +17,7 @@ const GREEN  = '#10B981';
 const AMBER  = '#F59E0B';
 const RED    = '#EF4444';
 const PURPLE = '#8B5CF6';
+const SLATE  = '#374151';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
@@ -136,11 +139,19 @@ function ReschedulePanel({ appt, onDone, onClose }: { appt: Appointment; onDone:
   );
 }
 
-function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: () => void }) {
+const RESCHEDULED_NOTICE = 'Your appointment has been moved to the new time.';
+
+function AppointmentCard({ appt, notice, onRescheduled, onMessageDoctor }: {
+  appt: Appointment;
+  /** Confirmation for this card, owned by the list so it survives the refresh after a change. */
+  notice: string;
+  /** Shows (id) or clears (null) the reschedule confirmation. */
+  onRescheduled: (appointmentId: number | null) => void;
+  onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
+}) {
   const [expanded, setExpanded]       = useState(false);
   const [cancelling, setCancelling]   = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
-  const [notice, setNotice]           = useState('');
   const status = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
   const type   = TYPE_CONFIG[appt.type]     ?? TYPE_CONFIG.IN_PERSON;
   // Only appointments that are still ahead of us can be changed.
@@ -156,8 +167,8 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
     if (!ok) return;
     setCancelling(true);
     try {
+      // Refreshes the shared appointment list, so every panel shows the cancellation.
       await cancelAppointment(appt.appointment_id);
-      onRefetch();
     } catch (e: any) {
       showMessage('Could not cancel appointment', apiErrorMessage(e, 'Failed to cancel appointment. Please try again.'));
     } finally {
@@ -167,8 +178,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
 
   function handleRescheduled() {
     setRescheduling(false);
-    setNotice('Your appointment has been moved to the new time.');
-    onRefetch();
+    onRescheduled(appt.appointment_id);
   }
 
   return (
@@ -190,7 +200,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
           <Image source={{ uri: appt.doctor_avatar_url }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, styles.avatarFallback]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text style={styles.avatarInitial}>{appt.doctor_name[4] ?? 'D'}</Text>
+            <Text style={styles.avatarInitial}>{doctorInitial(appt.doctor_name)}</Text>
           </View>
         )}
       </View>
@@ -244,15 +254,19 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         </View>
       )}
 
-      {/* Video call */}
-      <CallJoinButton
-        info={appointmentCallJoin(appt)}
-        withName={appt.doctor_name}
-        style={styles.videoBtn}
-        textStyle={styles.videoBtnText}
-        iconSize={15}
-        iconColor={INDIGO}
-      />
+      {/* Video call: a time still awaiting the clinic's confirmation is a note, not a button. */}
+      {appt.call_status === 'NEEDS_TIME_CONFIRMATION' ? (
+        appointmentCallJoin(appt) && canChange ? <CallTimePending style={{ marginBottom: 8 }} /> : null
+      ) : (
+        <CallJoinButton
+          info={appointmentCallJoin(appt)}
+          withName={appt.doctor_name}
+          style={styles.videoBtn}
+          textStyle={styles.videoBtnText}
+          iconSize={15}
+          iconColor={INDIGO}
+        />
+      )}
 
       {/* Expanded: notes */}
       {expanded && (
@@ -267,7 +281,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
       )}
 
       {!!notice && (
-        <View style={styles.noticeBox}>
+        <View style={styles.noticeBox} accessibilityLiveRegion="polite" aria-live="polite">
           <Ionicons name="checkmark-circle-outline" size={14} color={GREEN} />
           <Text style={styles.noticeText}>{notice}</Text>
         </View>
@@ -281,7 +295,7 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.rescheduleBtn, cancelling && { opacity: 0.6 }]}
-            onPress={() => { setNotice(''); setRescheduling(true); }}
+            onPress={() => { if (notice) onRescheduled(null); setRescheduling(true); }}
             disabled={cancelling}
             activeOpacity={0.8}
             accessibilityRole="button"
@@ -303,6 +317,20 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         </View>
       )}
 
+      {onMessageDoctor && appt.doctor_system_id ? (
+        <TouchableOpacity
+          style={styles.messageBtn}
+          onPress={() => onMessageDoctor(appt.doctor_system_id!, appt.doctor_name)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Message ${appt.doctor_name}`}
+        >
+          <Ionicons name="chatbubble-ellipses-outline" size={15} color={SLATE} importantForAccessibility="no" />
+          {/* The doctor's name is already on the card; the accessible name carries it. */}
+          <Text style={styles.messageBtnText}>Message</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {/* Expand toggle */}
       <TouchableOpacity
         style={styles.expandToggle}
@@ -320,10 +348,15 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
 
 const PAGE_SIZE = 5;
 
-export function PatientWebAppointmentStatus() {
+export function PatientWebAppointmentStatus({ onMessageDoctor }: {
+  /** Opens a private conversation with the appointment's doctor in Messages. */
+  onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
+} = {}) {
   const { appointments, loading, error, refetch } = useAppointments();
   const [filter, setFilter] = useState<FilterKey>('ALL');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  // Kept here, not in the card, so it survives the list refresh and a card leaving the filter.
+  const [rescheduledId, setRescheduledId] = useState<number | null>(null);
 
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter]);
 
@@ -342,6 +375,7 @@ export function PatientWebAppointmentStatus() {
   const visible   = sorted.slice(0, visibleCount);
   const hasMore   = visibleCount < sorted.length;
   const remaining = sorted.length - visibleCount;
+  const noticeOnCard = rescheduledId != null && visible.some(a => a.appointment_id === rescheduledId);
 
   const total      = appointments.length;
   const upcoming   = appointments.filter(isUpcomingAppointment).length;
@@ -353,7 +387,7 @@ export function PatientWebAppointmentStatus() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>My Appointments</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">My Appointments</Text>
           <Text style={styles.pageSub}>Track and manage all your healthcare appointments</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh appointments">
@@ -396,6 +430,14 @@ export function PatientWebAppointmentStatus() {
         })}
       </ScrollView>
 
+      {/* Reschedule confirmation when the moved card is not on screen (filtered out or paged away) */}
+      {rescheduledId != null && !noticeOnCard && !loading && (
+        <View style={[styles.noticeBox, { marginBottom: 16 }]} accessibilityLiveRegion="polite" aria-live="polite">
+          <Ionicons name="checkmark-circle-outline" size={14} color={GREEN} />
+          <Text style={styles.noticeText}>{RESCHEDULED_NOTICE}</Text>
+        </View>
+      )}
+
       {/* Content */}
       {loading ? (
         <View style={styles.centerState}>
@@ -420,7 +462,13 @@ export function PatientWebAppointmentStatus() {
       ) : (
         <View style={styles.cardList}>
           {visible.map(appt => (
-            <AppointmentCard key={appt.appointment_id} appt={appt} onRefetch={refetch} />
+            <AppointmentCard
+              key={appt.appointment_id}
+              appt={appt}
+              notice={appt.appointment_id === rescheduledId ? RESCHEDULED_NOTICE : ''}
+              onRescheduled={setRescheduledId}
+              onMessageDoctor={onMessageDoctor}
+            />
           ))}
           {hasMore && (
             <TouchableOpacity
@@ -516,6 +564,8 @@ const styles = StyleSheet.create({
   inlineErrorText:      { flex: 1, fontSize: 12, color: RED },
   noticeBox:            { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ECFDF5', borderRadius: 8, padding: 10, marginBottom: 8 },
   noticeText:           { flex: 1, fontSize: 12, color: '#047857' },
+  messageBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: CARD, marginBottom: 8 },
+  messageBtnText:   { fontSize: 13, fontWeight: '600', color: SLATE },
   expandToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: BORDER, marginTop: 4 },
   expandToggleText: { fontSize: 12, fontWeight: '600', color: TEAL },
 

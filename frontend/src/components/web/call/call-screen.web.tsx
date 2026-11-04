@@ -15,13 +15,40 @@ import { confirmAction } from '@/lib/ui/dialogs';
 import { CallAdmissionPanel } from './call-admission-panel';
 import { CallDeviceCheck, type DeviceChoices } from './call-device-check.web';
 import { CallRoom } from './call-room.web';
-import { C, CallButton, Card, CenteredMessage, Notice } from './call-ui';
+import { ARM_DELAY_MS, C, CallButton, Card, CenteredMessage, Notice } from './call-ui';
 
 // Web call screen: lobby (status, device check, waiting area, doctor admission) and the live room.
+//
+// Safety rules (camera and microphone go live only on purpose):
+// - The call is started ONLY by the doctor pressing Start call / Rejoin call / Retry (doctorStart). No effect,
+//   timer, poll result or reconnect calls startCall, and no call button is focused automatically.
+// - Those buttons ignore presses for ARM_DELAY_MS after they appear, so a click or Enter aimed at something that
+//   was there a moment earlier cannot start the call.
+// - Ending for everyone needs the End call button plus a confirmAction() confirmation. Leave only calls /leave,
+//   which never ends the call (CallService.leave), for doctors too.
+// - The camera and microphone published on joining follow the device check (off stays off), and that choice is
+//   kept for the rest of the browser session.
 
 type Mode = 'lobby' | 'joining' | 'in-call';
 
 const NO_DEVICES: DeviceChoices = { micEnabled: false, cameraEnabled: false, audioDeviceId: undefined, videoDeviceId: undefined };
+
+interface DevicePrefs { micOn: boolean; camOn: boolean }
+
+const PREFS_KEY = 'carenexus.call.devicePrefs';
+
+function loadPrefs(): DevicePrefs {
+  try {
+    const raw = typeof window !== 'undefined' ? window.sessionStorage?.getItem(PREFS_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed.micOn === 'boolean' && typeof parsed.camOn === 'boolean') return parsed;
+  } catch { /* storage unavailable: defaults */ }
+  return { micOn: true, camOn: true };
+}
+
+function savePrefs(prefs: DevicePrefs): void {
+  try { window.sessionStorage?.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* not persisted */ }
+}
 
 function windowState(s: CallStatusResponse): 'open' | 'before' | 'after' {
   if (s.joinWindowOpen) return 'open';
@@ -40,6 +67,10 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
   const [mode, setMode]               = useState<Mode>('lobby');
   const [token, setToken]             = useState<CallTokenResponse | null>(null);
   const [choices, setChoices]         = useState<DeviceChoices>(NO_DEVICES);
+  // The user's last on/off choice, kept current by rememberPrefs: the device check remounts when the
+  // room closes, and must start from the in-call choice, not the one read when this screen mounted.
+  const prefs                         = useRef<DevicePrefs | null>(null);
+  if (prefs.current === null) prefs.current = loadPrefs();
   const [busy, setBusy]               = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [note, setNote]               = useState<string | null>(null);
@@ -84,6 +115,18 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
     }
     setIntervalMs(next);
   }, [mode, isDoctor, accessLost, status?.callStatus, status?.joinWindowOpen, status?.myParticipant?.status, status?.serverTime]);
+
+  const rememberPrefs = useCallback((next: DevicePrefs) => {
+    prefs.current = next;
+    savePrefs(next);
+  }, []);
+
+  const onDeviceChoices = useCallback((c: DeviceChoices) => {
+    setChoices(c);
+    if (c.micWanted !== undefined && c.cameraWanted !== undefined) {
+      rememberPrefs({ micOn: c.micWanted, camOn: c.cameraWanted });
+    }
+  }, [rememberPrefs]);
 
   const goHome = useCallback(() => {
     const role = user?.role as Role | undefined;
@@ -162,7 +205,9 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
     }
   }
 
+  // Only ever called from the doctor's Start call / Rejoin call / Retry buttons.
   async function doctorStart() {
+    if (mode !== 'lobby' || !isDoctor) return;
     const s = await run('start', () => startCall(appointmentId), 'Could not start the call. Please try again.');
     if (s && s.callStatus === 'LIVE') await connectWithToken();
   }
@@ -265,6 +310,7 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
         onServerClosed={onServerClosed}
         onLeave={leave}
         onEnd={isDoctor ? end : undefined}
+        onDevicePrefs={rememberPrefs}
         leaving={leaving}
         ending={ending}
       />
@@ -365,7 +411,13 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
           {showDevices && (
             <View style={[styles.col, wide && styles.colSide]}>
               <Card>
-                <CallDeviceCheck autoStart={autoStartDevices} released={mode !== 'lobby'} onChange={setChoices} />
+                <CallDeviceCheck
+                  autoStart={autoStartDevices}
+                  released={mode !== 'lobby'}
+                  onChange={onDeviceChoices}
+                  initialMicOn={prefs.current?.micOn}
+                  initialCamOn={prefs.current?.camOn}
+                />
               </Card>
             </View>
           )}
@@ -435,7 +487,7 @@ function PrimaryArea(props: {
           {props.isDoctor ? 'Try again in a moment.' : 'The doctor can try again. This page updates on its own.'}
         </Notice>
         {props.isDoctor && props.window === 'open' && (
-          <CallButton label="Retry" icon="refresh-outline" onPress={props.onStart} busy={props.busy === 'start'} />
+          <CallButton label="Retry" icon="refresh-outline" onPress={props.onStart} busy={props.busy === 'start'} armDelayMs={ARM_DELAY_MS} />
         )}
       </View>
     );
@@ -464,10 +516,12 @@ function PrimaryArea(props: {
           {live ? 'The call is in progress. Rejoin to continue.' : 'When you start the call, the patient and approved caregivers can ask to join. You admit each person.'}
         </Text>
         <CallButton
+          key={live ? 'rejoin' : 'start'}
           label={live ? 'Rejoin call' : 'Start call'}
           icon="videocam-outline"
           onPress={props.onStart}
           busy={props.busy === 'start'}
+          armDelayMs={ARM_DELAY_MS}
         />
       </View>
     );

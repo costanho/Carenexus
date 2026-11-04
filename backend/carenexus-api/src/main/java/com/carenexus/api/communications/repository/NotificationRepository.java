@@ -59,4 +59,10 @@ public interface NotificationRepository extends JpaRepository<Notification, Inte
     @Modifying(flushAutomatically = true)
     @Query("UPDATE Notification n SET n.isRead = true, n.readAt = :now WHERE n.systemId = :systemId AND n.isRead = false")
     int markAllRead(@Param("systemId") String systemId, @Param("now") LocalDateTime now);
+
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE Notification n SET n.isRead = true, n.readAt = :now WHERE n.systemId = :systemId"
+            + " AND n.actorSystemId = :actorSystemId AND n.actionUrl = :actionUrl AND n.isRead = false")
+    int markReadForActorAndAction(@Param("systemId") String systemId, @Param("actorSystemId") String actorSystemId,
+                                  @Param("actionUrl") String actionUrl, @Param("now") LocalDateTime now);
 }

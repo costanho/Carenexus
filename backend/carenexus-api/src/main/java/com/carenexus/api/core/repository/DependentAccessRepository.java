@@ -1,11 +1,15 @@
 package com.carenexus.api.core.repository;
 
 import com.carenexus.api.core.model.DependentAccess;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,4 +58,19 @@ public interface DependentAccessRepository extends JpaRepository<DependentAccess
      */
     @Query("SELECT d FROM DependentAccess d WHERE d.patientSystemId = :patientSystemId AND d.revokedAt IS NULL ORDER BY d.authorizedDate DESC, d.accessId DESC")
     List<DependentAccess> findUnrevokedForPatient(@Param("patientSystemId") String patientSystemId);
+
+    /**
+     * Grants that lapsed (not revoked, past expires_at) and were not yet handled by the expiry sweeper for their
+     * current expiry: never processed, or processed before the expiry was moved later and passed again.
+     */
+    String EXPIRED_UNPROCESSED = " d.isActive = true AND d.revokedAt IS NULL AND d.expiresAt IS NOT NULL AND d.expiresAt <= :now"
+            + " AND (d.expiryProcessedAt IS NULL OR d.expiryProcessedAt < d.expiresAt) ";
+
+    @Query("SELECT d.accessId FROM DependentAccess d WHERE" + EXPIRED_UNPROCESSED + "ORDER BY d.expiresAt, d.accessId")
+    List<Integer> findExpiredUnprocessedIds(@Param("now") LocalDateTime now, Pageable page);
+
+    /** Row lock for the expiry sweeper (re-checked after locking). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM DependentAccess d WHERE d.accessId = :accessId")
+    Optional<DependentAccess> findForUpdateById(@Param("accessId") Integer accessId);
 }

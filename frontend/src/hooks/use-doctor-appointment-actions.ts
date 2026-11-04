@@ -25,6 +25,26 @@ export function availableActions(entry: ScheduleEntry, now = new Date()): Doctor
   return started ? ['complete', 'no-show', 'cancel'] : ['cancel'];
 }
 
+/**
+ * Whether the doctor can move this appointment to a new time: still active (SCHEDULED/RESCHEDULED)
+ * and not started yet. Kept apart from availableActions because it opens a picker instead of a
+ * one-step status PATCH.
+ */
+export function canReschedule(entry: ScheduleEntry, now = new Date()): boolean {
+  if (entry.status !== 'SCHEDULED' && entry.status !== 'RESCHEDULED') return false;
+  const start = new Date(entry.scheduled_at).getTime();
+  return !Number.isNaN(start) && start > now.getTime();
+}
+
+/**
+ * Moves an appointment to a new clinic wall-clock time (Africa/Harare, no offset) via
+ * PATCH /api/appointments/{id}/reschedule. The duration is kept. The backend sets the status to
+ * RESCHEDULED, re-checks availability and moves the video call session. Throws the axios error.
+ */
+export async function rescheduleDoctorAppointment(appointmentId: number, date: string, time: string): Promise<void> {
+  await api.patch(`/api/appointments/${appointmentId}/reschedule`, { scheduledAt: `${date}T${time}:00` });
+}
+
 /** The doctor's Join control for a schedule entry (internal call route), or null for none. */
 export function doctorCallJoin(entry: ScheduleEntry, now = Date.now()): CallJoinInfo | null {
   return describeCallJoin({

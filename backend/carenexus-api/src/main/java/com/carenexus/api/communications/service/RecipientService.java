@@ -48,7 +48,11 @@ public class RecipientService {
                     .role(role)
                     .label(CommunicationLabels.label(name, role, patientName))
                     .canStartPrivate(isPrivatePairAllowed(caller.role(), role))
+                    // May be included when the caller STARTS a care team conversation (any role that can act for P)
                     .canAddToCareTeam(true)
+                    // May be added to an EXISTING care team conversation: only patients and doctors manage members
+                    // (ThreadService.addMembers answers 403 for caregivers)
+                    .canAddToExistingCareTeam(caller.canManageMembers())
                     .build());
         }
         return RecipientsResponse.builder()

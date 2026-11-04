@@ -8,24 +8,18 @@ import {
   newClientId,
   sendMessage,
 } from '@/lib/communications/api';
+import {
+  type LocalMessage, NOT_SENT_TEXT, loadOutbox, markInFlight, outboxSession, reviveOutbox, subscribeOutbox,
+  updateOutbox,
+} from '@/lib/communications/outbox';
 import { OFFLINE_SEND_TEXT, type Message } from '@/lib/communications/types';
-import { usePolling } from './use-page-active';
+import { usePageActive, usePolling } from './use-page-active';
+
+export type { LocalMessage, LocalMessageStatus } from '@/lib/communications/outbox';
 
 const PAGE_LIMIT = 30;
 const POLL_LIMIT = 100;
 const THREAD_POLL_MS = 5_000;
-
-export type LocalMessageStatus = 'sending' | 'failed';
-
-/** A message the user sent that the server has not confirmed yet. */
-export interface LocalMessage {
-  clientMessageId: string;
-  body:            string;
-  urgent:          boolean;
-  status:          LocalMessageStatus;
-  error:           string | null;
-  createdAt:       string;
-}
 
 interface State {
   messages:      Message[];
@@ -35,6 +29,8 @@ interface State {
   /** 403: the user was removed or lost permission. */
   forbidden:     boolean;
   notFound:      boolean;
+  /** The last poll failed (server unreachable or 5xx) while the browser is online; retrying. */
+  stale:         boolean;
   hasOlder:      boolean;
   loadingOlder:  boolean;
   /** Increments each time newer messages arrive (initial load, poll or own send). */
@@ -57,17 +53,27 @@ function mergeMessages(prev: Message[], incoming: Message[]): Message[] {
 /**
  * Message history for one open (visible) thread.
  * Polls `after={newestId}` every 5 s while the page is visible and online, and marks new messages read.
+ * Unconfirmed sends live in the per-thread outbox (`outboxKey`, see lib/communications/outbox.ts), so
+ * they survive switching threads; without a key they are kept in memory for this page only.
  */
 export function useThreadMessages(
   threadId: number | null,
-  opts: { onRead?: (threadId: number, unreadCount: number) => void } = {},
+  opts: {
+    outboxKey?: string | null;
+    onRead?:    (threadId: number, unreadCount: number) => void;
+    /** A send was confirmed by the server (used to refresh the conversation list). */
+    onSent?:    (threadId: number, message: Message) => void;
+  } = {},
 ): State {
+  const { online } = usePageActive();
+  const boxKey = threadId == null ? null : (opts.outboxKey ?? `memory.${threadId}`);
   const [messages,      setMessages]      = useState<Message[]>([]);
-  const [pending,       setPending]       = useState<LocalMessage[]>([]);
+  const [pending,       setPending]       = useState<LocalMessage[]>(() => (boxKey ? reviveOutbox(boxKey) : []));
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState<string | null>(null);
   const [forbidden,     setForbidden]     = useState(false);
   const [notFound,      setNotFound]      = useState(false);
+  const [stale,         setStale]         = useState(false);
   const [hasOlder,      setHasOlder]      = useState(false);
   const [loadingOlder,  setLoadingOlder]  = useState(false);
   const [newestVersion, setNewestVersion] = useState(0);
@@ -82,6 +88,29 @@ export function useThreadMessages(
   threadRef.current = threadId;
   const onReadRef = useRef(opts.onRead);
   onReadRef.current = opts.onRead;
+  const onSentRef = useRef(opts.onSent);
+  onSentRef.current = opts.onSent;
+  const boxKeyRef = useRef(boxKey);
+  boxKeyRef.current = boxKey;
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  const pollRef = useRef<() => Promise<void>>(async () => {});
+
+  // Mirror the outbox for this thread (restored on mount; updated by sends that finish after a switch).
+  useEffect(() => {
+    if (!boxKey) { setPending([]); return; }
+    let seen = reviveOutbox(boxKey);
+    setPending(seen);
+    return subscribeOutbox(boxKey, () => {
+      const next = loadOutbox(boxKey);
+      // A send started by an earlier view of this thread was confirmed: fetch it now, not on the next tick.
+      const settled = seen.some(p => !next.some(n => n.clientMessageId === p.clientMessageId)
+        && !messagesRef.current.some(m => m.clientMessageId === p.clientMessageId));
+      seen = next;
+      setPending(next);
+      if (settled) pollRef.current().catch(() => {});
+    });
+  }, [boxKey]);
 
   const handleFailure = useCallback((e: unknown, fallback: string): string => {
     const status = httpStatus(e);
@@ -108,8 +137,9 @@ export function useThreadMessages(
   /** Drop local copies that the server now has (matched by clientMessageId). */
   const settlePending = useCallback((incoming: Message[]) => {
     const confirmed = new Set(incoming.filter(m => m.mine && m.clientMessageId).map(m => m.clientMessageId as string));
-    if (confirmed.size === 0) return;
-    setPending(prev => prev.filter(p => !confirmed.has(p.clientMessageId)));
+    const key = boxKeyRef.current;
+    if (confirmed.size === 0 || !key) return;
+    updateOutbox(key, prev => prev.filter(p => !confirmed.has(p.clientMessageId)));
   }, []);
 
   const absorb = useCallback((incoming: Message[]) => {
@@ -126,10 +156,10 @@ export function useThreadMessages(
   useEffect(() => {
     setMessages([]);
     messagesRef.current = [];
-    setPending([]);
     setError(null);
     setForbidden(false);
     setNotFound(false);
+    setStale(false);
     setHasOlder(false);
     readSentRef.current = 0;
     if (threadId == null) {
@@ -163,6 +193,7 @@ export function useThreadMessages(
           : await fetchMessages(id, { limit: PAGE_LIMIT });
         if (threadRef.current !== id) return;
         setError(null);
+        setStale(false);
         absorb(res.messages ?? []);
         if (newest == null) setHasOlder(res.hasMore);
         if (newest == null || !res.hasMore) return;
@@ -170,11 +201,14 @@ export function useThreadMessages(
         if (threadRef.current !== id) return;
         const status = httpStatus(e);
         if (status === 403 || status === 404) handleFailure(e, '');
-        return; // transient errors: keep showing what we have, try again next tick
+        // Transient (unreachable, timeout, 5xx): keep showing what we have, flag it, try again next tick.
+        else setStale(true);
+        return;
       }
     }
   }, [absorb, handleFailure]);
 
+  pollRef.current = poll;
   usePolling(poll, THREAD_POLL_MS, threadId != null && !loading && !forbidden && !notFound);
 
   const loadOlder = useCallback(async () => {
@@ -196,27 +230,37 @@ export function useThreadMessages(
     }
   }, [loadingOlder, handleFailure]);
 
+  // The outbox is updated through its key even if this view unmounted meanwhile (thread switch),
+  // so a send that finishes later is settled or marked failed when the user comes back.
   const post = useCallback((local: LocalMessage) => {
-    const id = threadRef.current;
-    if (id == null) return;
+    const id  = threadRef.current;
+    const key = boxKeyRef.current;
+    if (id == null || !key) return;
+    const cid = local.clientMessageId;
+    const started = outboxSession();
+    // After a sign-out the outbox was cleared on purpose; a late result must not write the text back.
+    const fail = (error: string) => {
+      if (outboxSession() !== started) return;
+      updateOutbox(key, prev => prev.map(p => (p.clientMessageId === cid ? { ...p, status: 'failed', error } : p)));
+    };
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      setPending(prev => prev.map(p => p.clientMessageId === local.clientMessageId
-        ? { ...p, status: 'failed', error: OFFLINE_SEND_TEXT } : p));
+      fail(OFFLINE_SEND_TEXT);
       return;
     }
-    sendMessage(id, { clientMessageId: local.clientMessageId, body: local.body, urgent: local.urgent })
+    markInFlight(cid, true);
+    sendMessage(id, { clientMessageId: cid, body: local.body, urgent: local.urgent })
       .then(msg => {
-        if (threadRef.current !== id) return;
-        absorb([{ ...msg, mine: true, clientMessageId: msg.clientMessageId ?? local.clientMessageId }]);
-        setPending(prev => prev.filter(p => p.clientMessageId !== local.clientMessageId));
+        markInFlight(cid, false);
+        const confirmed = { ...msg, mine: true, clientMessageId: msg.clientMessageId ?? cid };
+        if (outboxSession() !== started) return;
+        if (mountedRef.current && threadRef.current === id) absorb([confirmed]);
+        updateOutbox(key, prev => prev.filter(p => p.clientMessageId !== cid));
+        onSentRef.current?.(id, confirmed);
       })
       .catch(e => {
-        if (threadRef.current !== id) return;
-        const status = httpStatus(e);
-        if (status === 403) setForbidden(true);
-        const msg = isNetworkError(e) ? OFFLINE_SEND_TEXT : apiErrorMessage(e, 'Message not sent.');
-        setPending(prev => prev.map(p => p.clientMessageId === local.clientMessageId
-          ? { ...p, status: 'failed', error: msg } : p));
+        markInFlight(cid, false);
+        fail(isNetworkError(e) ? OFFLINE_SEND_TEXT : apiErrorMessage(e, NOT_SENT_TEXT));
+        if (mountedRef.current && threadRef.current === id && httpStatus(e) === 403) setForbidden(true);
       });
   }, [absorb]);
 
@@ -229,25 +273,30 @@ export function useThreadMessages(
       error:     null,
       createdAt: new Date().toISOString(),
     };
-    setPending(prev => [...prev, local]);
+    const key = boxKeyRef.current;
+    if (!key) return;
+    updateOutbox(key, prev => [...prev, local]);
     setNewestVersion(v => v + 1);
     post(local);
   }, [post]);
 
   const retry = useCallback((clientMessageId: string) => {
+    const key = boxKeyRef.current;
     const local = pendingRef.current.find(p => p.clientMessageId === clientMessageId);
-    if (!local) return;
+    if (!local || !key) return;
     const again: LocalMessage = { ...local, status: 'sending', error: null };
-    setPending(prev => prev.map(p => (p.clientMessageId === clientMessageId ? again : p)));
+    updateOutbox(key, prev => prev.map(p => (p.clientMessageId === clientMessageId ? again : p)));
     post(again); // same clientMessageId: the server returns the stored copy if the first try landed
   }, [post]);
 
   const discard = useCallback((clientMessageId: string) => {
-    setPending(prev => prev.filter(p => p.clientMessageId !== clientMessageId));
+    const key = boxKeyRef.current;
+    if (key) updateOutbox(key, prev => prev.filter(p => p.clientMessageId !== clientMessageId));
   }, []);
 
   return {
     messages, pending, loading, error, forbidden, notFound,
+    stale: stale && online,
     hasOlder, loadingOlder, newestVersion,
     loadOlder,
     reload: () => setTick(t => t + 1),

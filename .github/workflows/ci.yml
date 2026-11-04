@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-  # Manual runs can also run the browser end-to-end job (see the e2e job below).
+  # Pull requests run the browser end-to-end job; manual runs can too (see the e2e job below).
   workflow_dispatch:
     inputs:
       e2e:
@@ -115,14 +115,16 @@ jobs:
           GITLEAKS_CONFIG: .github/gitleaks.toml
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
-  # Optional: browser end-to-end tests against the real local stack (PostgreSQL, LiveKit in dev
-  # mode, API) started with docker compose, and the exported web app. Runs only when started
-  # manually (Actions > CI > Run workflow), because it builds the API image and takes ~15 min.
+  # Browser end-to-end tests against the real local stack (PostgreSQL, LiveKit in dev mode, API)
+  # started with docker compose, and the exported web app, in Playwright's bundled Chromium (the
+  # 'chromium' project; locally `npm run e2e:chrome` uses installed Google Chrome). Runs on every
+  # pull request and on manual runs (Actions > CI > Run workflow). The API image builds in the
+  # background while the web app is exported, to keep the job near 20 minutes.
   e2e:
     name: Browser end-to-end (Playwright)
-    if: github.event_name == 'workflow_dispatch' && inputs.e2e
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.e2e)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -132,17 +134,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Start the stack (postgres, livekit dev, api)
+      # Fresh secrets for every run, in a git-ignored .env that every later `docker compose`
+      # command reads (logs included). Never the committed .env.example values.
+      - name: Generate per-run secrets
         run: |
           JWT_SECRET="$(openssl rand -base64 64 | tr -d '\n')"
+          POSTGRES_PASSWORD="$(openssl rand -hex 24)"
           echo "::add-mask::$JWT_SECRET"
-          export JWT_SECRET
-          docker compose up -d --build postgres-db livekit carenexus-api
-          for i in $(seq 1 60); do
-            curl -fsS http://localhost:9000/actuator/health >/dev/null 2>&1 && break
-            sleep 5
-          done
-          curl -fsS http://localhost:9000/actuator/health
+          echo "::add-mask::$POSTGRES_PASSWORD"
+          umask 077
+          printf 'JWT_SECRET=%s\nPOSTGRES_PASSWORD=%s\n' "$JWT_SECRET" "$POSTGRES_PASSWORD" > .env
+
+      - name: Start the stack in the background (postgres, livekit dev, api)
+        run: nohup docker compose up -d --build postgres-db livekit carenexus-api > compose-up.log 2>&1 &
 
       - name: Install dependencies and browsers
         working-directory: frontend
@@ -154,9 +158,19 @@ jobs:
         working-directory: frontend
         run: npm run e2e:build
 
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 120); do
+            curl -fsS http://localhost:9000/actuator/health >/dev/null 2>&1 && break
+            sleep 5
+          done
+          curl -fsS http://localhost:9000/actuator/health || { cat compose-up.log; exit 1; }
+
+      # globalSetup / globalTeardown run scripts/dev-reset-e2e-data.sh against the compose
+      # container (carenexus-postgres), so the run starts and ends without e2e rows.
       - name: Run end-to-end tests
         working-directory: frontend
-        run: npm run e2e
+        run: npx playwright test --project=chromium
 
       - name: Upload Playwright report
         if: failure()
@@ -170,4 +184,6 @@ jobs:
 
       - name: API logs on failure
         if: failure()
-        run: docker compose logs --no-color --tail=300 carenexus-api livekit
+        run: |
+          cat compose-up.log || true
+          docker compose logs --no-color --tail=300 carenexus-api livekit

@@ -81,10 +81,15 @@ function generatePassword() {
 }
 
 // Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
+// The Y-M-D parts are checked directly: parsing as local midnight and reading back toISOString() shifts the
+// day in any timezone ahead of UTC (e.g. Africa/Harare) and rejected every valid date.
 function isValidDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
 }
 
 // Messaging and video calls are not part of an access level: they are separate requests the patient approves.
@@ -449,7 +454,7 @@ export default function PatientProxyWebAddDependent({
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View>
-          <Text style={styles.pageTitle}>Add Loved One</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Add Loved One</Text>
           <Text style={styles.pageSub}>Register a new patient under your proxy care</Text>
         </View>
       </View>

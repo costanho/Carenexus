@@ -24,7 +24,7 @@ import { getCallToken } from '@/lib/calls/api';
 import type { CallStatusResponse, CallTokenResponse } from '@/lib/calls/types';
 import { CallAdmissionPanel } from './call-admission-panel';
 import { DeviceSelect, type DeviceChoices } from './call-device-check.web';
-import { C } from './call-ui';
+import { ARM_DELAY_MS, C, useArmed } from './call-ui';
 
 // The live call: LiveKit room, participant tiles, controls, reconnect and token refresh.
 // No chat, no screen share, no recording (the token denies data publishing and screen share).
@@ -44,9 +44,12 @@ export function CallRoom(props: {
   /** The server closed the connection (removed / room deleted); the parent re-checks status. */
   onServerClosed:   () => void;
   onLeave:       () => void;
+  /** Doctor only. Must confirm before ending (CallScreen.end uses confirmAction). */
   onEnd?:        () => void;
   leaving:       boolean;
   ending:        boolean;
+  /** The user's in-call camera/microphone toggles, remembered for the next lobby visit. */
+  onDevicePrefs?: (prefs: { micOn: boolean; camOn: boolean }) => void;
 }) {
   const { appointmentId, token, choices, status, isDoctor, onConnectionLost, onServerClosed } = props;
   const [room] = useState(() => new Room({
@@ -79,6 +82,12 @@ export function CallRoom(props: {
   const wantCam      = useRef(choices.cameraEnabled);
   const { width }    = useWindowDimensions();
   const wide         = width >= 960;
+  // End call ignores presses for a moment after the room appears (see useArmed).
+  const endArmed     = useArmed(ARM_DELAY_MS);
+  const { onDevicePrefs } = props;
+  const reportPrefs  = useCallback(() => {
+    onDevicePrefs?.({ micOn: wantMic.current, camOn: wantCam.current });
+  }, [onDevicePrefs]);
 
   const publishInitialTracks = useCallback(async () => {
     const lp = room.localParticipant;
@@ -209,6 +218,7 @@ export function CallRoom(props: {
       setDeviceError('Your microphone could not be started. Allow microphone access in your browser.');
     }
     setMicOn(room.localParticipant.isMicrophoneEnabled);
+    reportPrefs();
   }
 
   async function toggleCam() {
@@ -221,6 +231,7 @@ export function CallRoom(props: {
       setDeviceError('Your camera could not be started. Allow camera access in your browser or continue with audio only.');
     }
     setCamOn(room.localParticipant.isCameraEnabled);
+    reportPrefs();
   }
 
   async function switchDevice(kind: 'audioinput' | 'videoinput', id: string) {
@@ -328,14 +339,17 @@ export function CallRoom(props: {
           )}
           <ControlButton icon="exit-outline" label={props.leaving ? 'Leaving...' : 'Leave'} danger onPress={leave} disabled={props.leaving || props.ending} />
           {isDoctor && props.onEnd && (
-            <ControlButton
-              icon="call-outline"
-              label={props.ending ? 'Ending...' : 'End call'}
-              danger
-              solid
-              onPress={props.onEnd}
-              disabled={props.ending || props.leaving}
-            />
+            // Kept apart from Leave so a press meant for one cannot land on the other.
+            <View style={styles.endGroup}>
+              <ControlButton
+                icon="call-outline"
+                label={props.ending ? 'Ending...' : 'End call'}
+                danger
+                solid
+                onPress={props.onEnd}
+                disabled={props.ending || props.leaving || !endArmed}
+              />
+            </View>
           )}
         </View>
         <RoomAudioRenderer />
@@ -472,6 +486,8 @@ const styles = StyleSheet.create({
   sideWide:    { width: 360 },
   deviceBar:   { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, paddingTop: 8 },
   controls:    { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, padding: 16 },
-  ctrl:        { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, minHeight: 44 },
+  // Fixed minimum width: a label change (Mute/Unmute, People (1 waiting)) does not shift the other buttons.
+  ctrl:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, minHeight: 44, minWidth: 136 },
+  endGroup:    { marginLeft: 24 },
   ctrlText:    { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
 });
