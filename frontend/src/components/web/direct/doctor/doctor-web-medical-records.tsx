@@ -27,7 +27,7 @@ type TypeFilter   = 'ALL' | RecordType;
 
 function typeConfig(t: RecordType): { label: string; color: string; bg: string; border: string; icon: IoniconsName } {
   switch (t) {
-    case 'CONSULT':      return { label: 'Consultation',  color: BLUE,   bg: '#EEF2FF', border: '#C7D2FE', icon: 'stethoscope'          as any };
+    case 'CONSULT':      return { label: 'Consultation',  color: BLUE,   bg: '#EEF2FF', border: '#C7D2FE', icon: 'medical-outline' };
     case 'LAB':          return { label: 'Lab Result',    color: TEAL,   bg: '#CCFBF1', border: '#99F6E4', icon: 'flask-outline'             };
     case 'PRESCRIPTION': return { label: 'Prescription',  color: GREEN,  bg: '#D1FAE5', border: '#6EE7B7', icon: 'medkit-outline'            };
     case 'REFERRAL':     return { label: 'Referral',      color: NAVY,   bg: '#DBEAFE', border: '#93C5FD', icon: 'git-compare-outline'       };

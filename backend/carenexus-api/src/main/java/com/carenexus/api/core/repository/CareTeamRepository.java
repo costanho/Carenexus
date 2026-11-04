@@ -80,4 +80,16 @@ public interface CareTeamRepository extends JpaRepository<CareTeam, Integer> {
 
     @Query("SELECT DISTINCT c.patientSystemId FROM Consultation c WHERE c.doctorSystemId = :doctorSystemId")
     List<String> findConsultationPatientSystemIdsForDoctor(@Param("doctorSystemId") String doctorSystemId);
+
+    /**
+     * Distinct doctors with a non-cancelled appointment with the patient.
+     */
+    @Query("SELECT DISTINCT a.doctorSystemId FROM Appointment a WHERE a.patientSystemId = :patientSystemId AND a.status <> 'CANCELLED'")
+    List<String> findAppointmentDoctorSystemIdsForPatient(@Param("patientSystemId") String patientSystemId);
+
+    /**
+     * Distinct doctors with a consultation with the patient.
+     */
+    @Query("SELECT DISTINCT c.doctorSystemId FROM Consultation c WHERE c.patientSystemId = :patientSystemId")
+    List<String> findConsultationDoctorSystemIdsForPatient(@Param("patientSystemId") String patientSystemId);
 }

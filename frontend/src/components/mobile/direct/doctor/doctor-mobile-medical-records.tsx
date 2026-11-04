@@ -29,7 +29,7 @@ type TypeFilter   = 'ALL' | RecordType;
 
 function typeConfig(t: RecordType): { label: string; color: string; bg: string; icon: IoniconsName } {
   switch (t) {
-    case 'CONSULT':      return { label: 'Consult',      color: BLUE,      bg: '#EEF2FF', icon: 'stethoscope'          as any };
+    case 'CONSULT':      return { label: 'Consult',      color: BLUE,      bg: '#EEF2FF', icon: 'medical-outline' };
     case 'LAB':          return { label: 'Lab',          color: TEAL,      bg: '#CCFBF1', icon: 'flask-outline'             };
     case 'PRESCRIPTION': return { label: 'Prescription', color: GREEN,     bg: '#D1FAE5', icon: 'medkit-outline'            };
     case 'REFERRAL':     return { label: 'Referral',     color: DARK_BLUE, bg: '#DBEAFE', icon: 'git-compare-outline'       };

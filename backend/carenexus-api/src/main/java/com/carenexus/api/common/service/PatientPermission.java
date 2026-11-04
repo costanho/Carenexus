@@ -2,6 +2,7 @@ package com.carenexus.api.common.service;
 
 import com.carenexus.api.core.model.DependentAccess;
 
+import java.time.Instant;
 import java.util.function.Function;
 
 /**
@@ -11,8 +12,13 @@ import java.util.function.Function;
  * Each permission maps to the dependent_access flag a CAREGIVER needs. Patients (self), related doctors
  * and admins are not restricted by these flags.
  *
- * Caregiver rule: access_level FULL_ACCESS grants everything; otherwise the mapped flag must be TRUE, and for
- * write permissions ({@link #isWrite()}) access_level must also not be VIEW_ONLY.
+ * Caregiver rule for data permissions: access_level FULL_ACCESS grants everything; otherwise the mapped flag must
+ * be TRUE, and for write permissions ({@link #isWrite()}) access_level must also not be VIEW_ONLY.
+ *
+ * Caregiver rule for communication permissions ({@link #isCommunication()}: MESSAGING, JOIN_CALLS and the
+ * deprecated MESSAGE_CARE_TEAM): the flag is only a request. It takes effect only with the patient's approval
+ * stamp (approved_at set AND approved_by_system_id = the patient). The access level is ignored: FULL_ACCESS does
+ * not grant them and VIEW_ONLY does not block them.
  */
 public enum PatientPermission {
 
@@ -34,17 +40,39 @@ public enum PatientPermission {
     MANAGE_APPOINTMENTS("APPOINTMENT", true, DependentAccess::getCanScheduleAppointments),
     /** Change care plans / clinical data on the patient's behalf. */
     MANAGE_CARE_PLAN("CARE_PLAN", true, DependentAccess::getCanManageCarePlan),
-    /** Message the patient's care team. */
-    MESSAGE_CARE_TEAM("MESSAGE", false, DependentAccess::getCanMessageCareTeam);
+
+    /**
+     * Deprecated alias of {@link #MESSAGING} (same rule: can_message_care_team + patient approval).
+     * @deprecated use {@link #MESSAGING}
+     */
+    @Deprecated
+    MESSAGE_CARE_TEAM("MESSAGE", false, DependentAccess::getCanMessageCareTeam,
+            DependentAccess::getMessagingApprovedAt, DependentAccess::getMessagingApprovedBySystemId),
+
+    /** Send/read saved messages about the patient. Caregiver: can_message_care_team + patient approval. */
+    MESSAGING("MESSAGE", false, DependentAccess::getCanMessageCareTeam,
+            DependentAccess::getMessagingApprovedAt, DependentAccess::getMessagingApprovedBySystemId),
+    /** Request to join / join the patient's video calls. Caregiver: can_join_calls + patient approval. */
+    JOIN_CALLS("CALL", false, DependentAccess::getCanJoinCalls,
+            DependentAccess::getCallsApprovedAt, DependentAccess::getCallsApprovedBySystemId);
 
     private final String resourceType;
     private final boolean write;
     private final Function<DependentAccess, Boolean> flag;
+    private final Function<DependentAccess, Instant> approvedAt;
+    private final Function<DependentAccess, String> approvedBy;
 
     PatientPermission(String resourceType, boolean write, Function<DependentAccess, Boolean> flag) {
+        this(resourceType, write, flag, null, null);
+    }
+
+    PatientPermission(String resourceType, boolean write, Function<DependentAccess, Boolean> flag,
+                      Function<DependentAccess, Instant> approvedAt, Function<DependentAccess, String> approvedBy) {
         this.resourceType = resourceType;
         this.write = write;
         this.flag = flag;
+        this.approvedAt = approvedAt;
+        this.approvedBy = approvedBy;
     }
 
     /** Default resource type used in audit rows for this permission. */
@@ -57,6 +85,16 @@ public enum PatientPermission {
         return write;
     }
 
+    /** True for MESSAGING, JOIN_CALLS and MESSAGE_CARE_TEAM: they need the patient's approval stamp. */
+    public boolean isCommunication() {
+        return approvedAt != null;
+    }
+
+    /** Whether the caregiver asked for (or holds) the flag, ignoring approval. */
+    public boolean isRequestedBy(DependentAccess access) {
+        return access != null && Boolean.TRUE.equals(flag.apply(access));
+    }
+
     /**
      * Whether this dependent_access row grants the permission. Does NOT check is_active / revoked_at /
      * expires_at; callers pass rows from the expiry-aware repository queries.
@@ -64,6 +102,12 @@ public enum PatientPermission {
     public boolean isGrantedBy(DependentAccess access) {
         if (access == null) {
             return false;
+        }
+        if (isCommunication()) {
+            return Boolean.TRUE.equals(flag.apply(access))
+                    && approvedAt.apply(access) != null
+                    && access.getPatientSystemId() != null
+                    && access.getPatientSystemId().equals(approvedBy.apply(access));
         }
         if ("FULL_ACCESS".equals(access.getAccessLevel())) {
             return true;

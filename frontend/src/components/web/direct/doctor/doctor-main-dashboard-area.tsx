@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
+import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
 import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
 
@@ -101,18 +102,13 @@ function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: bo
       <View style={[styles.badge, { backgroundColor: badge.bg }]}>
         <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
       </View>
-      {canJoinCall(entry) && (
-        <TouchableOpacity
-          style={[styles.actionBtn, styles.actionBtnJoin]}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(entry)}
-          accessibilityRole="link"
-          accessibilityLabel={`Join video call with ${entry.patient_name}`}
-        >
-          <Ionicons name="videocam-outline" size={14} color={BLUE} style={{ marginRight: 4 }} />
-          <Text style={[styles.actionBtnText, { color: BLUE }]}>Join Call</Text>
-        </TouchableOpacity>
-      )}
+      <CallJoinButton
+        info={doctorCallJoin(entry)}
+        withName={entry.patient_name}
+        style={[styles.actionBtn, styles.actionBtnJoin, { gap: 4 }]}
+        textStyle={[styles.actionBtnText, { color: BLUE }]}
+        iconColor={BLUE}
+      />
     </View>
   );
 }

@@ -47,4 +47,11 @@ public interface DependentAccessRepository extends JpaRepository<DependentAccess
      * Use it to re-activate a revoked grant instead of inserting a duplicate.
      */
     Optional<DependentAccess> findByCaregiverSystemIdAndPatientSystemId(String caregiverSystemId, String patientSystemId);
+
+    /**
+     * Every grant of a patient that has not been revoked (active and expired), newest first.
+     * Used by the patient's "My caregivers" screen (GET /api/patients/me/caregiver-access).
+     */
+    @Query("SELECT d FROM DependentAccess d WHERE d.patientSystemId = :patientSystemId AND d.revokedAt IS NULL ORDER BY d.authorizedDate DESC, d.accessId DESC")
+    List<DependentAccess> findUnrevokedForPatient(@Param("patientSystemId") String patientSystemId);
 }

@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ACTION_LABELS, availableActions, canJoinCall, openVideoLink, useDoctorAppointmentActions,
+  ACTION_LABELS, availableActions, useDoctorAppointmentActions,
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
@@ -210,17 +210,8 @@ function AppCard({ entry, s, busy, onAction }: {
           <Ionicons name={cc.icon} size={s(11)} color={cc.color} />
           <Text style={[styles.chipText, { fontSize: s(10), color: cc.color, marginLeft: s(3) }]}>{cc.label}</Text>
         </View>
-        {canJoinCall(entry) && (
-          <TouchableOpacity
-            style={[styles.videoBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]}
-            activeOpacity={0.8}
-            onPress={() => openVideoLink(entry)}
-            accessibilityRole="link"
-            accessibilityLabel={`Join video call with ${entry.patient_name}`}
-          >
-            <Ionicons name="videocam-outline" size={s(12)} color={BLUE} />
-            <Text style={[styles.videoBtnText, { fontSize: s(11) }]}>Join Call</Text>
-          </TouchableOpacity>
+        {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+          <Text style={{ fontSize: s(10), color: GRAY, flexShrink: 1 }}>Join video consultations from the CareNexus web app.</Text>
         )}
         <TouchableOpacity
           style={[styles.detailsToggle, { gap: s(3) }]}
@@ -245,7 +236,7 @@ function AppCard({ entry, s, busy, onAction }: {
             ['Consultation', cc.label],
             ['Reason',       entry.reason_for_visit ?? '—'],
             ['Notes',        entry.notes ?? '—'],
-            ...(entry.type === 'VIDEO' ? [['Video link', entry.video_consultation_link ?? 'Not provided']] : []),
+            ...(entry.type === 'VIDEO' ? [['Video call', 'Available in the CareNexus web app']] : []),
           ] as [string, string][]).map(([label, value]) => (
             <View key={label} style={[styles.detailLine, { gap: s(10) }]}>
               <Text style={[styles.detailLabel, { fontSize: s(11), width: s(90) }]}>{label}</Text>

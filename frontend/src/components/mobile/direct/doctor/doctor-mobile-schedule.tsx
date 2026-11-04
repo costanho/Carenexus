@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const NAVY   = '#0D1B2E';
@@ -167,17 +166,8 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
         <Text style={[styles.consultText, { fontSize: s(11), color: entry.consultation ? BLUE : GRAY }]}>
           {entry.consultation ? `Consultation: ${consultLabel(entry.consultation)}` : 'No consultation'}
         </Text>
-        {canJoinCall(entry) && (
-          <TouchableOpacity
-            style={[styles.joinBtn, { gap: s(4), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5) }]}
-            activeOpacity={0.8}
-            onPress={() => openVideoLink(entry)}
-            accessibilityRole="link"
-            accessibilityLabel={`Join video call with ${entry.patient_name}`}
-          >
-            <Ionicons name="videocam-outline" size={s(12)} color={BLUE} />
-            <Text style={[styles.consultText, { fontSize: s(11), color: BLUE }]}>Join Call</Text>
-          </TouchableOpacity>
+        {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+          <Text style={{ fontSize: s(10), color: GRAY, marginLeft: 'auto', flexShrink: 1, textAlign: 'right' }}>Join video consultations from the CareNexus web app.</Text>
         )}
       </View>
     </View>

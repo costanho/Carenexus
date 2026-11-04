@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import {
   useCaregiverActivity,
   useCaregiverDependents,
@@ -8,7 +8,8 @@ import {
   type CaregiverConsultation,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
-import { showMessage } from '@/lib/ui/dialogs';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { describeCallJoin } from '@/lib/calls/join';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
@@ -66,19 +67,9 @@ function Card({ title, action, onAction, children, style }: {
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-async function openVideoLink(url: string) {
-  try {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) throw new Error('unsupported');
-    await Linking.openURL(url);
-  } catch {
-    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
-  }
-}
-
-function ScheduleRow({ appt, person }: { appt: CaregiverAppointment; person: string }) {
+function ScheduleRow({ appt, person, canJoinCalls }: { appt: CaregiverAppointment; person: string; canJoinCalls: boolean }) {
   const time    = new Date(appt.scheduledAt).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
-  const isVideo = appt.type === 'VIDEO' && !!appt.videoConsultationLink;
+  const join    = canJoinCalls ? describeCallJoin(appt, false) : null;
   return (
     <View style={styles.scheduleRow}>
       <View style={[styles.scheduleAvatar, { backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }]}>
@@ -91,17 +82,14 @@ function ScheduleRow({ appt, person }: { appt: CaregiverAppointment; person: str
         <Text style={styles.scheduleTitle}>{appt.reasonForVisit ?? 'Appointment'}</Text>
         <Text style={styles.schedulePerson}>{person}</Text>
       </View>
-      {isVideo && (
-        <TouchableOpacity
-          style={styles.videoBtn}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(appt.videoConsultationLink!)}
-          accessibilityRole="link"
-          accessibilityLabel={`Open video link for ${person}'s appointment`}
-        >
-          <Ionicons name="videocam-outline" size={18} color={GREEN} importantForAccessibility="no" />
-        </TouchableOpacity>
-      )}
+      <CallJoinButton
+        info={join}
+        withName={person}
+        style={styles.videoBtn}
+        textStyle={styles.videoBtnText}
+        iconSize={16}
+        iconColor={GREEN}
+      />
     </View>
   );
 }
@@ -350,7 +338,11 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
             todays.map((a, i) => (
               <View key={a.appointmentId}>
                 {i > 0 && <View style={styles.sep} />}
-                <ScheduleRow appt={a} person={nameFor(a.patientSystemId, a.patientName)} />
+                <ScheduleRow
+                  appt={a}
+                  person={nameFor(a.patientSystemId, a.patientName)}
+                  canJoinCalls={dependents.some(d => d.patientSystemId === a.patientSystemId && d.joinCallsAllowed)}
+                />
               </View>
             ))
           )}
@@ -506,10 +498,11 @@ const styles = StyleSheet.create({
   scheduleTitle:  { fontSize: 13, fontWeight: '700', color: TEXT },
   schedulePerson: { fontSize: 12, color: GRAY, marginTop: 1 },
   videoBtn: {
-    width: 36, height: 36, borderRadius: 8, borderWidth: 1,
+    flexDirection: 'row', gap: 4, minHeight: 36, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10,
     borderColor: GREEN + '50', backgroundColor: GREEN + '15',
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+  videoBtnText: { fontSize: 12, fontWeight: '600', color: GREEN },
 
   // Updates & Meds
   updateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

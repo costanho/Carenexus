@@ -2,6 +2,7 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.calls.service.CallInfoService;
 import com.carenexus.api.common.exception.AuthorizationException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.core.dto.response.AppointmentResponse;
@@ -30,6 +31,7 @@ public class DoctorPatientService {
     private final DoctorRepository doctorRepository;
     private final UserRepository userRepository;
     private final AppointmentService appointmentService;
+    private final CallInfoService callInfoService;
 
     public List<DoctorPatientResponse> getDoctorPatients(String doctorSystemId) {
         Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
@@ -164,10 +166,14 @@ public class DoctorPatientService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        List<AppointmentResponse> recentAppointments = patientAppointments.stream()
+        List<Appointment> recent = patientAppointments.stream()
                 .sorted(Comparator.comparing(Appointment::getScheduledAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(5)
-                .map(this::mapAppointmentToResponse)
+                .collect(Collectors.toList());
+        Map<Integer, CallInfoService.CallInfo> calls = callInfoService.describeAppointments(recent);
+        List<AppointmentResponse> recentAppointments = recent.stream()
+                .map(a -> mapAppointmentToResponse(a,
+                        calls.getOrDefault(a.getAppointmentId(), CallInfoService.CallInfo.NONE)))
                 .collect(Collectors.toList());
 
         return DoctorPatientResponse.builder()
@@ -195,7 +201,7 @@ public class DoctorPatientService {
                 .build();
     }
 
-    private AppointmentResponse mapAppointmentToResponse(Appointment appointment) {
+    private AppointmentResponse mapAppointmentToResponse(Appointment appointment, CallInfoService.CallInfo call) {
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
                 .patientSystemId(appointment.getPatientSystemId())
@@ -206,11 +212,16 @@ public class DoctorPatientService {
                 .type(appointment.getType())
                 .status(appointment.getStatus())
                 .reasonForVisit(appointment.getReasonForVisit())
-                .videoConsultationLink(appointment.getVideoConsultationLink())
+                // Legacy meeting links are never returned; calls use callJoinRoute.
+                .videoConsultationLink(null)
                 .reminderSent(appointment.getReminderSent())
                 .notes(appointment.getNotes())
                 .createdAt(appointment.getCreatedAt())
                 .updatedAt(appointment.getUpdatedAt())
+                .callStatus(call.callStatus())
+                .callJoinRoute(call.callJoinRoute())
+                .joinWindowOpensAt(call.joinWindowOpensAt())
+                .joinWindowClosesAt(call.joinWindowClosesAt())
                 .build();
     }
 }

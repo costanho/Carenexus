@@ -17,7 +17,7 @@ import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
 import { showMessage } from '@/lib/ui/dialogs';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E'; // 4.5:1 or better on white and on the patient tint (WCAG AA)
 const PURPLE = '#7C3AED';
 const INDIGO = '#4F46E5';
 const NAVY   = '#0D1B2E';
@@ -26,7 +26,7 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -78,6 +78,7 @@ export default function LoginWeb() {
   });
 
   async function onSubmit(data: LoginFormData) {
+    if (loading) return; // Enter in the password box and the button share this handler
     setAuthError('');
     setLoading(true);
     try {
@@ -137,7 +138,10 @@ export default function LoginWeb() {
                 activeOpacity={0.8}
                 accessibilityRole="radio"
                 accessibilityLabel={r.label}
-                accessibilityState={{ selected: on }}
+                accessibilityState={{ checked: on }}
+                // react-native-web ignores accessibilityState; without aria-checked a screen reader
+                // cannot tell which role is selected.
+                aria-checked={on}
               >
                 <Ionicons name={r.icon} size={22} color={on ? r.color : GRAY} />
                 <Text style={[styles.roleLabel, on && { color: r.color, fontWeight: '700' }]}>{r.label}</Text>
@@ -205,6 +209,7 @@ export default function LoginWeb() {
                   onChangeText={onChange}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
+                  onSubmitEditing={handleSubmit(onSubmit)}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPass(v => !v)}
@@ -382,7 +387,7 @@ const styles = StyleSheet.create({
   panelLogoRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   panelLogoText: { fontSize: 24, fontWeight: '800', color: WHITE },
   panelTitle:    { fontSize: 34, fontWeight: '800', color: WHITE, lineHeight: 42 },
-  panelSub:      { fontSize: 15, color: 'rgba(255,255,255,0.8)', lineHeight: 24 },
+  panelSub:      { fontSize: 15, color: 'rgba(255,255,255,0.92)', lineHeight: 24 },
 
   featureList:   { gap: 14, marginTop: 8 },
   featureRow:    { flexDirection: 'row', alignItems: 'center', gap: 12 },

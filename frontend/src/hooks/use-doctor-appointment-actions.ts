@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Linking } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
+import { describeCallJoin, type CallJoinInfo } from '@/lib/calls/join';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import type { ScheduleEntry } from './use-doctor-schedule';
 
@@ -25,19 +25,16 @@ export function availableActions(entry: ScheduleEntry, now = new Date()): Doctor
   return started ? ['complete', 'no-show', 'cancel'] : ['cancel'];
 }
 
-/** True when the appointment has a video link the doctor can open. */
-export function canJoinCall(entry: ScheduleEntry): boolean {
-  return entry.type === 'VIDEO' && !!entry.video_consultation_link;
-}
-
-export async function openVideoLink(entry: ScheduleEntry): Promise<void> {
-  const link = entry.video_consultation_link;
-  if (!link) return;
-  try {
-    await Linking.openURL(link);
-  } catch {
-    showMessage('Unable to open link', `The video consultation link could not be opened:\n${link}`);
-  }
+/** The doctor's Join control for a schedule entry (internal call route), or null for none. */
+export function doctorCallJoin(entry: ScheduleEntry, now = Date.now()): CallJoinInfo | null {
+  return describeCallJoin({
+    type:               entry.type,
+    status:             entry.status,
+    callStatus:         entry.call_status,
+    callJoinRoute:      entry.call_join_route,
+    joinWindowOpensAt:  entry.join_window_opens_at,
+    joinWindowClosesAt: entry.join_window_closes_at,
+  }, true, now);
 }
 
 /**

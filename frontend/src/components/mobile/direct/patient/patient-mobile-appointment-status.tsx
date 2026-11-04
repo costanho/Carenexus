@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  Image, Linking, KeyboardAvoidingView, Platform, ScrollView,
+  Image, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -237,17 +237,11 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
                 <Text style={[styles.notesText, { fontSize: s(12) }]}>{appt.notes}</Text>
               </View>
             )}
-            {appt.video_consultation_link && (
-              <TouchableOpacity
-                style={[styles.videoBtn, { borderRadius: s(10), padding: s(10), gap: s(8) }]}
-                onPress={() => Linking.openURL(appt.video_consultation_link!)}
-                activeOpacity={0.8}
-                accessibilityRole="link"
-              >
+            {appt.type === 'VIDEO' && (appt.status === 'SCHEDULED' || appt.status === 'RESCHEDULED') && (
+              <View style={[styles.videoBtn, { borderRadius: s(10), padding: s(10), gap: s(8) }]}>
                 <Ionicons name="videocam-outline" size={s(15)} color={INDIGO} />
-                <Text style={[styles.videoBtnText, { fontSize: s(12), flex: 1 }]}>Join Video Consultation</Text>
-                <Ionicons name="open-outline" size={s(13)} color={INDIGO} />
-              </TouchableOpacity>
+                <Text style={[styles.videoBtnText, { fontSize: s(12), flex: 1 }]}>Join video consultations from the CareNexus web app.</Text>
+              </View>
             )}
           </View>
         )}

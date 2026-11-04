@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
-  apiErrorMessage, cancelAppointment, isFutureSlot, isUpcomingAppointment,
+  apiErrorMessage, appointmentCallJoin, cancelAppointment, isFutureSlot, isUpcomingAppointment,
   rescheduleAppointment, useAppointments, type Appointment,
 } from '@/hooks/use-appointments';
 import { useEffect, useState } from 'react';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { CalendarPicker, TimePicker } from './patient-web-appointment';
 
 const TEAL   = '#0D9488';
@@ -243,7 +244,17 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
         </View>
       )}
 
-      {/* Expanded: notes + video link */}
+      {/* Video call */}
+      <CallJoinButton
+        info={appointmentCallJoin(appt)}
+        withName={appt.doctor_name}
+        style={styles.videoBtn}
+        textStyle={styles.videoBtnText}
+        iconSize={15}
+        iconColor={INDIGO}
+      />
+
+      {/* Expanded: notes */}
       {expanded && (
         <View style={styles.expandedSection}>
           {appt.notes && (
@@ -251,18 +262,6 @@ function AppointmentCard({ appt, onRefetch }: { appt: Appointment; onRefetch: ()
               <Text style={styles.notesLabel}>Notes</Text>
               <Text style={styles.notesText}>{appt.notes}</Text>
             </View>
-          )}
-          {appt.video_consultation_link && (
-            <TouchableOpacity
-              style={styles.videoBtn}
-              onPress={() => Linking.openURL(appt.video_consultation_link!)}
-              activeOpacity={0.8}
-              accessibilityRole="link"
-            >
-              <Ionicons name="videocam-outline" size={15} color={INDIGO} />
-              <Text style={styles.videoBtnText}>Join Video Consultation</Text>
-              <Ionicons name="open-outline" size={13} color={INDIGO} />
-            </TouchableOpacity>
           )}
         </View>
       )}

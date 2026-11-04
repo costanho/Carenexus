@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
+import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { callStatusLabel } from '@/lib/calls/join';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const WHITE  = '#FFFFFF';
@@ -156,18 +158,14 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
             </View>
           )}
 
-          {canJoinCall(entry) && (
-            <TouchableOpacity
-              style={styles.metaPill}
-              activeOpacity={0.8}
-              onPress={() => openVideoLink(entry)}
-              accessibilityRole="link"
-              accessibilityLabel={`Join video call with ${entry.patient_name}`}
-            >
-              <Ionicons name="videocam-outline" size={12} color={BLUE} />
-              <Text style={[styles.metaText, { color: BLUE }]}>Join Call</Text>
-            </TouchableOpacity>
-          )}
+          <CallJoinButton
+            info={doctorCallJoin(entry)}
+            withName={entry.patient_name}
+            style={styles.metaPill}
+            textStyle={[styles.metaText, { color: BLUE }]}
+            iconColor={BLUE}
+            iconSize={12}
+          />
 
           <TouchableOpacity
             style={styles.viewBtn}
@@ -189,7 +187,7 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
               ['Appointment', `#${entry.appointment_id}`],
               ['Reason',      entry.reason_for_visit ?? '—'],
               ['Notes',       entry.notes ?? '—'],
-              ...(entry.type === 'VIDEO' ? [['Video link', entry.video_consultation_link ?? 'Not provided']] : []),
+              ...(entry.type === 'VIDEO' ? [['Video call', callStatusLabel(entry.call_status)]] : []),
             ] as [string, string][]).map(([label, value]) => (
               <View key={label} style={styles.detailLine}>
                 <Text style={styles.detailLabel}>{label}</Text>

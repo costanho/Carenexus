@@ -80,3 +80,6 @@ build/
 example
 *.md
 erd-output/
+# Communications contract, release notes and runbooks are tracked (overrides *.md above)
+!docs/communications/
+!docs/communications/**

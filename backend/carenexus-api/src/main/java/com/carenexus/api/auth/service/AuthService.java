@@ -9,6 +9,7 @@ import com.carenexus.api.auth.model.RefreshToken;
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.RefreshTokenRepository;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.common.event.UserLoggedOutEvent;
 import com.carenexus.api.core.model.Caregiver;
 import com.carenexus.api.core.model.DependentAccess;
 import com.carenexus.api.core.model.Doctor;
@@ -20,6 +21,7 @@ import com.carenexus.api.core.repository.PatientRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -69,6 +71,7 @@ public class AuthService {
     private final DependentAccessRepository dependentAccessRepository;
     private final SystemIdGenerator systemIdGenerator;
     private final LoginAttemptThrottle loginAttemptThrottle;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** Valid hash of a random value, compared against for unknown emails so timing does not reveal registered emails. */
     private String dummyPasswordHash;
@@ -434,7 +437,8 @@ public class AuthService {
 
     /**
      * Logout one session: revoke the presented refresh token. Unknown or already revoked tokens are ignored
-     * so logout is always safe to call.
+     * so logout is always safe to call. When a token row is found, publishes {@link UserLoggedOutEvent}
+     * (ends the user's open call participation).
      */
     public void logoutRefreshToken(String rawRefreshToken, String ipAddress) {
         if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
@@ -445,15 +449,17 @@ public class AuthService {
                 .ifPresent(token -> {
                     revoke(token);
                     auditService.logLogout(token.getSystemId(), ipAddress);
+                    eventPublisher.publishEvent(new UserLoggedOutEvent(token.getSystemId()));
                 });
     }
 
     /**
-     * Logout everywhere - revoke every active refresh token of the user
+     * Logout everywhere - revoke every active refresh token of the user. Publishes {@link UserLoggedOutEvent}.
      */
     public void logout(String systemId, String ipAddress) {
         revokeAllForUser(systemId);
         auditService.logLogout(systemId, ipAddress);
+        eventPublisher.publishEvent(new UserLoggedOutEvent(systemId));
     }
 
     private void revokeAllForUser(String systemId) {

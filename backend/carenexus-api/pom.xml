@@ -28,6 +28,9 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
+		<!-- livekit-server 0.16.0 needs okhttp 5 and Kotlin 2.3; Spring Boot 3.3.3 manages older versions. -->
+		<okhttp.version>5.3.2</okhttp.version>
+		<kotlin.version>2.3.0</kotlin.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -85,6 +88,13 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+
+		<!-- LiveKit server SDK: room management, access tokens, webhook verification (video calls) -->
+		<dependency>
+			<groupId>io.livekit</groupId>
+			<artifactId>livekit-server</artifactId>
+			<version>0.16.0</version>
 		</dependency>
 
 		<dependency>

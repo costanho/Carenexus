@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
+import { describeCallJoin, type CallJoinInfo } from '@/lib/calls/join';
+import type { CallSessionStatus } from '@/lib/calls/types';
 import { useCurrentUser } from './use-current-user';
 
 export interface Appointment {
@@ -12,7 +14,12 @@ export interface Appointment {
   type:                    'IN_PERSON' | 'VIDEO' | 'PHONE';
   status:                  'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED';
   reason_for_visit:        string | null;
+  /** Legacy field, always null from the API. Calls use call_join_route. */
   video_consultation_link: string | null;
+  call_status:             CallSessionStatus | null;
+  call_join_route:         string | null;
+  join_window_opens_at:    string | null;
+  join_window_closes_at:   string | null;
   reminder_sent:           number;
   notes:                   string | null;
   created_at:              string;
@@ -56,6 +63,18 @@ export function isUpcomingAppointment(a: Appointment): boolean {
   if (a.status !== 'SCHEDULED' && a.status !== 'RESCHEDULED') return false;
   const t = new Date(a.scheduled_at).getTime();
   return !Number.isNaN(t) && t > Date.now();
+}
+
+/** The patient's Join control for an appointment (internal call route), or null for none. */
+export function appointmentCallJoin(a: Appointment, now = Date.now()): CallJoinInfo | null {
+  return describeCallJoin({
+    type:               a.type,
+    status:             a.status,
+    callStatus:         a.call_status,
+    callJoinRoute:      a.call_join_route,
+    joinWindowOpensAt:  a.join_window_opens_at,
+    joinWindowClosesAt: a.join_window_closes_at,
+  }, false, now);
 }
 
 /** Soft-cancels an appointment (backend sets status CANCELLED). Throws the axios error on failure. */
@@ -111,7 +130,11 @@ export function useAppointments(): State {
             type:                    (a.type                  ?? 'IN_PERSON') as Appointment['type'],
             status:                  (a.status                ?? 'SCHEDULED') as Appointment['status'],
             reason_for_visit:        a.reasonForVisit         ?? null,
-            video_consultation_link: a.videoConsultationLink  ?? null,
+            video_consultation_link: null,
+            call_status:             a.callStatus             ?? null,
+            call_join_route:         a.callJoinRoute          ?? null,
+            join_window_opens_at:    a.joinWindowOpensAt      ? String(a.joinWindowOpensAt)  : null,
+            join_window_closes_at:   a.joinWindowClosesAt     ? String(a.joinWindowClosesAt) : null,
             reminder_sent:           a.reminderSent           ? 1 : 0,
             notes:                   a.notes                  ?? null,
             created_at:              a.createdAt              ? String(a.createdAt) : '',

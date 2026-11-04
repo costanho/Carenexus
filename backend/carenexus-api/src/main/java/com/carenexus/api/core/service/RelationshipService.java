@@ -1,10 +1,14 @@
 package com.carenexus.api.core.service;
 
+import com.carenexus.api.auth.model.User;
+import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
 import com.carenexus.api.core.model.CareTeam;
 import com.carenexus.api.core.model.DependentAccess;
 import com.carenexus.api.core.repository.CareTeamRepository;
 import com.carenexus.api.core.repository.DependentAccessRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -31,6 +35,8 @@ public class RelationshipService {
 
     private final CareTeamRepository careTeamRepository;
     private final DependentAccessRepository dependentAccessRepository;
+    private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     // ==================== DOCTOR-PATIENT RELATIONSHIPS ====================
 
@@ -68,6 +74,33 @@ public class RelationshipService {
                 .map(CareTeam::getProviderSystemId)
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Doctors (active users, role DOCTOR) related to the patient: active care_team doctor roles, any non-cancelled
+     * appointment, or any consultation. De-duplicated, stable order (care_team first, then appointments, then
+     * consultations, each in query order).
+     */
+    public List<String> getRelatedDoctorsForPatient(String patientSystemId) {
+        if (patientSystemId == null) {
+            return List.of();
+        }
+        Set<String> doctors = new LinkedHashSet<>();
+        careTeamRepository.findAllDoctorsForPatient(patientSystemId)
+                .forEach(team -> doctors.add(team.getProviderSystemId()));
+        doctors.addAll(careTeamRepository.findAppointmentDoctorSystemIdsForPatient(patientSystemId));
+        doctors.addAll(careTeamRepository.findConsultationDoctorSystemIdsForPatient(patientSystemId));
+        doctors.remove(null);
+        // UserRepository has no batch lookup by system id; the list is small (doctors of one patient)
+        return doctors.stream()
+                .filter(id -> userRepository.findBySystemId(id)
+                        .map(RelationshipService::isActiveDoctor)
+                        .orElse(false))
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isActiveDoctor(User user) {
+        return Boolean.TRUE.equals(user.getIsActive()) && "DOCTOR".equalsIgnoreCase(user.getRole());
     }
 
     // ==================== CAREGIVER-PATIENT RELATIONSHIPS ====================
@@ -172,14 +205,22 @@ public class RelationshipService {
     }
 
     /**
-     * Revoke caregiver access to dependent
+     * Revoke caregiver access to dependent. Clears the communication approvals and publishes
+     * {@link CaregiverAccessChangedEvent} so conversations and calls drop the caregiver.
+     * (Patient-facing revocation goes through CaregiverService, which also audits.)
      */
     public void revokeCaregiverAccessToDependent(String caregiverSystemId, String dependentSystemId) {
         dependentAccessRepository.findActiveCaregiverAccessToDependents(caregiverSystemId, dependentSystemId)
                 .ifPresent(access -> {
                     access.setIsActive(false);
                     access.setRevokedAt(LocalDateTime.now());
+                    access.setMessagingApprovedAt(null);
+                    access.setMessagingApprovedBySystemId(null);
+                    access.setCallsApprovedAt(null);
+                    access.setCallsApprovedBySystemId(null);
                     dependentAccessRepository.save(access);
+                    eventPublisher.publishEvent(new CaregiverAccessChangedEvent(access.getAccessId(),
+                            access.getPatientSystemId(), access.getCaregiverSystemId(), true, false, false));
                 });
     }
 }

@@ -2,6 +2,8 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.calls.event.AppointmentCallRelevantChangeEvent;
+import com.carenexus.api.calls.service.CallInfoService;
 import com.carenexus.api.common.exception.AuthorizationException;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
@@ -18,6 +20,7 @@ import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.repository.PatientRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +36,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +49,11 @@ import java.util.stream.Collectors;
  *
  * All times are local wall-clock times of the clinic time zone (carenexus.scheduling.time-zone,
  * default Africa/Harare), which is what the clients send ("YYYY-MM-DDTHH:mm:00", no offset).
+ *
+ * Video calls: VIDEO appointments get a managed call session (package com.carenexus.api.calls). Changes that affect
+ * the call publish {@link AppointmentCallRelevantChangeEvent}; the session is synced in the same transaction.
+ * The legacy video_consultation_link column is never written and never returned (videoConsultationLink is always
+ * null); the request field is ignored. Call status is separate from the appointment status.
  */
 @Service
 @RequiredArgsConstructor
@@ -69,7 +76,6 @@ public class AppointmentService {
     private static final int MAX_DURATION_MINUTES = 240;
     private static final int SLOT_GRANULARITY_MINUTES = 5;
     private static final int MAX_TEXT_LENGTH = 2000;
-    private static final int MAX_LINK_LENGTH = 500;
     private static final String SLOT_INDEX_NAME = "ux_appointments_doctor_active_slot";
     private static final String PATIENT_SLOT_INDEX_NAME = "ux_appointments_patient_active_slot";
     private static final String RESOURCE_TYPE = "APPOINTMENT";
@@ -80,9 +86,8 @@ public class AppointmentService {
     private final UserRepository userRepository;
     private final AuthorizationService authorizationService;
     private final AuditService auditService;
-
-    @Value("${carenexus.video.base-url:https://meet.jit.si}")
-    private String videoBaseUrl;
+    private final CallInfoService callInfoService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${carenexus.scheduling.time-zone:Africa/Harare}")
     private String schedulingTimeZone;
@@ -177,14 +182,19 @@ public class AppointmentService {
                 .type(type)
                 .status(SCHEDULED)
                 .reasonForVisit(limitText(request.getReasonForVisit(), "Reason for visit"))
-                .videoConsultationLink("VIDEO".equals(type) ? resolveVideoLink(request.getVideoConsultationLink(), null, role) : null)
+                // Legacy column: never written. Calls are managed per appointment (call_sessions).
+                .videoConsultationLink(null)
                 .reminderSent(false)
                 .notes(limitText(request.getNotes(), "Notes"))
                 .build();
 
         Appointment savedAppointment = saveSlot(appointment);
         auditService.logClinicalAccess("CREATE", RESOURCE_TYPE, savedAppointment.getAppointmentId(), patientSystemId);
-        return mapToResponse(savedAppointment);
+        AppointmentCallRelevantChangeEvent.Kind callChange = "VIDEO".equals(type)
+                ? AppointmentCallRelevantChangeEvent.Kind.CREATED_VIDEO
+                : null;
+        publishCallChange(savedAppointment, callChange);
+        return mapToResponse(savedAppointment, callChange);
     }
 
     // ==================== READS ====================
@@ -220,34 +230,27 @@ public class AppointmentService {
 
     /** Internal (no access check): used by services that already authorized the caller. */
     public List<AppointmentResponse> getAppointmentsByPatientSystemId(String patientSystemId) {
-        return appointmentRepository.findByPatientSystemId(patientSystemId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return mapAll(appointmentRepository.findByPatientSystemId(patientSystemId));
     }
 
     /** Internal (no access check): used by services that already authorized the caller. */
     public List<AppointmentResponse> getAppointmentsForPatients(List<String> patientSystemIds) {
         if (patientSystemIds == null || patientSystemIds.isEmpty()) return List.of();
-        return appointmentRepository.findByPatientSystemIdIn(patientSystemIds).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return mapAll(appointmentRepository.findByPatientSystemIdIn(patientSystemIds));
     }
 
     /** Internal (no access check): callers must have checked that the caller is this doctor or an admin. */
     public List<AppointmentResponse> getAppointmentsByDoctorSystemId(String doctorSystemId) {
-        return appointmentRepository.findByDoctorSystemId(doctorSystemId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return mapAll(appointmentRepository.findByDoctorSystemId(doctorSystemId));
     }
 
     /** Internal (no access check): active appointments of the patient that have not started yet, soonest first. */
     public List<AppointmentResponse> getUpcomingAppointments(String patientSystemId) {
         LocalDateTime now = now();
-        return appointmentRepository.findByPatientSystemIdAndStatusIn(patientSystemId, ACTIVE_STATUSES).stream()
+        return mapAll(appointmentRepository.findByPatientSystemIdAndStatusIn(patientSystemId, ACTIVE_STATUSES).stream()
                 .filter(a -> a.getScheduledAt().isAfter(now))
                 .sorted(Comparator.comparing(Appointment::getScheduledAt))
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /** Internal (no access check): callers must have checked that the caller is this doctor or an admin. */
@@ -255,10 +258,9 @@ public class AppointmentService {
         if (start == null || end == null || end.isBefore(start)) {
             throw new RuntimeException("Invalid date range");
         }
-        return appointmentRepository.findByDoctorSystemIdAndScheduledAtBetween(doctorSystemId, start, end).stream()
+        return mapAll(appointmentRepository.findByDoctorSystemIdAndScheduledAtBetween(doctorSystemId, start, end).stream()
                 .sorted(Comparator.comparing(Appointment::getScheduledAt))
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -306,9 +308,7 @@ public class AppointmentService {
     public List<AppointmentResponse> getAppointmentsByStatus(String status) {
         authorizationService.requireAdmin();
         String normalized = normalizeStatus(status);
-        return appointmentRepository.findByStatus(normalized).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return mapAll(appointmentRepository.findByStatus(normalized));
     }
 
     public List<AppointmentResponse> getUpcomingForUser(String userSystemId, String userRole) {
@@ -317,12 +317,11 @@ public class AppointmentService {
         if (AuthorizationService.PATIENT.equals(role)) {
             return getUpcomingAppointments(userSystemId);
         } else if (AuthorizationService.DOCTOR.equals(role)) {
-            return appointmentRepository.findByDoctorSystemIdAndStatusIn(userSystemId, ACTIVE_STATUSES)
+            return mapAll(appointmentRepository.findByDoctorSystemIdAndStatusIn(userSystemId, ACTIVE_STATUSES)
                     .stream()
                     .filter(a -> a.getScheduledAt().isAfter(now))
                     .sorted(Comparator.comparing(Appointment::getScheduledAt))
-                    .map(this::mapToResponse)
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()));
         }
         throw unsupportedRole();
     }
@@ -401,7 +400,8 @@ public class AppointmentService {
     }
 
     /**
-     * Edit an active (SCHEDULED/RESCHEDULED) appointment: time, duration, type, reason, notes, video link.
+     * Edit an active (SCHEDULED/RESCHEDULED) appointment: time, duration, type, reason, notes. A legacy
+     * videoConsultationLink in the request is ignored.
      * The patient and doctor of an appointment cannot be changed. Moving it to a new start time sets the status
      * to RESCHEDULED and runs the same checks as booking (future time, clinic hours, doctor free, patient free).
      */
@@ -446,18 +446,12 @@ public class AppointmentService {
             }
         }
 
+        boolean typeChanged = false;
         if (request.getType() != null) {
             String newType = normalizeType(request.getType(), null);
-            if ("VIDEO".equals(newType)) {
-                appointment.setVideoConsultationLink(resolveVideoLink(request.getVideoConsultationLink(),
-                        "VIDEO".equals(appointment.getType()) ? appointment.getVideoConsultationLink() : null, role));
-            } else {
-                appointment.setVideoConsultationLink(null);
-            }
+            String oldType = appointment.getType();
+            typeChanged = !newType.equals(oldType) && ("VIDEO".equals(newType) || "VIDEO".equals(oldType));
             appointment.setType(newType);
-        } else if (request.getVideoConsultationLink() != null && "VIDEO".equals(appointment.getType())) {
-            appointment.setVideoConsultationLink(resolveVideoLink(request.getVideoConsultationLink(),
-                    appointment.getVideoConsultationLink(), role));
         }
 
         if (request.getReasonForVisit() != null) {
@@ -470,7 +464,13 @@ public class AppointmentService {
 
         Appointment updatedAppointment = slotChanged ? saveSlot(appointment) : appointmentRepository.save(appointment);
         auditService.logClinicalAccess("UPDATE", RESOURCE_TYPE, appointmentId, appointment.getPatientSystemId());
-        return mapToResponse(updatedAppointment);
+        // Type change wins over a time change (the call session is rebuilt from the current time either way).
+        AppointmentCallRelevantChangeEvent.Kind callChange = typeChanged
+                ? AppointmentCallRelevantChangeEvent.Kind.TYPE_CHANGED
+                : startChanged ? AppointmentCallRelevantChangeEvent.Kind.RESCHEDULED
+                : slotChanged ? AppointmentCallRelevantChangeEvent.Kind.DURATION_CHANGED : null;
+        publishCallChange(updatedAppointment, callChange);
+        return mapToResponse(updatedAppointment, callChange);
     }
 
     /**
@@ -496,7 +496,8 @@ public class AppointmentService {
         appointment.setStatus(CANCELLED);
         Appointment saved = appointmentRepository.save(appointment);
         auditService.logClinicalAccess("UPDATE", RESOURCE_TYPE, appointment.getAppointmentId(), appointment.getPatientSystemId());
-        return mapToResponse(saved);
+        publishCallChange(saved, AppointmentCallRelevantChangeEvent.Kind.CANCELLED);
+        return mapToResponse(saved, AppointmentCallRelevantChangeEvent.Kind.CANCELLED);
     }
 
     /** Caller may read this appointment: its doctor, or anyone with appointment read access to the patient. */
@@ -685,36 +686,6 @@ public class AppointmentService {
         }
     }
 
-    /**
-     * Video link for a VIDEO appointment. Doctors and admins may supply their own https link; any link sent by a
-     * patient or caregiver is ignored so a patient cannot make the doctor's "Join" button open an arbitrary URL.
-     * Otherwise the existing link is kept, or a new unguessable room is generated.
-     */
-    private String resolveVideoLink(String requestedLink, String existingLink, String role) {
-        String link = trimToNull(requestedLink);
-        boolean mayProvide = AuthorizationService.DOCTOR.equals(role) || AuthorizationService.ADMIN.equals(role);
-        if (link != null && mayProvide) {
-            if (!link.toLowerCase(Locale.ROOT).startsWith("https://") || link.length() > MAX_LINK_LENGTH) {
-                throw new RuntimeException("Video consultation link must be an https:// URL of at most "
-                        + MAX_LINK_LENGTH + " characters");
-            }
-            return link;
-        }
-        if (existingLink != null && !existingLink.isBlank()) {
-            return existingLink;
-        }
-        return generateVideoLink();
-    }
-
-    /** Single place to swap the video provider later (Daily, Twilio, Zoom, ...). */
-    private String generateVideoLink() {
-        String base = videoBaseUrl == null || videoBaseUrl.isBlank() ? "https://meet.jit.si" : videoBaseUrl.trim();
-        while (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        return base + "/carenexus-" + UUID.randomUUID().toString().replace("-", "");
-    }
-
     private String normalizeType(String type, String defaultType) {
         String value = trimToNull(type);
         if (value == null) {
@@ -766,10 +737,9 @@ public class AppointmentService {
         } else {
             throw unsupportedRole();
         }
-        return appointments.stream()
+        return mapAll(appointments.stream()
                 .sorted(Comparator.comparing(Appointment::getScheduledAt).reversed())
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     private static AuthorizationException unsupportedRole() {
@@ -800,7 +770,31 @@ public class AppointmentService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    /** Call sessions are synced BEFORE_COMMIT of this transaction (calls.listener.AppointmentCallListener). */
+    private void publishCallChange(Appointment appointment, AppointmentCallRelevantChangeEvent.Kind kind) {
+        if (kind != null) {
+            eventPublisher.publishEvent(new AppointmentCallRelevantChangeEvent(appointment.getAppointmentId(), kind));
+        }
+    }
+
+    /** Maps a list with one batch lookup of the call fields (no N+1). */
+    private List<AppointmentResponse> mapAll(List<Appointment> appointments) {
+        Map<Integer, CallInfoService.CallInfo> calls = callInfoService.describeAppointments(appointments);
+        return appointments.stream()
+                .map(a -> mapToResponse(a, calls.getOrDefault(a.getAppointmentId(), CallInfoService.CallInfo.NONE)))
+                .collect(Collectors.toList());
+    }
+
     private AppointmentResponse mapToResponse(Appointment appointment) {
+        return mapToResponse(appointment, callInfoService.describeOne(appointment));
+    }
+
+    /** Response right after a change: call fields as they are once the session sync commits. */
+    private AppointmentResponse mapToResponse(Appointment appointment, AppointmentCallRelevantChangeEvent.Kind callChange) {
+        return mapToResponse(appointment, callInfoService.describeAfterChange(appointment, callChange));
+    }
+
+    private AppointmentResponse mapToResponse(Appointment appointment, CallInfoService.CallInfo call) {
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
                 .patientSystemId(appointment.getPatientSystemId())
@@ -811,11 +805,16 @@ public class AppointmentService {
                 .type(appointment.getType())
                 .status(appointment.getStatus())
                 .reasonForVisit(appointment.getReasonForVisit())
-                .videoConsultationLink(appointment.getVideoConsultationLink())
+                // Legacy meeting links are never returned.
+                .videoConsultationLink(null)
                 .reminderSent(appointment.getReminderSent())
                 .notes(appointment.getNotes())
                 .createdAt(appointment.getCreatedAt())
                 .updatedAt(appointment.getUpdatedAt())
+                .callStatus(call.callStatus())
+                .callJoinRoute(call.callJoinRoute())
+                .joinWindowOpensAt(call.joinWindowOpensAt())
+                .joinWindowClosesAt(call.joinWindowClosesAt())
                 .build();
     }
 }

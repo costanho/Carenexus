@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
+import type { CallSessionStatus } from '@/lib/calls/types';
 
 // Shape returned by GET /api/doctors/schedule (camelCase from Spring)
 export interface ApiScheduleEntry {
@@ -16,7 +17,12 @@ export interface ApiScheduleEntry {
   appointmentType?:       string;
   appointmentStatus?:     string;
   reasonForVisit?:        string | null;
+  /** Legacy field, always null. */
   videoConsultationLink?: string | null;
+  callStatus?:            CallSessionStatus | null;
+  callJoinRoute?:         string | null;
+  joinWindowOpensAt?:     string | null;
+  joinWindowClosesAt?:    string | null;
   reminderSent?:          boolean;
   notes?:                 string | null;
   consultationId?:        number;
@@ -48,7 +54,12 @@ export interface ScheduleEntry {
   patient_name:            string;
   patient_system_id:       string;
   reason_for_visit:        string | null;
+  /** Legacy field, always null. Calls use call_join_route. */
   video_consultation_link: string | null;
+  call_status:             CallSessionStatus | null;
+  call_join_route:         string | null;
+  join_window_opens_at:    string | null;
+  join_window_closes_at:   string | null;
   notes:                   string | null;
   facility_name:           string | null;
   created_at:              string;
@@ -67,7 +78,11 @@ function toScheduleEntry(e: ApiScheduleEntry, consultation: ScheduleConsultation
     patient_name:            e.patientName,
     patient_system_id:       e.patientSystemId,
     reason_for_visit:        e.reasonForVisit ?? null,
-    video_consultation_link: e.videoConsultationLink ?? null,
+    video_consultation_link: null,
+    call_status:             e.callStatus ?? null,
+    call_join_route:         e.callJoinRoute ?? null,
+    join_window_opens_at:    e.joinWindowOpensAt ?? null,
+    join_window_closes_at:   e.joinWindowClosesAt ?? null,
     notes:                   e.notes ?? null,
     facility_name:           null,
     created_at:              e.createdAt,

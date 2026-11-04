@@ -2,19 +2,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { NotificationBell } from '../../notifications/notification-bell';
 
 const BG       = '#FFFFFF';
 const BORDER   = '#E5E7EB';
 const TEXT     = '#111827';
 const GRAY     = '#6B7280';
-const RED      = '#EF4444';
+const RED      = '#B91C1C';
 
 export interface DoctorTopNavbarProps {
   onMenuPress?:    () => void;
   onProfilePress?: () => void;
+  /** Open the messages section on a thread (from a notification). */
+  onOpenThread?:   (threadId: number) => void;
 }
 
-export function DoctorTopNavbar({ onMenuPress, onProfilePress }: DoctorTopNavbarProps) {
+export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: DoctorTopNavbarProps) {
   const { user } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
   const fullName  = user ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Doctor';
@@ -40,6 +43,13 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress }: DoctorTopNavbar
 
       {/* Right: profile + logout */}
       <View style={styles.right}>
+        {onOpenThread && (
+          <>
+            <NotificationBell theme={{ accent: '#4F46E5', accentBg: '#EEF2FF' }} onOpenThread={onOpenThread} />
+            <View style={styles.divider} />
+          </>
+        )}
+
         {/* Profile */}
         <TouchableOpacity
           style={styles.profile}
@@ -47,14 +57,14 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress }: DoctorTopNavbar
           onPress={onProfilePress}
           disabled={!onProfilePress}
           accessibilityRole="button"
-          accessibilityLabel={`${fullName}, open profile`}
+          // Named by its visible text (name and role, WCAG 2.5.3); the initials are decorative.
         >
           {avatarUri
             ? <Image source={{ uri: avatarUri }} style={styles.avatar} />
-            : <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.avatarInitials}>{initials}</Text></View>
+            : <View style={[styles.avatar, styles.avatarFallback]} importantForAccessibility="no-hide-descendants"><Text style={styles.avatarInitials}>{initials}</Text></View>
           }
           <View>
-            <Text style={styles.doctorName}>{fullName}</Text>
+            <Text style={styles.doctorName}>{fullName}{' '}</Text>
             <Text style={styles.doctorRole}>Doctor</Text>
           </View>
           {!!onProfilePress && <Ionicons name="chevron-forward" size={16} color={GRAY} />}
@@ -71,6 +81,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress }: DoctorTopNavbar
           accessibilityRole="button"
           accessibilityLabel="Sign out"
           accessibilityState={{ disabled: loading, busy: loading }}
+          aria-busy={loading}
         >
           <Ionicons
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
@@ -86,6 +97,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress }: DoctorTopNavbar
 
 const styles = StyleSheet.create({
   navbar: {
+    zIndex: 20,
     height: 88,
     backgroundColor: BG,
     borderBottomWidth: 1,
@@ -128,7 +140,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   avatarFallback: {
-    backgroundColor: '#0D9488',
+    backgroundColor: '#0F766E',
     alignItems: 'center',
     justifyContent: 'center',
   },

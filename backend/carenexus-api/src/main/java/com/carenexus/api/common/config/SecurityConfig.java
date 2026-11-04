@@ -106,6 +106,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints — no token needed
                 .requestMatchers(publicPaths.toArray(String[]::new)).permitAll()
+                // LiveKit webhook: no user token; the webhook controller verifies the provider signature.
+                // Must stay before the /api/integrations/** denyAll below.
+                .requestMatchers(HttpMethod.POST, "/api/integrations/livekit/webhook").permitAll()
                 // Role gates (first match wins; controllers still do their own self/ownership checks)
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 // Doctor directory used by patients and caregivers for booking: any signed-in user
@@ -119,6 +122,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/doctors/**").hasAnyRole("DOCTOR", "ADMIN")
                 .requestMatchers("/api/caregiver/**").hasRole("CAREGIVER")
                 .requestMatchers("/api/patients/me/caregivers", "/api/patients/me/caregivers/**").hasAnyRole("PATIENT", "ADMIN")
+                .requestMatchers("/api/patients/me/caregiver-access", "/api/patients/me/caregiver-access/**").hasAnyRole("PATIENT", "ADMIN")
+                // Messaging and notifications: services check membership / relationship / consent on every request
+                .requestMatchers("/api/communications/**", "/api/notifications/**").authenticated()
+                // Any other integration endpoint is closed
+                .requestMatchers("/api/integrations/**").denyAll()
                 // Everything else requires authentication
                 .anyRequest().authenticated()
             )

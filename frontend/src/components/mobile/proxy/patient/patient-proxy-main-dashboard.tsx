@@ -1,13 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
   useCaregiverActivity,
   useCaregiverDependents,
   type CaregiverAppointment,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
-import { showMessage } from '@/lib/ui/dialogs';
 import { EmptyState, ErrorState } from '@/components/web/proxy/patient/proxy-states';
 
 const WHITE  = '#FFFFFF';
@@ -103,21 +102,11 @@ function Card({ title, s, children }: {
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-async function openVideoLink(url: string) {
-  try {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) throw new Error('unsupported');
-    await Linking.openURL(url);
-  } catch {
-    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
-  }
-}
-
 function ScheduleRow({ appt, person, s }: { appt: CaregiverAppointment; person: string; s: (n: number) => number }) {
   const date    = new Date(appt.scheduledAt);
   const time    = date.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
   const day     = date.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' });
-  const isVideo = appt.type === 'VIDEO' && !!appt.videoConsultationLink;
+  const isVideo = appt.type === 'VIDEO' && (appt.status === 'SCHEDULED' || appt.status === 'RESCHEDULED');
   return (
     <View style={[styles.scheduleRow, { gap: s(8) }]}>
       <View style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }}>
@@ -132,15 +121,7 @@ function ScheduleRow({ appt, person, s }: { appt: CaregiverAppointment; person: 
         <Text style={[{ fontSize: s(11), fontWeight: '700', color: TEXT }]}>{time}</Text>
       </View>
       {isVideo && (
-        <TouchableOpacity
-          style={[styles.videoBtn, { width: s(32), height: s(32), borderRadius: s(8) }]}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(appt.videoConsultationLink!)}
-          accessibilityRole="link"
-          accessibilityLabel={`Open video link for ${person}'s appointment`}
-        >
-          <Ionicons name="videocam-outline" size={s(15)} color={GREEN} importantForAccessibility="no" />
-        </TouchableOpacity>
+        <Text style={{ fontSize: s(10), color: GRAY, maxWidth: s(110) }} numberOfLines={3}>Join video consultations from the CareNexus web app.</Text>
       )}
     </View>
   );

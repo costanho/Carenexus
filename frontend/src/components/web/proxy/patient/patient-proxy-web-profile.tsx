@@ -91,11 +91,66 @@ function accessLabel(level: string) {
   if (level === 'CUSTOM')      return 'Custom';
   return level;
 }
+// Messaging and video calls are NOT part of an access level: only the patient can turn them on (see CommStatusRow).
 function permissionsForLevel(level: AccessLevel) {
-  if (level === 'FULL_ACCESS') return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:true };
-  if (level === 'VIEW_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:false,canMessageCareTeam:false,canViewConsultations:true,canScheduleAppointments:false,canManageCarePlan:false };
-  if (level === 'EDIT_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:false };
+  if (level === 'FULL_ACCESS') return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:true };
+  if (level === 'VIEW_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:false,canViewConsultations:true,canScheduleAppointments:false,canManageCarePlan:false };
+  if (level === 'EDIT_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:false };
   return {};
+}
+
+type CommState = 'ALLOWED' | 'WAITING' | 'NOT_ALLOWED';
+
+/** Messaging / joining calls for the caregiver: effective now, requested but not approved yet, or off. */
+function commState(requested: boolean, allowed: boolean): CommState {
+  if (allowed) return 'ALLOWED';
+  if (requested) return 'WAITING';
+  return 'NOT_ALLOWED';
+}
+
+function commLabel(state: CommState, patientFirstName: string) {
+  if (state === 'ALLOWED') return 'Allowed';
+  if (state === 'WAITING') return `Waiting for ${patientFirstName} to approve`;
+  return 'Not allowed';
+}
+
+function CommStatusRow({ icon, label, state, patientFirstName }: {
+  icon: IoniconsName; label: string; state: CommState; patientFirstName: string;
+}) {
+  const color = state === 'ALLOWED' ? GREEN : state === 'WAITING' ? ORANGE : GRAY;
+  const bg    = state === 'ALLOWED' ? '#D1FAE5' : state === 'WAITING' ? '#FEF3C7' : '#F3F4F6';
+  return (
+    <View style={styles.commRow} accessible accessibilityLabel={`${label}: ${commLabel(state, patientFirstName)}`}>
+      <Ionicons name={icon} size={16} color={GRAY} importantForAccessibility="no" />
+      <Text style={styles.commRowLabel}>{label}</Text>
+      <View style={[styles.badge, { backgroundColor: bg }]}>
+        <Text style={[styles.badgeText, { color }]}>{commLabel(state, patientFirstName)}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Off-only switch: the caregiver can turn a communication permission off, never on. */
+function ECommSwitch({ label, value, canTurnOn, onChange }: {
+  label: string; value: boolean; canTurnOn: boolean; onChange: (v: boolean) => void;
+}) {
+  const disabled = !value && !canTurnOn;
+  return (
+    <TouchableOpacity
+      style={[styles.permRow, disabled && { opacity: 0.5 }]}
+      onPress={() => { if (!disabled) onChange(!value); }}
+      disabled={disabled}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value, disabled }}
+    >
+      <Text style={styles.permLabel}>{label}</Text>
+      <View style={[styles.toggle, value && styles.toggleOn]}>
+        <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
+      </View>
+    </TouchableOpacity>
+  );
 }
 
 // ─── Small edit components ────────────────────────────────────────────────────
@@ -260,9 +315,11 @@ export default function PatientProxyWebProfile({
   const [aExpires,  setAExpires]  = useState('');
   const [aPerms, setAPerms] = useState({
     canViewRecords:true, canViewAppointments:true, canViewMedications:true,
-    canViewLabResults:true, canViewImaging:true, canMessageCareTeam:true,
+    canViewLabResults:true, canViewImaging:true,
     canViewConsultations:true, canScheduleAppointments:true, canManageCarePlan:true,
   });
+  // Communication requests: can only be turned off here
+  const [aComm, setAComm] = useState({ canMessageCareTeam: false, canJoinCalls: false });
 
   useEffect(() => {
     setDependent(initialDependent);
@@ -295,12 +352,22 @@ export default function PatientProxyWebProfile({
       canViewMedications:      dependent.canViewMedications,
       canViewLabResults:       dependent.canViewLabResults,
       canViewImaging:          dependent.canViewImaging,
-      canMessageCareTeam:      dependent.canMessageCareTeam,
       canViewConsultations:    dependent.canViewConsultations,
       canScheduleAppointments: dependent.canScheduleAppointments,
       canManageCarePlan:       dependent.canManageCarePlan,
     });
+    setAComm({
+      canMessageCareTeam: !!dependent.canMessageCareTeam,
+      canJoinCalls:       !!dependent.canJoinCalls,
+    });
   }, [dependent.patientSystemId]);
+
+  function startEditingAccess() {
+    setSaveError('');
+    // Always start from the saved values so an off-only switch never re-sends a stale "on"
+    setAComm({ canMessageCareTeam: !!dependent.canMessageCareTeam, canJoinCalls: !!dependent.canJoinCalls });
+    setEditingAccess(true);
+  }
 
   function changeAccessLevel(level: AccessLevel) {
     setALevel(level);
@@ -343,7 +410,9 @@ export default function PatientProxyWebProfile({
         canViewMedications:       aPerms.canViewMedications,
         canViewLabResults:        aPerms.canViewLabResults,
         canViewImaging:           aPerms.canViewImaging,
-        canMessageCareTeam:       aPerms.canMessageCareTeam,
+        // Only ever narrowed here: a value can be true only if it already was
+        canMessageCareTeam:       aComm.canMessageCareTeam && !!dependent.canMessageCareTeam,
+        canJoinCalls:             aComm.canJoinCalls && !!dependent.canJoinCalls,
         canViewConsultations:     aPerms.canViewConsultations,
         canScheduleAppointments:  aPerms.canScheduleAppointments,
         canManageCarePlan:        aPerms.canManageCarePlan,
@@ -369,6 +438,9 @@ export default function PatientProxyWebProfile({
   const dc  = dotColor(status);
   const lc  = accessColors(dependent.accessLevel);
   const currentALevel = aLevel;
+  const patientFirstName = (patient?.firstName ?? dependent.patientName?.split(' ')[0] ?? '').trim() || 'the patient';
+  const messagingState = commState(!!dependent.canMessageCareTeam, !!dependent.messagingAllowed);
+  const callsState     = commState(!!dependent.canJoinCalls, !!dependent.joinCallsAllowed);
   const currentLc     = accessColors(currentALevel);
 
   const PERMS: { key: keyof typeof aPerms; icon: IoniconsName; label: string }[] = [
@@ -377,7 +449,6 @@ export default function PatientProxyWebProfile({
     { key: 'canViewMedications',      icon: 'medical-outline',       label: 'Medications'       },
     { key: 'canViewLabResults',       icon: 'flask-outline',         label: 'Lab Results'       },
     { key: 'canViewImaging',          icon: 'scan-outline',          label: 'Imaging'           },
-    { key: 'canMessageCareTeam',      icon: 'chatbox-outline',       label: 'Message Team'      },
     { key: 'canViewConsultations',    icon: 'people-outline',        label: 'Consultations'     },
     { key: 'canScheduleAppointments', icon: 'add-circle-outline',    label: 'Schedule'          },
     { key: 'canManageCarePlan',       icon: 'clipboard-outline',     label: 'Manage Care Plan'  },
@@ -585,7 +656,7 @@ export default function PatientProxyWebProfile({
         title="Your Access"
         editAction={
           !editingAccess
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingAccess(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit your access">
+            ? <TouchableOpacity style={styles.editBtn} onPress={startEditingAccess} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit your access">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -600,7 +671,7 @@ export default function PatientProxyWebProfile({
                 {([
                   { value:'FULL_ACCESS', label:'Full Access',  sub:'All permissions enabled',         color:GREEN  },
                   { value:'VIEW_ONLY',   label:'View Only',    sub:'Read records, no actions',        color:PURPLE },
-                  { value:'EDIT_ONLY',   label:'Edit Only',    sub:'View + message + schedule',       color:ORANGE },
+                  { value:'EDIT_ONLY',   label:'Edit Only',    sub:'View + schedule',                 color:ORANGE },
                   { value:'CUSTOM',      label:'Custom',        sub:'Set individual permissions below',color:GRAY  },
                 ] as {value:AccessLevel;label:string;sub:string;color:string}[]).map(opt => (
                   <TouchableOpacity
@@ -634,6 +705,25 @@ export default function PatientProxyWebProfile({
                 ))}
               </View>
             )}
+
+            <View style={styles.permBox}>
+              <Text style={styles.permBoxTitle}>Messaging and video calls</Text>
+              <ECommSwitch
+                label="Message the care team"
+                value={aComm.canMessageCareTeam}
+                canTurnOn={false}
+                onChange={v => setAComm(prev => ({ ...prev, canMessageCareTeam: v }))}
+              />
+              <ECommSwitch
+                label="Join video calls"
+                value={aComm.canJoinCalls}
+                canTurnOn={false}
+                onChange={v => setAComm(prev => ({ ...prev, canJoinCalls: v }))}
+              />
+              <Text style={styles.hint}>
+                You can turn these off. Only {patientFirstName} can allow messaging or video calls.
+              </Text>
+            </View>
 
             <View>
               <ELabel text="Access Expiry Date (optional)" />
@@ -670,6 +760,10 @@ export default function PatientProxyWebProfile({
             <View style={styles.permGrid}>
               {PERMS.map(p => <PermTile key={p.key} icon={p.icon} label={p.label} granted={!!dependent[p.key as keyof CaregiverDependent]} />)}
             </View>
+            <View style={[styles.sep, { marginVertical: 4 }]} />
+            <Text style={styles.subLabel}>Messaging and video calls</Text>
+            <CommStatusRow icon="chatbox-outline" label="Message the care team" state={messagingState} patientFirstName={patientFirstName} />
+            <CommStatusRow icon="videocam-outline" label="Join video calls" state={callsState} patientFirstName={patientFirstName} />
           </View>
         )}
       </SectionCard>
@@ -799,6 +893,9 @@ const styles = StyleSheet.create({
   accessRadioDot:  { width:8, height:8, borderRadius:4 },
   accessCardLabel: { fontSize:13, fontWeight:'700', color:TEXT, marginBottom:2 },
   accessCardSub:   { fontSize:11, color:GRAY },
+
+  commRow:      { flexDirection:'row', alignItems:'center', gap:8, flexWrap:'wrap', paddingVertical:4 },
+  commRowLabel: { flex:1, minWidth:140, fontSize:13, color:TEXT, fontWeight:'500' },
 
   permBox:      { backgroundColor:BG, borderRadius:12, borderWidth:1, borderColor:BORDER, padding:16 },
   permBoxTitle: { fontSize:13, fontWeight:'700', color:TEXT, marginBottom:10 },

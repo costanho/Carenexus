@@ -3,6 +3,7 @@ package com.carenexus.api.core.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -71,6 +72,25 @@ public class DependentAccess {
     @Column(name = "can_manage_care_plan", nullable = false)
     @Builder.Default
     private Boolean canManageCarePlan = false;
+
+    /** Requested permission to join video calls; effective only with the patient's approval (calls_approved_*). */
+    @Column(name = "can_join_calls", nullable = false)
+    @Builder.Default
+    private Boolean canJoinCalls = false;
+
+    /** Patient approval of can_message_care_team (approved_by must be the patient, see V15 CHECKs). */
+    @Column(name = "messaging_approved_at", columnDefinition = "timestamptz")
+    private Instant messagingApprovedAt;
+
+    @Column(name = "messaging_approved_by_system_id", length = 20)
+    private String messagingApprovedBySystemId;
+
+    /** Patient approval of can_join_calls (approved_by must be the patient, see V15 CHECKs). */
+    @Column(name = "calls_approved_at", columnDefinition = "timestamptz")
+    private Instant callsApprovedAt;
+
+    @Column(name = "calls_approved_by_system_id", length = 20)
+    private String callsApprovedBySystemId;
 
     @Column(name = "authorized_date", nullable = false)
     private LocalDateTime authorizedDate;

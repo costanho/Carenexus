@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useCaregiverActivity, type CaregiverAppointment } from '@/hooks/use-caregiver-dependents';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCaregiverActivity, useCaregiverDependents, type CaregiverAppointment } from '@/hooks/use-caregiver-dependents';
 import { useDoctors } from '@/hooks/use-doctors';
-import { showMessage } from '@/lib/ui/dialogs';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { describeCallJoin } from '@/lib/calls/join';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
@@ -32,17 +33,7 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
 }
 
-async function openVideoLink(url: string) {
-  try {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) throw new Error('unsupported');
-    await Linking.openURL(url);
-  } catch {
-    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
-  }
-}
-
-function ApptCard({ appt, doctorName }: { appt: Appointment; doctorName: string | null }) {
+function ApptCard({ appt, doctorName, canJoinCalls }: { appt: Appointment; doctorName: string | null; canJoinCalls: boolean }) {
   const { bg, text } = statusColor(appt.status);
   const isVideo    = appt.type === 'VIDEO';
   const isUpcoming = appt.status === 'SCHEDULED';
@@ -90,18 +81,15 @@ function ApptCard({ appt, doctorName }: { appt: Appointment; doctorName: string 
         </View>
       )}
 
-      {isUpcoming && isVideo && appt.videoConsultationLink && (
-        <TouchableOpacity
+      {canJoinCalls && (
+        <CallJoinButton
+          info={describeCallJoin(appt, false)}
+          withName={appt.patientName}
           style={styles.joinBtn}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(appt.videoConsultationLink!)}
-          accessibilityRole="link"
-          accessibilityLabel="Open video call link"
-          accessibilityHint="Opens the video link provided by the clinic"
-        >
-          <Ionicons name="videocam-outline" size={15} color={WHITE} importantForAccessibility="no" />
-          <Text style={styles.joinBtnText}>Open Video Link</Text>
-        </TouchableOpacity>
+          textStyle={styles.joinBtnText}
+          iconSize={15}
+          iconColor={WHITE}
+        />
       )}
     </View>
   );
@@ -112,6 +100,11 @@ type Filter = 'all' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 export default function PatientProxyAppointments() {
   const { appointments: raw, loading, error, refetch } = useCaregiverActivity();
   const { doctors } = useDoctors();
+  const { dependents } = useCaregiverDependents();
+  const callAllowed = useMemo(
+    () => new Set(dependents.filter(d => d.joinCallsAllowed).map(d => d.patientSystemId)),
+    [dependents],
+  );
   const [filter,  setFilter] = useState<Filter>('all');
 
   const appointments = useMemo(
@@ -188,6 +181,7 @@ export default function PatientProxyAppointments() {
                 key={a.appointmentId}
                 appt={a}
                 doctorName={a.doctorSystemId ? doctorNames.get(a.doctorSystemId) ?? null : null}
+                canJoinCalls={!!a.patientSystemId && callAllowed.has(a.patientSystemId)}
               />
             ))
           )}

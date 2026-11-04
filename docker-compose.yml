@@ -1,4 +1,4 @@
-# Local development stack: Postgres + API (Spring profile 'docker', which also loads the demo seed data).
+# Local development stack: Postgres + LiveKit (dev mode) + API (Spring profile 'docker', which also loads the demo seed data).
 # Not a production deployment. Before the first `docker compose up`:
 #   cp .env.example .env
 # (.env is git-ignored). Real environments must generate their own secrets.
@@ -20,6 +20,32 @@ services:
       retries: 10
       interval: 5s
 
+  livekit:
+    image: livekit/livekit-server:v1.13.9
+    container_name: carenexus-livekit
+    # DEV ONLY: --dev uses the public dev key pair devkey/secret.
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1"]
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+        room:
+          auto_create: true
+        webhook:
+          api_key: devkey
+          urls:
+            - http://carenexus-api:9000/api/integrations/livekit/webhook
+            - http://host.docker.internal:9000/api/integrations/livekit/webhook
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   carenexus-api:
     build:
       context: ./backend/carenexus-api
@@ -34,12 +60,18 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is not set - copy .env.example to .env}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-900000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081,http://localhost:19006}
-      VIDEO_BASE_URL: ${VIDEO_BASE_URL:-https://meet.jit.si}
+      # LiveKit dev defaults come from the 'docker' profile; override only when needed.
+      LIVEKIT_URL: ${LIVEKIT_URL:-http://livekit:7880}
+      LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
     ports:
       - "9000:9000"
     depends_on:
       postgres-db:
         condition: service_healthy
+      livekit:
+        condition: service_started
     healthcheck:
       # The alpine runtime image has busybox wget, not curl
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9000/actuator/health"]

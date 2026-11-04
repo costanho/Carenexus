@@ -4,6 +4,17 @@ import { useCurrentUser } from './use-current-user';
 
 export type AccessLevel  = 'FULL_ACCESS' | 'VIEW_ONLY' | 'EDIT_ONLY' | 'CUSTOM';
 export type HealthStatus = 'STABLE' | 'MONITOR' | 'CRITICAL' | string;
+export type AccessStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+/** Video call session status (one session per VIDEO appointment). Defined here so the proxy hook has no call-web dependency. */
+export type CallStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'FAILED'
+  | 'LIVE'
+  | 'ENDED'
+  | 'CANCELLED'
+  | 'NEEDS_TIME_CONFIRMATION';
 
 export interface CaregiverDependent {
   accessId:                 number;
@@ -25,6 +36,14 @@ export interface CaregiverDependent {
   expiresAt:                string | null;
   isActive:                 boolean;
   revokedAt:                string | null;
+  // communication permissions: the flags are requests, effective only after the patient approves
+  canJoinCalls:        boolean;
+  messagingApprovedAt: string | null;
+  callsApprovedAt:     string | null;
+  messagingAllowed:    boolean;
+  joinCallsAllowed:    boolean;
+  pendingApproval:     boolean;
+  accessStatus:        AccessStatus;
   // server-enriched patient fields
   patientName:          string | null;
   patientEmail:         string | null;
@@ -116,8 +135,13 @@ export interface CaregiverAppointment {
   type:                  string | null;
   status:                string;
   reasonForVisit:        string | null;
+  /** Legacy field, always null. Use callJoinRoute. */
   videoConsultationLink: string | null;
   notes:                 string | null;
+  callStatus:            CallStatus | null;
+  callJoinRoute:         string | null;
+  joinWindowOpensAt:     string | null;
+  joinWindowClosesAt:    string | null;
 }
 
 export interface CaregiverConsultation {

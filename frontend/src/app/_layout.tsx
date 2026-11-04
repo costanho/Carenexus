@@ -1,4 +1,5 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
+import Head from 'expo-router/head';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { onSessionExpired } from '@/lib/auth/auth.events';
@@ -54,15 +55,24 @@ export default function RootLayout() {
     }
   }, [authed, segments]);
 
+  // Every page needs a non-empty document title (screens may set a more specific one).
+  const head = <Head><title>CareNexus</title></Head>;
+
   if (authed === null) {
     return (
       <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#0D9488" />
+        {head}
+        <ActivityIndicator size="large" color="#0D9488" accessibilityLabel="Loading" />
       </View>
     );
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <>
+      {head}
+      <Stack screenOptions={{ headerShown: false }} />
+    </>
+  );
 }
 
 const styles = StyleSheet.create({

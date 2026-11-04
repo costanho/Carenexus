@@ -81,6 +81,10 @@ public class CreateDependentRequest {
     @JsonProperty("canMessageCareTeam")
     private Boolean canMessageCareTeam;
 
+    /** Requested permission to join video calls (communication permissions need the patient's approval). */
+    @JsonProperty("canJoinCalls")
+    private Boolean canJoinCalls;
+
     @JsonProperty("canViewConsultations")
     private Boolean canViewConsultations;
 

@@ -1,9 +1,23 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { PatientSidebar as PatientLeftSidebar } from './patient/patient-left-sidebar';
 import { PatientMainDashboardArea } from './patient/patient-main-dashboard-area';
 import { PatientRightSidebar } from './patient/patient-right-sidebar';
 import { PatientTopNavbar } from './patient/patient-top-navbar';
+
+const PATIENT_THEME = { accent: '#0F766E', accentBg: '#E8F5F4' };
+
+const MessagesScreen = lazy(() =>
+  import('../messages/messages-screen').then(m => ({ default: m.MessagesScreen }))
+);
+
+const NotificationList = lazy(() =>
+  import('../notifications/notification-list').then(m => ({ default: m.NotificationList }))
+);
+
+const PatientWebCaregiverAccess = lazy(() =>
+  import('./patient/patient-web-caregiver-access')
+);
 
 const PatientWebAppointment = lazy(() =>
   import('./patient/patient-web-appointment')
@@ -41,15 +55,23 @@ export function PatientDashboardWeb() {
   const { width } = useWindowDimensions();
   const [drawerOpen, setDrawerOpen]   = useState(false);
   const [activeKey, setActiveKey]     = useState('dashboard');
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
 
   const isLarge  = width >= 1024;
   const isMedium = width >= 768 && width < 1024;
   const isSmall  = width < 768;
 
   function handleNavigate(key: string) {
-    setActiveKey(key);
+    // Video consultations are joined from the appointment list.
+    setActiveKey(key === 'join-consultation' ? 'my-appointments' : key);
     if (isSmall) setDrawerOpen(false);
   }
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
 
   const loader = <View style={styles.loader}><ActivityIndicator size="large" color="#0D9488" /></View>;
 
@@ -124,6 +146,32 @@ export function PatientDashboardWeb() {
         </>
       );
     }
+    if (activeKey === 'messages') {
+      return (
+        <Suspense fallback={loader}>
+          <MessagesScreen
+            mode="PATIENT"
+            theme={PATIENT_THEME}
+            openThreadId={openThreadId}
+            onOpenThreadHandled={clearOpenThread}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'notifications') {
+      return (
+        <Suspense fallback={loader}>
+          <NotificationList theme={PATIENT_THEME} onOpenThread={openThread} />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'my-proxies') {
+      return (
+        <Suspense fallback={loader}>
+          <PatientWebCaregiverAccess onBack={() => setActiveKey('dashboard')} />
+        </Suspense>
+      );
+    }
     if (activeKey === 'profile-settings') {
       return (
         <Suspense fallback={loader}>
@@ -170,6 +218,7 @@ export function PatientDashboardWeb() {
           showMenuButton={isSmall}
           onMenuPress={() => setDrawerOpen(true)}
           onProfilePress={() => handleNavigate('profile-settings')}
+          onOpenThread={openThread}
         />
         <View style={styles.body}>
           {renderCenter()}

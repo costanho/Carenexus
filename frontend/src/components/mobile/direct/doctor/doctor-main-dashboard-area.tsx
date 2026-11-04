@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
 import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
 import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
 
@@ -111,16 +110,8 @@ function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: bo
       <View style={[styles.badge, { backgroundColor: badge.bg, borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2) }]}>
         <Text style={[styles.badgeText, { fontSize: s(10), color: badge.color }]}>{badge.label}</Text>
       </View>
-      {canJoinCall(entry) && (
-        <TouchableOpacity
-          style={[styles.actionBtn, { borderColor: BLUE, borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(5) }]}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(entry)}
-          accessibilityRole="link"
-          accessibilityLabel={`Join video call with ${entry.patient_name}`}
-        >
-          <Ionicons name="videocam-outline" size={s(14)} color={BLUE} />
-        </TouchableOpacity>
+      {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+        <Text style={{ fontSize: s(10), color: GRAY, maxWidth: s(120) }} numberOfLines={3}>Join video consultations from the CareNexus web app.</Text>
       )}
     </View>
   );

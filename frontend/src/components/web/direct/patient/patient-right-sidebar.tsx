@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { appointmentCallJoin, isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
 
 const TEAL      = '#0D9488';
 const TEAL_BG   = '#E8F5F4';
@@ -128,16 +129,16 @@ function UpcomingAppointment({ onNavigate }: { onNavigate?: (key: string) => voi
           )}
 
           {/* Actions */}
-          {next.type === 'VIDEO' && next.video_consultation_link ? (
-            <TouchableOpacity
+          {appointmentCallJoin(next) ? (
+            <CallJoinButton
+              info={appointmentCallJoin(next)}
+              withName={next.doctor_name}
               style={[styles.joinBtn, { backgroundColor: scheme.color }]}
-              onPress={() => Linking.openURL(next.video_consultation_link!)}
-              activeOpacity={0.85}
-              accessibilityRole="link"
-            >
-              <Ionicons name="videocam" size={16} color={WHITE} />
-              <Text style={styles.joinBtnText}>Join Consultation</Text>
-            </TouchableOpacity>
+              textStyle={styles.joinBtnText}
+              icon="videocam"
+              iconSize={16}
+              iconColor={WHITE}
+            />
           ) : (
             <TouchableOpacity
               style={[styles.joinBtn, { backgroundColor: scheme.color }]}

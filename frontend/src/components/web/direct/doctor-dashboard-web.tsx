@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { DoctorLeftSidebar } from './doctor/doctor-left-sidebar';
 import { DoctorMainDashboardArea } from './doctor/doctor-main-dashboard-area';
@@ -12,10 +12,14 @@ const DoctorWebMedicalRecords  = lazy(() => import('./doctor/doctor-web-medical-
 const DoctorWebPrescription    = lazy(() => import('./doctor/doctor-web-prescription'));
 const DoctorWebLabResults      = lazy(() => import('./doctor/doctor-web-lab-results'));
 const DoctorWebProfile         = lazy(() => import('./doctor/doctor-web-profile'));
+const MessagesScreen           = lazy(() => import('../messages/messages-screen').then(m => ({ default: m.MessagesScreen })));
+const NotificationList         = lazy(() => import('../notifications/notification-list').then(m => ({ default: m.NotificationList })));
+
+const DOCTOR_THEME = { accent: '#4F46E5', accentBg: '#EEF2FF' };
 
 const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#F9FAFB' },
-  main:      { flex: 1, flexDirection: 'column' },
+  main:      { flex: 1, flexDirection: 'column', minWidth: 0 },
   loader:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
 
@@ -29,6 +33,13 @@ export function DoctorDashboardWeb() {
   const { width } = useWindowDimensions();
   const isCollapsed = width < 1024;
   const [activeKey, setActiveKey] = useState('dashboard');
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
 
   function renderContent() {
     if (activeKey === 'schedule') {
@@ -80,6 +91,25 @@ export function DoctorDashboardWeb() {
         </Suspense>
       );
     }
+    if (activeKey === 'messages') {
+      return (
+        <Suspense fallback={loader}>
+          <MessagesScreen
+            mode="DOCTOR"
+            theme={DOCTOR_THEME}
+            openThreadId={openThreadId}
+            onOpenThreadHandled={clearOpenThread}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'notifications') {
+      return (
+        <Suspense fallback={loader}>
+          <NotificationList theme={DOCTOR_THEME} onOpenThread={openThread} />
+        </Suspense>
+      );
+    }
     if (activeKey === 'profile') {
       return (
         <Suspense fallback={loader}>
@@ -98,7 +128,7 @@ export function DoctorDashboardWeb() {
         onNavigate={setActiveKey}
       />
       <View style={styles.main}>
-        <DoctorTopNavbar onProfilePress={() => setActiveKey('profile')} />
+        <DoctorTopNavbar onProfilePress={() => setActiveKey('profile')} onOpenThread={openThread} />
         {renderContent()}
       </View>
     </View>

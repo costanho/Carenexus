@@ -115,8 +115,9 @@ public class AuthorizationServiceRoleTest extends BaseIntegrationTest {
      */
     @Test
     public void testRequireAdminAccess_FacilityAdminAllowed() {
-        User facilityAdmin = createAndSaveUser(4, "FAC-00001", "facility@example.com", "FACILITY_ADMIN");
-        setSecurityContext(facilityAdmin.getUserId(), facilityAdmin.getSystemId(), "facility@example.com", "FACILITY_ADMIN");
+        // FACILITY_ADMIN is not a stored role (users_role_check allows only PATIENT/DOCTOR/CAREGIVER/ADMIN);
+        // the check only reads the authenticated role, so no users row is needed.
+        setSecurityContext(4, "FAC-00001", "facility@example.com", "FACILITY_ADMIN");
 
         assertDoesNotThrow(() -> authorizationService.requireAdminAccess());
     }

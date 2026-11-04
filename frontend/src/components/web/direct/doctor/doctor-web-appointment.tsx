@@ -5,10 +5,12 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import {
-  ACTION_LABELS, availableActions, canJoinCall, openVideoLink, useDoctorAppointmentActions,
+  ACTION_LABELS, availableActions, doctorCallJoin, useDoctorAppointmentActions,
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { callStatusLabel } from '@/lib/calls/join';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -209,19 +211,15 @@ function AppCard({ entry, busy, onAction }: {
             <Text style={[styles.consultText, { color: cc.color }]}>{cc.label}</Text>
           </View>
 
-          {/* Video link */}
-          {canJoinCall(entry) && (
-            <TouchableOpacity
-              style={styles.videoBtn}
-              activeOpacity={0.8}
-              onPress={() => openVideoLink(entry)}
-              accessibilityRole="link"
-              accessibilityLabel={`Join video call with ${entry.patient_name}`}
-            >
-              <Ionicons name="videocam-outline" size={13} color={BLUE} />
-              <Text style={styles.videoBtnText}>Join Call</Text>
-            </TouchableOpacity>
-          )}
+          {/* Video call */}
+          <CallJoinButton
+            info={doctorCallJoin(entry)}
+            withName={entry.patient_name}
+            style={styles.videoBtn}
+            textStyle={styles.videoBtnText}
+            iconColor={BLUE}
+            iconSize={13}
+          />
 
           <TouchableOpacity
             style={styles.viewBtn}
@@ -249,7 +247,7 @@ function AppCard({ entry, busy, onAction }: {
           <DetailLine label="Reason"       value={entry.reason_for_visit ?? '—'} />
           <DetailLine label="Notes"        value={entry.notes ?? '—'} />
           {entry.type === 'VIDEO' && (
-            <DetailLine label="Video link" value={entry.video_consultation_link ?? 'Not provided'} />
+            <DetailLine label="Video call" value={callStatusLabel(entry.call_status)} />
           )}
         </View>
       )}
