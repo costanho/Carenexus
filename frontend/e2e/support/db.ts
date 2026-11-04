@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 // Direct SQL against the LOCAL dev Postgres container, for test setup the API deliberately refuses
@@ -10,10 +11,16 @@ const CONTAINER = process.env.E2E_PG_CONTAINER ?? 'carenexus-postgres';
 const USER = process.env.E2E_PG_USER ?? 'carenexus';
 const DB = process.env.E2E_PG_DB ?? 'carenexus_db';
 
+// Docker Desktop on macOS puts its socket under ~/.docker; Linux (CI) uses docker's own default.
+const DESKTOP_SOCKET = `${process.env.HOME}/.docker/run/docker.sock`;
+const DOCKER_ENV = process.env.DOCKER_HOST || !existsSync(DESKTOP_SOCKET)
+  ? process.env
+  : { ...process.env, DOCKER_HOST: `unix://${DESKTOP_SOCKET}` };
+
 /** Runs one SQL statement; returns the unaligned, tuples-only output. */
 export async function sql(statement: string): Promise<string> {
   const { stdout } = await run('docker', ['exec', CONTAINER, 'psql', '-U', USER, '-d', DB, '-v', 'ON_ERROR_STOP=1', '-Atc', statement], {
-    env: { ...process.env, DOCKER_HOST: process.env.DOCKER_HOST ?? `unix://${process.env.HOME}/.docker/run/docker.sock` },
+    env: DOCKER_ENV,
   });
   return stdout.trim();
 }

@@ -62,15 +62,21 @@ export async function freeSlot(james: Api, thomas: Api): Promise<Slot> {
 }
 
 /**
- * The first quarter-hour slot at least 30 minutes from now (clinic time), as a Slot for the
- * pickers. It is earlier than any seed appointment, so it becomes the patient's next one.
+ * The first bookable quarter-hour slot at least 30 minutes from now (clinic time), as a Slot for
+ * the pickers: a weekday, and a 30-minute visit inside clinic hours (08:00-18:00). It is earlier
+ * than any seed appointment, so it becomes the patient's next one.
  */
 export function soonSlot(): Slot {
   const start = new Date(Math.ceil((Date.now() + 30 * 60_000) / 900_000) * 900_000);
   const local = harareLocal(start); // YYYY-MM-DDTHH:MM:00
-  const todayIso = futureDay(0).iso;
-  const days = local.slice(0, 10) === todayIso ? 0 : 1;
-  return { days, hour24: Number(local.slice(11, 13)), minute: Number(local.slice(14, 16)) };
+  let days = local.slice(0, 10) === futureDay(0).iso ? 0 : 1;
+  let hour24 = Number(local.slice(11, 13));
+  let minute = Number(local.slice(14, 16));
+  const opensAt = () => { hour24 = 8; minute = 0; };
+  if (hour24 < 8) opensAt();
+  else if (hour24 * 60 + minute + 30 > 18 * 60) { days += 1; opensAt(); }
+  while ([0, 6].includes(futureDay(days).date.getDay())) { days += 1; opensAt(); }
+  return { days, hour24, minute };
 }
 
 /** Thomas books an appointment with Dr. Banda through the API; returns its id. */
