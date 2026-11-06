@@ -1,17 +1,11 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
-import { Platform } from 'react-native';
-import { clearAuth, getAccessToken, getRefreshToken, saveTokens } from './auth.storage';
-import type { AuthTokens } from './auth.types';
+import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import { emitSessionExpired } from './auth.events';
+import { clearAuth, getAccessToken, getRefreshToken, saveTokens, saveUser } from './auth.storage';
+import type { AuthResponse } from './auth.types';
 
-// Web always uses localhost (browser runs on the same Mac as the server).
-// Mobile uses EXPO_PUBLIC_API_URL (set to the Mac's LAN IP in .env.development)
-// so a physical device on the same network can reach the server.
-const BASE_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:9000'
-    : (process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.0.47:9000');
-
-console.log('API_BASE_URL:', BASE_URL);
+// Set EXPO_PUBLIC_API_URL per environment (see .env.example). When testing on a
+// physical device, put your machine's LAN address in .env.development.local.
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:9000';
 
 // ── Axios instance shared across the whole app ────────────────────────────────
 export const api: AxiosInstance = axios.create({
@@ -25,80 +19,87 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = await getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    config.headers.delete('Authorization');
   }
-  console.log('API Request:', config.method?.toUpperCase(), config.url, '- hasToken:', !!token);
   return config;
 });
 
-// ── Refresh token queue (prevents concurrent refresh calls) ───────────────────
-let isRefreshing = false;
-let pendingQueue: Array<{
-  resolve: (token: string) => void;
-  reject:  (err: unknown)  => void;
-}> = [];
+// ── Single-flight refresh ─────────────────────────────────────────────────────
+// Refresh tokens are rotated by the server: each refresh returns a new refresh
+// token and invalidates the old one, so concurrent 401s must share one refresh.
+let refreshPromise: Promise<string> | null = null;
 
-function drainQueue(token: string | null, error: unknown = null) {
-  pendingQueue.forEach(p => (token ? p.resolve(token) : p.reject(error)));
-  pendingQueue = [];
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) throw new Error('No refresh token');
+
+  // Plain axios (not `api`) so this call never re-enters the interceptors.
+  const { data } = await axios.post<AuthResponse>(
+    `${BASE_URL}/api/auth/refresh`,
+    { refreshToken },
+    { timeout: 15_000, headers: { 'Content-Type': 'application/json' } },
+  );
+
+  if (!data?.tokens?.accessToken || !data.tokens.refreshToken) {
+    throw new Error('Malformed refresh response');
+  }
+  await saveTokens(data.tokens);
+  if (data.user) await saveUser(data.user);
+  return data.tokens.accessToken;
 }
+
+function sharedRefresh(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
 // ── Response interceptor: handle 401, auto-refresh ───────────────────────────
 api.interceptors.response.use(
-  response => {
-    console.log('API Response:', response.status, response.config.url);
-    console.log('Response Data:', JSON.stringify(response.data, null, 2));
-    return response;
-  },
-  async (error) => {
-    const isLogout = (error as any)?.config?.url?.includes('/api/auth/logout');
-    if ((error as any)?.response && !isLogout) {
-      console.error('API Error:', (error as any).response.status, (error as any).config?.url, (error as any).response.data);
-    }
-    const original = error.config;
+  response => response,
+  async (error: AxiosError) => {
+    const original = error.config as RetriableConfig | undefined;
 
-    // Only handle 401 that hasn't already been retried
-    if (error.response?.status !== 401 || original._retry) {
+    // Only handle a 401 on a non-auth request that hasn't already been retried.
+    if (
+      !original ||
+      error.response?.status !== 401 ||
+      original._retry ||
+      original.url?.includes('/api/auth/')
+    ) {
       return Promise.reject(error);
     }
 
-    if (isRefreshing) {
-      // Queue this request until the ongoing refresh completes
-      return new Promise((resolve, reject) => {
-        pendingQueue.push({
-          resolve: (token) => {
-            original.headers.Authorization = `Bearer ${token}`;
-            resolve(api(original));
-          },
-          reject,
-        });
-      });
-    }
+    original._retry = true;
 
-    original._retry  = true;
-    isRefreshing     = true;
-
+    let token: string;
     try {
-      const refreshToken = await getRefreshToken();
-      if (!refreshToken) throw new Error('No refresh token');
-
-      const { data } = await axios.post<AuthTokens>(
-        `${BASE_URL}/api/auth/refresh`,
-        { refreshToken },
-      );
-
-      await saveTokens(data);
-      api.defaults.headers.common.Authorization = `Bearer ${data.accessToken}`;
-      drainQueue(data.accessToken);
-
-      original.headers.Authorization = `Bearer ${data.accessToken}`;
-      return api(original);
+      // If another request already refreshed while this one was in flight,
+      // just retry with the newer token instead of rotating again.
+      const current = await getAccessToken();
+      const sent    = String(original.headers.Authorization ?? '');
+      token = current && sent !== `Bearer ${current}` ? current : await sharedRefresh();
     } catch (refreshError) {
-      drainQueue(null, refreshError);
-      await clearAuth();
-      // Signal the app to redirect to login — handled by the router guard
+      // End the session only when the server rejected the refresh token (4xx) or there
+      // was nothing usable to refresh with. Network errors / 5xx keep the user signed in.
+      const isHttpError = axios.isAxiosError(refreshError);
+      const status      = isHttpError ? refreshError.response?.status : undefined;
+      const rejected    = !isHttpError || (status !== undefined && status >= 400 && status < 500);
+      if (rejected) {
+        await clearAuth();
+        emitSessionExpired();
+        return Promise.reject(error);
+      }
       return Promise.reject(refreshError);
-    } finally {
-      isRefreshing = false;
     }
+
+    original.headers.Authorization = `Bearer ${token}`;
+    return api(original);
   },
 );

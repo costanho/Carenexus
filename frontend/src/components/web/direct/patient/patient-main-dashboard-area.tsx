@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { useAppointments } from '@/hooks/use-appointments';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { usePatientProfile } from '@/hooks/use-patient-profile';
+import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
 
 const TEAL       = '#0D9488';
 const NAVY       = '#1E3A5F';
@@ -9,35 +11,56 @@ const GRAY_LIGHT = '#F9FAFB';
 const BORDER     = '#E5E7EB';
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
+const RED        = '#EF4444';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
+// ── Shared section states ────────────────────────────────────────────
+
+function SectionLoading({ label = 'Loading…' }: { label?: string }) {
+  return <Text style={[styles.consultDate, { padding: 12 }]}>{label}</Text>;
+}
+
+function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <View style={styles.errorRow}>
+      <Ionicons name="alert-circle-outline" size={16} color={RED} />
+      <Text style={styles.errorText}>{message}</Text>
+      <TouchableOpacity onPress={onRetry} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading">
+        <Text style={styles.retryText}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── Quick Actions ────────────────────────────────────────────────────
 
-type QuickAction = { label: string; desc: string; icon: IoniconsName; iconBg: string; iconColor: string };
+type QuickAction = { key: string; label: string; desc: string; icon: IoniconsName; iconBg: string; iconColor: string };
 
 const quickActions: QuickAction[] = [
-  { label: 'Book\nAppointment',   desc: 'Schedule a new appointment',        icon: 'calendar-outline',     iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
-  { label: 'Join\nConsultation',  desc: 'Join your upcoming consultation',   icon: 'videocam-outline',     iconBg: '#E6F4F1', iconColor: TEAL },
-  { label: 'Upload\nDocuments',   desc: 'Share reports or other documents',  icon: 'cloud-upload-outline', iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'View\nPrescriptions', desc: 'See your prescriptions and refills', icon: 'medkit-outline',      iconBg: '#FFF3E6', iconColor: '#F4A124' },
-  { label: 'Message\nDoctor',     desc: 'Send a message to your doctor',     icon: 'chatbubble-outline',   iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { key: 'book-appointment', label: 'Book\nAppointment',   desc: 'Schedule a new appointment',         icon: 'calendar-outline',        iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
+  { key: 'my-appointments',  label: 'My\nAppointments',    desc: 'Reschedule or cancel a visit',       icon: 'calendar-number-outline', iconBg: '#E6F4F1', iconColor: TEAL },
+  { key: 'prescriptions',    label: 'View\nPrescriptions', desc: 'See your current prescriptions',     icon: 'medkit-outline',          iconBg: '#FFF3E6', iconColor: '#F4A124' },
+  { key: 'lab-results',      label: 'Lab\nResults',        desc: 'Review your latest test results',    icon: 'flask-outline',           iconBg: '#E8F0FE', iconColor: '#4285F4' },
+  { key: 'medical-records',  label: 'Medical\nRecords',    desc: 'Browse your health record',          icon: 'folder-open-outline',     iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
 ];
 
-function QuickActions({ onBookAppointment, onViewPrescriptions }: { onBookAppointment?: () => void; onViewPrescriptions?: () => void }) {
+function QuickActions({ onAction }: { onAction: (key: string) => void }) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
-
-  function handlePress(label: string) {
-    if (label === 'Book\nAppointment')   onBookAppointment?.();
-    if (label === 'View\nPrescriptions') onViewPrescriptions?.();
-  }
 
   if (isSmall) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
         {quickActions.map((a) => (
-          <TouchableOpacity key={a.label} style={[styles.quickCard, { width: 140 }]} activeOpacity={0.8} onPress={() => handlePress(a.label)}>
+          <TouchableOpacity
+            key={a.key}
+            style={[styles.quickCard, { width: 140 }]}
+            activeOpacity={0.8}
+            onPress={() => onAction(a.key)}
+            accessibilityRole="button"
+            accessibilityLabel={a.label.replace('\n', ' ')}
+          >
             <View style={[styles.quickIconBg, { backgroundColor: a.iconBg }]}>
               <Ionicons name={a.icon} size={20} color={a.iconColor} />
             </View>
@@ -52,7 +75,14 @@ function QuickActions({ onBookAppointment, onViewPrescriptions }: { onBookAppoin
   return (
     <View style={styles.quickRow}>
       {quickActions.map((a) => (
-        <TouchableOpacity key={a.label} style={styles.quickCard} activeOpacity={0.8} onPress={() => handlePress(a.label)}>
+        <TouchableOpacity
+          key={a.key}
+          style={styles.quickCard}
+          activeOpacity={0.8}
+          onPress={() => onAction(a.key)}
+          accessibilityRole="button"
+          accessibilityLabel={`${a.label.replace('\n', ' ')}. ${a.desc}`}
+        >
           <View style={[styles.quickIconBg, { backgroundColor: a.iconBg }]}>
             <Ionicons name={a.icon} size={22} color={a.iconColor} />
           </View>
@@ -73,16 +103,19 @@ function WelcomeBanner() {
 
   return (
     <View style={styles.banner}>
-      <Image
-        source={{ uri: 'https://i.pravatar.cc/150?img=68' }}
-        style={[styles.bannerAvatar, isSmall && { width: 60, height: 60, borderRadius: 30 }]}
-      />
+      <View
+        style={[styles.bannerAvatar, styles.bannerIcon, isSmall && { width: 60, height: 60, borderRadius: 30 }]}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Ionicons name="heart-outline" size={isSmall ? 28 : 36} color={TEAL} />
+      </View>
       <View style={styles.bannerText}>
         <Text style={[styles.bannerTitle, isSmall && { fontSize: 15 }]}>Welcome to CareNexus Direct</Text>
         <Text style={[styles.bannerDesc, isSmall && { fontSize: 12 }]}>
           {isSmall
-            ? "Book appointments, consult online and stay connected with your care team."
-            : "We're here to make your healthcare simple, accessible and personal.\nBook appointments, consult online, access your records and stay connected\nwith your care team – all in one place."}
+            ? 'Book appointments, view your records and keep track of your care.'
+            : 'Book and manage appointments, review your prescriptions and results,\nand keep your health record in one place.'}
         </Text>
       </View>
       {!isSmall && (
@@ -97,54 +130,85 @@ function WelcomeBanner() {
 
 // ── Health Overview ──────────────────────────────────────────────────
 
-type HealthMetric = { label: string; value: string; sub?: string; icon: IoniconsName; iconBg: string; iconColor: string };
+type HealthMetric = { label: string; value: string; sub?: string; icon: IoniconsName; iconBg: string; iconColor: string; onPress?: () => void };
 
-const metrics: HealthMetric[] = [
-  { label: 'Conditions',         value: '2',      icon: 'heart-outline',        iconBg: '#E6F4F1', iconColor: TEAL },
-  { label: 'Allergies',          value: '1',      icon: 'warning-outline',      iconBg: '#FEE2E2', iconColor: '#EF4444' },
-  { label: 'Current Medications',value: '3',      icon: 'medkit-outline',       iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'Latest BP',          value: '128/82', sub: 'mmHg\n2 days ago',  icon: 'heart-circle-outline', iconBg: '#FEE2E2', iconColor: '#EF4444' },
-  { label: 'Latest Weight',      value: '72 kg',  sub: '1 week ago',        icon: 'barbell-outline',      iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
-];
+function summarise(items: string[]): string {
+  if (items.length === 0) return 'None recorded';
+  const shown = items.slice(0, 2).join(', ');
+  return items.length > 2 ? `${shown} +${items.length - 2} more` : shown;
+}
 
-function HealthOverview() {
+function HealthOverview({
+  prescriptions, rxLoading, rxError, onRetryRx, onViewPrescriptions, onViewProfile,
+}: {
+  prescriptions: Prescription[];
+  rxLoading: boolean;
+  rxError: string | null;
+  onRetryRx: () => void;
+  onViewPrescriptions?: () => void;
+  onViewProfile?: () => void;
+}) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
+  const { profile, loading, error, refetch } = usePatientProfile();
+
+  const activeRx = prescriptions.filter(p => p.status === 'ACTIVE');
+  const metrics: HealthMetric[] = profile ? [
+    { label: 'Conditions',          value: String(profile.chronic_conditions.length), sub: summarise(profile.chronic_conditions), icon: 'heart-outline',   iconBg: '#E6F4F1', iconColor: TEAL },
+    { label: 'Allergies',           value: String(profile.allergies.length),          sub: summarise(profile.allergies),          icon: 'warning-outline', iconBg: '#FEE2E2', iconColor: RED },
+    {
+      label: 'Current Medications',
+      value: rxLoading ? '…' : rxError ? '—' : String(activeRx.length),
+      sub:   rxError ? 'Could not load' : 'Active prescriptions',
+      icon: 'medkit-outline', iconBg: '#E8F0FE', iconColor: '#4285F4',
+      onPress: onViewPrescriptions,
+    },
+    { label: 'Blood Type', value: profile.blood_type ?? '—', sub: profile.blood_type ? undefined : 'Not recorded', icon: 'water-outline', iconBg: '#FEE2E2', iconColor: RED },
+  ] : [];
+
+  function renderMetric(m: HealthMetric, compact: boolean) {
+    const body = (
+      <>
+        <View style={[styles.metricIconBg, { backgroundColor: m.iconBg }]}>
+          <Ionicons name={m.icon} size={compact ? 18 : 20} color={m.iconColor} />
+        </View>
+        <Text style={styles.metricLabel}>{m.label}</Text>
+        <Text style={[styles.metricValue, compact && { fontSize: 18 }]}>{m.value}</Text>
+        {m.sub ? <Text style={styles.metricSub} numberOfLines={2}>{m.sub}</Text> : null}
+        {m.onPress ? <Text style={styles.link}>View details</Text> : null}
+      </>
+    );
+    const style = [styles.metricCard, compact && { width: 130, flex: undefined }];
+    return m.onPress ? (
+      <TouchableOpacity key={m.label} style={style} onPress={m.onPress} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. View details`}>
+        {body}
+      </TouchableOpacity>
+    ) : (
+      <View key={m.label} style={style} accessible accessibilityLabel={`${m.label}: ${m.value}${m.sub ? `. ${m.sub}` : ''}`}>
+        {body}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Health Overview</Text>
-        <TouchableOpacity><Text style={styles.link}>View full summary →</Text></TouchableOpacity>
+        {onViewProfile && (
+          <TouchableOpacity onPress={onViewProfile} accessibilityRole="link"><Text style={styles.link}>View profile →</Text></TouchableOpacity>
+        )}
       </View>
-      {isSmall ? (
+      {loading ? (
+        <SectionLoading label="Loading your health summary…" />
+      ) : error || !profile ? (
+        <SectionError message={error ?? 'Could not load your health summary.'} onRetry={() => { refetch(); onRetryRx(); }} />
+      ) : isSmall ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
-          {metrics.map((m) => (
-            <View key={m.label} style={[styles.metricCard, { width: 130 }]}>
-              <View style={[styles.metricIconBg, { backgroundColor: m.iconBg }]}>
-                <Ionicons name={m.icon} size={18} color={m.iconColor} />
-              </View>
-              <Text style={styles.metricLabel}>{m.label}</Text>
-              <Text style={[styles.metricValue, { fontSize: 18 }]}>{m.value}</Text>
-              {m.sub ? <Text style={styles.metricSub}>{m.sub}</Text> : <Text style={styles.link}>Details</Text>}
-            </View>
-          ))}
+          {metrics.map((m) => renderMetric(m, true))}
         </ScrollView>
       ) : (
         <View style={styles.metricsRow}>
-          {metrics.map((m) => (
-            <View key={m.label} style={styles.metricCard}>
-              <View style={[styles.metricIconBg, { backgroundColor: m.iconBg }]}>
-                <Ionicons name={m.icon} size={20} color={m.iconColor} />
-              </View>
-              <Text style={styles.metricLabel}>{m.label}</Text>
-              <Text style={styles.metricValue}>{m.value}</Text>
-              {m.sub
-                ? <Text style={styles.metricSub}>{m.sub}</Text>
-                : <TouchableOpacity><Text style={styles.link}>View details</Text></TouchableOpacity>
-              }
-            </View>
-          ))}
+          {metrics.map((m) => renderMetric(m, false))}
         </View>
       )}
     </View>
@@ -165,18 +229,34 @@ function formatApptDate(iso: string) {
     ' • ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-function RecentConsultations({ onViewConsultations }: { onViewConsultations?: () => void }) {
-  const { appointments, loading } = useAppointments();
+function formatDay(iso: string) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function RecentConsultations({
+  appointments, loading, error, onRetry, onViewConsultations,
+}: {
+  appointments: Appointment[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onViewConsultations?: () => void;
+}) {
   const recent = appointments.filter(a => a.status === 'COMPLETED').slice(0, 3);
 
   return (
     <View style={[styles.section, { flex: 1 }]}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Consultations</Text>
-        <TouchableOpacity onPress={onViewConsultations}><Text style={styles.link}>View all</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onViewConsultations} accessibilityRole="link"><Text style={styles.link}>View all</Text></TouchableOpacity>
       </View>
       {loading ? (
-        <Text style={[styles.consultDate, { padding: 12 }]}>Loading…</Text>
+        <SectionLoading />
+      ) : error ? (
+        <SectionError message={error} onRetry={onRetry} />
       ) : recent.length === 0 ? (
         <Text style={[styles.consultDate, { padding: 12 }]}>No completed consultations yet.</Text>
       ) : recent.map((a) => (
@@ -190,10 +270,9 @@ function RecentConsultations({ onViewConsultations }: { onViewConsultations?: ()
             <Text style={styles.consultDoctor}>{a.doctor_name}{a.doctor_specialization ? ` (${a.doctor_specialization})` : ''}</Text>
           </View>
           <View style={styles.badge}><Text style={styles.badgeText}>Completed</Text></View>
-          <Ionicons name="chevron-forward" size={16} color={GRAY} />
         </View>
       ))}
-      <TouchableOpacity style={styles.viewAllRow} onPress={onViewConsultations}>
+      <TouchableOpacity style={styles.viewAllRow} onPress={onViewConsultations} accessibilityRole="link">
         <Text style={styles.link}>View all consultations →</Text>
       </TouchableOpacity>
     </View>
@@ -202,76 +281,113 @@ function RecentConsultations({ onViewConsultations }: { onViewConsultations?: ()
 
 // ── Latest Prescriptions ─────────────────────────────────────────────
 
-type Prescription = { name: string; dosage: string; date: string };
+function LatestPrescriptions({
+  prescriptions, loading, error, onRetry, onViewPrescriptions,
+}: {
+  prescriptions: Prescription[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onViewPrescriptions?: () => void;
+}) {
+  const active = prescriptions.filter(p => p.status === 'ACTIVE').slice(0, 3);
 
-const prescriptions: Prescription[] = [
-  { name: 'Atorvastatin 20mg',  dosage: '1 tablet at night',       date: '24 May 2024' },
-  { name: 'Amlodipine 5mg',     dosage: '1 tablet in the morning', date: '24 May 2024' },
-  { name: 'Vitamin D3 1000 IU', dosage: '1 tablet daily',          date: '24 May 2024' },
-];
-
-function LatestPrescriptions() {
   return (
     <View style={[styles.section, { flex: 1 }]}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Latest Prescriptions</Text>
-        <TouchableOpacity><Text style={styles.link}>View all</Text></TouchableOpacity>
+        <Text style={styles.sectionTitle}>Current Prescriptions</Text>
+        <TouchableOpacity onPress={onViewPrescriptions} accessibilityRole="link"><Text style={styles.link}>View all</Text></TouchableOpacity>
       </View>
-      {prescriptions.map((p) => (
-        <View key={p.name} style={styles.consultRow}>
+      {loading ? (
+        <SectionLoading />
+      ) : error ? (
+        <SectionError message={error} onRetry={onRetry} />
+      ) : active.length === 0 ? (
+        <Text style={[styles.consultDate, { padding: 12 }]}>You have no active prescriptions.</Text>
+      ) : active.map((p) => (
+        <View key={p.prescription_id} style={styles.consultRow}>
           <Ionicons name="document-outline" size={22} color={GRAY} />
           <View style={styles.consultInfo}>
-            <Text style={styles.consultTitle}>{p.name}</Text>
-            <Text style={styles.consultDoctor}>{p.dosage}</Text>
-            <Text style={styles.consultDate}>{p.date}</Text>
+            <Text style={styles.consultTitle}>{p.medication_name}{p.dosage ? ` ${p.dosage}` : ''}</Text>
+            {!!p.frequency && <Text style={styles.consultDoctor}>{p.frequency}</Text>}
+            <Text style={styles.consultDate}>
+              {formatDay(p.prescribed_date) ? `Prescribed ${formatDay(p.prescribed_date)}` : ''}{p.doctor_name ? ` • ${p.doctor_name}` : ''}
+            </Text>
           </View>
           <View style={[styles.badge, styles.badgeActive]}>
             <Text style={[styles.badgeText, styles.badgeActiveText]}>Active</Text>
           </View>
         </View>
       ))}
-      <TouchableOpacity style={styles.viewAllRow}>
+      <TouchableOpacity style={styles.viewAllRow} onPress={onViewPrescriptions} accessibilityRole="link">
         <Text style={styles.link}>View all prescriptions →</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-// ── Important Reminders ──────────────────────────────────────────────
+// ── Upcoming Appointments ────────────────────────────────────────────
 
-type Reminder = { label: string; sub: string; time: string; icon: IoniconsName; iconBg: string; iconColor: string; due?: boolean };
-
-const reminders: Reminder[] = [
-  { label: 'Take Amlodipine 5mg',     sub: 'Every morning • 08:00 AM', time: '08:00 AM', icon: 'calendar-outline',  iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'Follow up with Dr. Matt', sub: '24 May 2024 • 10:30 AM',   time: '10:30 AM', icon: 'clipboard-outline', iconBg: '#E8F0FE', iconColor: '#4285F4' },
-  { label: 'Upload lab results',       sub: 'Blood test results due',   time: 'Due',      icon: 'clipboard-outline', iconBg: '#FEE2E2', iconColor: '#EF4444', due: true },
-];
-
-function ImportantReminders() {
+function UpcomingAppointments({
+  appointments, loading, error, onRetry, onViewAppointments, onBookAppointment,
+}: {
+  appointments: Appointment[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onViewAppointments?: () => void;
+  onBookAppointment?: () => void;
+}) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
+  const upcoming = appointments
+    .filter(isUpcomingAppointment)
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
+    .slice(0, 3);
 
   return (
     <View style={styles.section}>
-      <View style={styles.remindersHeader}>
-        <Ionicons name="list-outline" size={20} color={TEXT} />
-        <Text style={styles.sectionTitle}>Important Reminders</Text>
+      <View style={styles.sectionHeader}>
+        <View style={styles.remindersHeader}>
+          <Ionicons name="calendar-outline" size={20} color={TEXT} />
+          <Text style={styles.sectionTitle}>Upcoming Appointments</Text>
+        </View>
+        <TouchableOpacity onPress={onViewAppointments} accessibilityRole="link"><Text style={styles.link}>Manage</Text></TouchableOpacity>
       </View>
-      <View style={[styles.remindersRow, isSmall && { flexDirection: 'column' }]}>
-        {reminders.map((r) => (
-          <TouchableOpacity key={r.label} style={[styles.reminderCard, isSmall && { flex: undefined }]} activeOpacity={0.8}>
-            <View style={[styles.reminderIconBg, { backgroundColor: r.iconBg }]}>
-              <Ionicons name={r.icon} size={18} color={r.iconColor} />
-            </View>
-            <View style={styles.reminderInfo}>
-              <Text style={styles.reminderLabel}>{r.label}</Text>
-              <Text style={styles.reminderSub}>{r.sub}</Text>
-            </View>
-            <Text style={[styles.reminderTime, r.due && styles.reminderDue]}>{r.time}</Text>
-            <Ionicons name="chevron-forward" size={16} color={r.due ? '#EF4444' : GRAY} />
-          </TouchableOpacity>
-        ))}
-      </View>
+      {loading ? (
+        <SectionLoading />
+      ) : error ? (
+        <SectionError message={error} onRetry={onRetry} />
+      ) : upcoming.length === 0 ? (
+        <View style={styles.emptyRow}>
+          <Text style={styles.consultDate}>You have no upcoming appointments.</Text>
+          {onBookAppointment && (
+            <TouchableOpacity onPress={onBookAppointment} accessibilityRole="button"><Text style={styles.link}>Book one →</Text></TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <View style={[styles.remindersRow, isSmall && { flexDirection: 'column' }]}>
+          {upcoming.map((a) => (
+            <TouchableOpacity
+              key={a.appointment_id}
+              style={[styles.reminderCard, isSmall && { flex: undefined }]}
+              activeOpacity={0.8}
+              onPress={onViewAppointments}
+              accessibilityRole="button"
+              accessibilityLabel={`Appointment with ${a.doctor_name} on ${formatApptDate(a.scheduled_at)}`}
+            >
+              <View style={[styles.reminderIconBg, { backgroundColor: '#E8F0FE' }]}>
+                <Ionicons name={TYPE_ICON[a.type] ?? 'calendar-outline'} size={18} color="#4285F4" />
+              </View>
+              <View style={styles.reminderInfo}>
+                <Text style={styles.reminderLabel} numberOfLines={1}>{a.doctor_name}</Text>
+                <Text style={styles.reminderSub}>{formatApptDate(a.scheduled_at)}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={GRAY} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -282,24 +398,60 @@ export function PatientMainDashboardArea({
   onBookAppointment,
   onViewConsultations,
   onViewPrescriptions,
+  onNavigate,
 }: {
   onBookAppointment?: () => void;
   onViewConsultations?: () => void;
   onViewPrescriptions?: () => void;
+  onNavigate?: (key: string) => void;
 }) {
   const { width } = useWindowDimensions();
   const isSmall = width < 768;
+  const appts = useAppointments();
+  const rx    = usePrescriptions();
+
+  function handleAction(key: string) {
+    if (key === 'book-appointment') onBookAppointment?.();
+    else if (key === 'prescriptions') onViewPrescriptions?.();
+    else onNavigate?.(key);
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <QuickActions onBookAppointment={onBookAppointment} onViewPrescriptions={onViewPrescriptions} />
+      <QuickActions onAction={handleAction} />
       <WelcomeBanner />
-      <HealthOverview />
+      <HealthOverview
+        prescriptions={rx.prescriptions}
+        rxLoading={rx.loading}
+        rxError={rx.error}
+        onRetryRx={rx.refetch}
+        onViewPrescriptions={onViewPrescriptions}
+        onViewProfile={onNavigate ? () => onNavigate('profile-settings') : undefined}
+      />
+      <UpcomingAppointments
+        appointments={appts.appointments}
+        loading={appts.loading}
+        error={appts.error}
+        onRetry={appts.refetch}
+        onViewAppointments={onNavigate ? () => onNavigate('my-appointments') : undefined}
+        onBookAppointment={onBookAppointment}
+      />
       <View style={[styles.twoCol, isSmall && { flexDirection: 'column' }]}>
-        <RecentConsultations onViewConsultations={onViewConsultations} />
-        <LatestPrescriptions />
+        <RecentConsultations
+          appointments={appts.appointments}
+          loading={appts.loading}
+          error={appts.error}
+          onRetry={appts.refetch}
+          onViewConsultations={onViewConsultations}
+        />
+        <LatestPrescriptions
+          prescriptions={rx.prescriptions}
+          loading={rx.loading}
+          error={rx.error}
+          onRetry={rx.refetch}
+          onViewPrescriptions={onViewPrescriptions}
+        />
       </View>
-      <ImportantReminders />
     </ScrollView>
   );
 }
@@ -317,6 +469,7 @@ const styles = StyleSheet.create({
 
   banner:           { backgroundColor: '#F0F4FF', borderRadius: 14, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
   bannerAvatar:     { width: 80, height: 80, borderRadius: 40, backgroundColor: BORDER },
+  bannerIcon:       { backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center' },
   bannerText:       { flex: 1 },
   bannerTitle:      { fontSize: 18, fontWeight: '700', color: NAVY, marginBottom: 6 },
   bannerDesc:       { fontSize: 13, color: GRAY, lineHeight: 20 },
@@ -349,13 +502,16 @@ const styles = StyleSheet.create({
   badgeActiveText: { color: TEAL },
   viewAllRow:    { alignItems: 'center', paddingTop: 12 },
 
-  remindersHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  remindersHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   remindersRow:    { flexDirection: 'row', gap: 12 },
   reminderCard:    { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: WHITE, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: BORDER },
   reminderIconBg:  { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   reminderInfo:    { flex: 1 },
   reminderLabel:   { fontSize: 13, fontWeight: '600', color: TEXT },
   reminderSub:     { fontSize: 11, color: GRAY },
-  reminderTime:    { fontSize: 13, fontWeight: '600', color: GRAY },
-  reminderDue:     { color: '#EF4444' },
+
+  emptyRow:  { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, flexWrap: 'wrap' },
+  errorRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#FEF2F2', borderRadius: 10 },
+  errorText: { flex: 1, fontSize: 13, color: RED },
+  retryText: { fontSize: 13, fontWeight: '700', color: RED, textDecorationLine: 'underline' },
 });

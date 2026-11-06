@@ -1,8 +1,8 @@
 package com.carenexus.api.core.controller;
 
+import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.service.AuthorizationService;
 import com.carenexus.api.core.dto.response.MedicalRecordResponse;
-import com.carenexus.api.core.model.Doctor;
-import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.service.MedicalRecordService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,13 +12,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Doctor-facing medical record views. Access is enforced in MedicalRecordService (every list is scoped to a
+ * doctor and requires the caller to be that doctor or an admin); the by-id routes additionally check here that
+ * the record was written by that doctor.
+ */
 @RestController
 @RequestMapping("/api/doctors/medical-records")
 @RequiredArgsConstructor
 public class DoctorMedicalRecordController {
 
     private final MedicalRecordService medicalRecordService;
-    private final DoctorRepository doctorRepository;
+    private final AuthorizationService authorizationService;
 
     // Get All Records
     @GetMapping
@@ -180,26 +185,14 @@ public class DoctorMedicalRecordController {
     public ResponseEntity<List<MedicalRecordResponse>> getMyPatientRecords(
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
-
-        List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(systemId))
-                .toList();
-
-        return ResponseEntity.ok(doctorRecords);
+        return ResponseEntity.ok(medicalRecordService.getDoctorPatientRecords(systemId, patientSystemId));
     }
 
     @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<MedicalRecordResponse>> getDoctorPatientRecords(
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
-
-        List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId))
-                .toList();
-
-        return ResponseEntity.ok(doctorRecords);
+        return ResponseEntity.ok(medicalRecordService.getDoctorPatientRecords(doctorSystemId, patientSystemId));
     }
 
     // Get Records for Specific Patient by Type
@@ -208,11 +201,11 @@ public class DoctorMedicalRecordController {
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId,
             @PathVariable String recordType) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorPatientRecords(systemId, patientSystemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(systemId) && r.getRecordType().equalsIgnoreCase(upperType))
+                .filter(r -> r.getRecordType().equalsIgnoreCase(upperType))
                 .toList();
 
         return ResponseEntity.ok(filtered);
@@ -223,11 +216,11 @@ public class DoctorMedicalRecordController {
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId,
             @PathVariable String recordType) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
+        List<MedicalRecordResponse> records = medicalRecordService.getDoctorPatientRecords(doctorSystemId, patientSystemId);
         String upperType = recordType.toUpperCase();
 
         List<MedicalRecordResponse> filtered = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId) && r.getRecordType().equalsIgnoreCase(upperType))
+                .filter(r -> r.getRecordType().equalsIgnoreCase(upperType))
                 .toList();
 
         return ResponseEntity.ok(filtered);
@@ -238,10 +231,11 @@ public class DoctorMedicalRecordController {
     public ResponseEntity<MedicalRecordResponse> getMyRecord(
             @RequestAttribute("systemId") String systemId,
             @PathVariable Integer recordId) {
+        authorizationService.requireRole(AuthorizationService.DOCTOR);
         MedicalRecordResponse record = medicalRecordService.getRecordById(recordId);
 
         if (!record.getDoctorSystemId().equals(systemId)) {
-            throw new RuntimeException("You don't have access to this record");
+            throw new AuthorizationException("You don't have access to this record", "MEDICAL_RECORD", recordId);
         }
 
         return ResponseEntity.ok(record);
@@ -251,10 +245,11 @@ public class DoctorMedicalRecordController {
     public ResponseEntity<MedicalRecordResponse> getDoctorRecord(
             @PathVariable String doctorSystemId,
             @PathVariable Integer recordId) {
+        authorizationService.requireDoctorSelf(doctorSystemId);
         MedicalRecordResponse record = medicalRecordService.getRecordById(recordId);
 
         if (!record.getDoctorSystemId().equals(doctorSystemId)) {
-            throw new RuntimeException("This record doesn't belong to this doctor");
+            throw new AuthorizationException("This record doesn't belong to this doctor", "MEDICAL_RECORD", recordId);
         }
 
         return ResponseEntity.ok(record);
@@ -283,11 +278,7 @@ public class DoctorMedicalRecordController {
     public ResponseEntity<Map<String, Object>> getMyPatientRecordStats(
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
-
-        List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(systemId))
-                .toList();
+        List<MedicalRecordResponse> doctorRecords = medicalRecordService.getDoctorPatientRecords(systemId, patientSystemId);
 
         Map<String, Object> stats = buildRecordStats(doctorRecords);
         return ResponseEntity.ok(stats);
@@ -297,11 +288,7 @@ public class DoctorMedicalRecordController {
     public ResponseEntity<Map<String, Object>> getDoctorPatientRecordStats(
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId) {
-        List<MedicalRecordResponse> records = medicalRecordService.getPatientRecords(patientSystemId);
-
-        List<MedicalRecordResponse> doctorRecords = records.stream()
-                .filter(r -> r.getDoctorSystemId().equals(doctorSystemId))
-                .toList();
+        List<MedicalRecordResponse> doctorRecords = medicalRecordService.getDoctorPatientRecords(doctorSystemId, patientSystemId);
 
         Map<String, Object> stats = buildRecordStats(doctorRecords);
         return ResponseEntity.ok(stats);

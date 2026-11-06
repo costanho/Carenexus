@@ -98,7 +98,7 @@ function RxCard({ rx }: { rx: DoctorPrescription }) {
   return (
     <View style={[styles.card, { borderLeftColor: sc.color }]}>
       {/* Expiring soon banner */}
-      {expiringSoon && rx.status === 'ACTIVE' && (
+      {expiringSoon && rx.status === 'ACTIVE' && !!rx.expiry_date && (
         <View style={styles.expiryBanner}>
           <Ionicons name="warning-outline" size={13} color={AMBER} />
           <Text style={styles.expiryBannerText}>Expiring soon — {formatDate(rx.expiry_date)}</Text>
@@ -329,7 +329,7 @@ export default function DoctorWebPrescription() {
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}

@@ -285,6 +285,8 @@ export default function DoctorMobileConsultation() {
           onPress={refetch}
           style={[styles.refreshBtn, { width: s(36), height: s(36), borderRadius: s(18) }]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>

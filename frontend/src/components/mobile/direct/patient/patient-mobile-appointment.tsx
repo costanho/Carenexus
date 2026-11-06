@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useDoctors } from '@/hooks/use-doctors';
+import { apiErrorMessage, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
 import { api } from '@/lib/auth/auth.interceptor';
 
 const TEAL   = '#0D9488';
@@ -38,18 +39,11 @@ const appointmentSchema = z.object({
   scheduled_time:   z.string().min(1, 'Please select a time'),
   duration_minutes: z.string().min(1, 'Please select a duration'),
   type:             z.enum(['IN_PERSON', 'VIDEO', 'PHONE']),
-  facility_id:      z.string().optional(),
   reason_for_visit: z.string().min(5, 'Please describe the reason (min 5 characters)'),
   notes:            z.string().optional(),
 });
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
-
-const FACILITIES = [
-  { id: '1', name: 'CareNexus Main Clinic' },
-  { id: '2', name: 'Parirenyatwa Hospital' },
-  { id: '3', name: 'Avenues Clinic'        },
-];
 
 const DURATIONS = [
   { value: '15', label: '15 min' },
@@ -66,7 +60,7 @@ const APPT_TYPES: { value: ApptType; label: string; icon: IoniconsName; color: s
 
 // ─── CalendarPicker ──────────────────────────────────────────────────────────
 
-function CalendarPicker({
+export function CalendarPicker({
   value, onChange, s,
 }: { value: string; onChange: (v: string) => void; s: (n: number) => number }) {
   const today = new Date();
@@ -128,6 +122,9 @@ function CalendarPicker({
           onPress={prevMonth}
           disabled={isPrevDisabled}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+          accessibilityState={{ disabled: isPrevDisabled }}
           style={[
             styles.calNavBtn,
             { width: s(32), height: s(32), borderRadius: s(8) },
@@ -142,6 +139,8 @@ function CalendarPicker({
         <TouchableOpacity
           onPress={nextMonth}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
           style={[styles.calNavBtn, { width: s(32), height: s(32), borderRadius: s(8) }]}
         >
           <Ionicons name="chevron-forward" size={s(16)} color={TEXT} />
@@ -172,6 +171,9 @@ function CalendarPicker({
                     onPress={() => selectDay(day)}
                     disabled={past}
                     activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={new Date(viewYear, viewMonth, day).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    accessibilityState={{ disabled: past, selected }}
                     style={[
                       styles.calDayCircle,
                       { width: s(32), height: s(32), borderRadius: s(16) },
@@ -213,7 +215,7 @@ function CalendarPicker({
 
 // ─── TimePicker ──────────────────────────────────────────────────────────────
 
-function TimePicker({
+export function TimePicker({
   value, onChange, s,
 }: { value: string; onChange: (v: string) => void; s: (n: number) => number }) {
   const [hour,   setHour]   = useState(9);
@@ -349,7 +351,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
   const goBack  = onBack ?? (() => router.back());
   const { width, height } = useWindowDimensions();
   const { user } = useCurrentUser();
-  const { doctors, loading: doctorsLoading } = useDoctors();
+  const { doctors, loading: doctorsLoading, error: doctorsError, refetch: refetchDoctors } = useDoctors();
 
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
@@ -365,13 +367,15 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
     defaultValues: {
       doctor_id: '', scheduled_date: '', scheduled_time: '',
       duration_minutes: '30', type: 'IN_PERSON',
-      facility_id: '', reason_for_visit: '', notes: '',
+      reason_for_visit: '', notes: '',
     },
   });
 
-  const watchedType   = watch('type');
   const watchedDoctor = watch('doctor_id');
+  const watchedDate   = watch('scheduled_date');
+  const watchedTime   = watch('scheduled_time');
   const selectedDoctor = doctors.find(d => d.doctor_system_id === watchedDoctor);
+  const slotInPast = !!watchedDate && !!watchedTime && !isFutureSlot(watchedDate, watchedTime);
 
   const activeDoctors = doctors.filter(d => d.is_active === 1);
   const filteredDoctors = doctorSearch.trim()
@@ -384,21 +388,30 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
 
   async function onSubmit(data: AppointmentFormData) {
     setAuthError('');
+    if (!user?.system_id) {
+      setAuthError('We could not load your account. Please go back and try again.');
+      return;
+    }
+    if (!isFutureSlot(data.scheduled_date, data.scheduled_time)) {
+      setAuthError('Please choose a date and time in the future.');
+      return;
+    }
     setLoading(true);
     try {
+      // VIDEO appointments: the backend generates the video link, so none is sent from here.
       await api.post('/api/appointments', {
-        patientSystemId:  user?.system_id,
+        patientSystemId:  user.system_id,
         doctorSystemId:   data.doctor_id,
-        facilityId:       data.facility_id ? parseInt(data.facility_id) : null,
-        scheduledAt:      `${data.scheduled_date}T${data.scheduled_time}:00`,
+        facilityId:       null,
+        scheduledAt:      toScheduledAt(data.scheduled_date, data.scheduled_time),
         durationMinutes:  parseInt(data.duration_minutes),
         type:             data.type,
         reasonForVisit:   data.reason_for_visit,
         notes:            data.notes ?? null,
       });
       setSuccess(true);
-    } catch {
-      setAuthError('Failed to book appointment. Please try again.');
+    } catch (e: any) {
+      setAuthError(apiErrorMessage(e, 'Failed to book appointment. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -416,8 +429,9 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           style={[styles.successBtn, { borderRadius: s(12), paddingVertical: s(14), paddingHorizontal: s(32) }]}
           onPress={goBack}
           activeOpacity={0.85}
+          accessibilityRole="button"
         >
-          <Text style={[styles.successBtnText, { fontSize: s(15) }]}>Back to Dashboard</Text>
+          <Text style={[styles.successBtnText, { fontSize: s(15) }]}>Done</Text>
         </TouchableOpacity>
       </View>
     );
@@ -439,6 +453,8 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
           onPress={goBack}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -446,7 +462,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Book Appointment</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Schedule with your healthcare provider</Text>
         </View>
-        <View style={[styles.headerIcon, { width: s(36), height: s(36), borderRadius: s(18) }]}>
+        <View style={[styles.headerIcon, { width: s(36), height: s(36), borderRadius: s(18) }]} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
           <Ionicons name="calendar-outline" size={s(18)} color={TEAL} />
         </View>
       </View>
@@ -479,6 +495,9 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                       ]}
                       onPress={() => onChange(t.value)}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${t.label} appointment`}
+                      accessibilityState={{ selected: on }}
                     >
                       {on && (
                         <View style={[styles.typeCheck, { backgroundColor: t.color, width: s(16), height: s(16), borderRadius: s(8) }]}>
@@ -505,12 +524,18 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
               style={[styles.input, { fontSize: s(13) }]}
               placeholder="Search by name or specialization…"
               placeholderTextColor={GRAY}
+              accessibilityLabel="Search doctors"
               value={doctorSearch}
               onChangeText={t => { setDoctorSearch(t); setDoctorsExpanded(false); }}
               autoCorrect={false}
             />
             {doctorSearch.length > 0 && (
-              <TouchableOpacity onPress={() => setDoctorSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity
+                onPress={() => setDoctorSearch('')}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Clear doctor search"
+              >
                 <Ionicons name="close-circle" size={s(15)} color={GRAY} />
               </TouchableOpacity>
             )}
@@ -518,6 +543,16 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
 
           {doctorsLoading ? (
             <Text style={{ color: GRAY, fontSize: s(13) }}>Loading doctors…</Text>
+          ) : doctorsError ? (
+            <View style={[styles.errorBanner, { borderRadius: s(8), padding: s(10), gap: s(8) }]}>
+              <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
+              <Text style={[styles.errorText, { fontSize: s(12), flex: 1 }]}>Could not load doctors.</Text>
+              <TouchableOpacity onPress={refetchDoctors} activeOpacity={0.7} accessibilityRole="button">
+                <Text style={[styles.errorText, { fontSize: s(12), fontWeight: '700', textDecorationLine: 'underline' }]}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : activeDoctors.length === 0 ? (
+            <Text style={{ color: GRAY, fontSize: s(13) }}>No doctors are available for booking right now.</Text>
           ) : filteredDoctors.length === 0 ? (
             <Text style={{ color: GRAY, fontSize: s(13) }}>No doctors match your search.</Text>
           ) : (
@@ -538,6 +573,8 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                           ]}
                           onPress={() => onChange(id)}
                           activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
                         >
                           <View style={[styles.doctorAvatar, { width: s(40), height: s(40), borderRadius: s(20) }]}>
                             <Text style={[styles.doctorAvatarText, { fontSize: s(16) }]}>{d.first_name[0]}</Text>
@@ -602,6 +639,9 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
               )}
             />
             {!!errors.scheduled_time && <FieldError message={errors.scheduled_time.message} s={s} />}
+            {!errors.scheduled_time && slotInPast && (
+              <FieldError message="This time has already passed. Please choose a later time." s={s} />
+            )}
           </View>
         </View>
 
@@ -632,40 +672,6 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
             )}
           />
         </View>
-
-        {/* Facility */}
-        {watchedType === 'IN_PERSON' && (
-          <View>
-            <Text style={[styles.sectionTitle, { fontSize: s(12), marginBottom: s(10) }]}>
-              Facility <Text style={{ fontWeight: '400', color: GRAY }}>(optional)</Text>
-            </Text>
-            <Controller control={control} name="facility_id"
-              render={({ field: { onChange, value } }) => (
-                <View style={{ gap: s(8) }}>
-                  {FACILITIES.map(f => {
-                    const on = value === f.id;
-                    return (
-                      <TouchableOpacity
-                        key={f.id}
-                        style={[
-                          styles.facilityItem,
-                          { borderRadius: s(10), padding: s(12), gap: s(10) },
-                          on && styles.facilityItemActive,
-                        ]}
-                        onPress={() => onChange(on ? '' : f.id)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="business-outline" size={s(16)} color={on ? TEAL : GRAY} />
-                        <Text style={[styles.facilityName, { fontSize: s(13), flex: 1 }, on && { color: TEAL, fontWeight: '600' }]}>{f.name}</Text>
-                        {on && <Ionicons name="checkmark-circle" size={s(16)} color={TEAL} />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            />
-          </View>
-        )}
 
         {/* Reason */}
         <View>
@@ -727,6 +733,8 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: loading }}
         >
           <Ionicons name="calendar-outline" size={s(18)} color={WHITE} />
           <Text style={[styles.submitText, { fontSize: s(15) }]}>
@@ -820,9 +828,6 @@ const styles = StyleSheet.create({
   durationLabel:       { fontWeight: '600', color: GRAY },
   durationLabelActive: { color: TEAL },
 
-  facilityItem:      { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: WHITE },
-  facilityItemActive:{ borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  facilityName:      { color: TEXT },
 
   textarea:      { borderWidth: 1.5, borderColor: BORDER, color: TEXT, backgroundColor: WHITE, minHeight: 90 },
 

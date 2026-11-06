@@ -5,6 +5,10 @@ import {
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ACTION_LABELS, availableActions, canJoinCall, openVideoLink, useDoctorAppointmentActions,
+  type DoctorAppointmentAction,
+} from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const NAVY   = '#0D1B2E';
@@ -46,6 +50,7 @@ function statusConfig(st: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show',     icon: 'alert-circle-outline'      as IoniconsName };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled', icon: 'refresh-circle-outline'   as IoniconsName };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress', icon: 'sync-outline'              as IoniconsName };
+    default:            return { bg: BG2,       color: GRAY,  label: String(st),    icon: 'help-circle-outline'       as IoniconsName };
   }
 }
 
@@ -54,6 +59,7 @@ function typeConfig(t: AppType) {
     case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#10B981' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF', accent: '#4F46E5' };
     case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#F59E0B' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG2,       accent: BORDER    };
   }
 }
 
@@ -63,6 +69,8 @@ function consultConfig(c: ScheduleEntry['consultation']) {
     case 'DRAFT':       return { label: 'Draft',       color: AMBER, bg: '#FEF3C7', icon: 'document-outline'         as IoniconsName };
     case 'IN_PROGRESS': return { label: 'In Progress', color: TEAL,  bg: '#CCFBF1', icon: 'sync-outline'              as IoniconsName };
     case 'COMPLETED':   return { label: 'Completed',   color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline' as IoniconsName };
+    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,   bg: '#FEE2E2', icon: 'close-circle-outline'     as IoniconsName };
+    default:            return { label: 'Consultation', color: GRAY, bg: BG2,       icon: 'document-outline'         as IoniconsName };
   }
 }
 
@@ -111,7 +119,20 @@ function StatCard({ icon, iconBg, iconColor, label, value, s }: {
 
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
-function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number }) {
+const ACTION_STYLE: Record<DoctorAppointmentAction, { color: string; icon: IoniconsName }> = {
+  'complete': { color: GREEN,  icon: 'checkmark-circle-outline' },
+  'no-show':  { color: ORANGE, icon: 'alert-circle-outline'     },
+  'cancel':   { color: RED,    icon: 'close-circle-outline'     },
+};
+
+function AppCard({ entry, s, busy, onAction }: {
+  entry:    ScheduleEntry;
+  s:        (n: number) => number;
+  busy:     boolean;
+  onAction: (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const actions = availableActions(entry);
   const sc  = statusConfig(entry.status);
   const tc  = typeConfig(entry.type);
   const cc  = consultConfig(entry.consultation);
@@ -189,16 +210,74 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
           <Ionicons name={cc.icon} size={s(11)} color={cc.color} />
           <Text style={[styles.chipText, { fontSize: s(10), color: cc.color, marginLeft: s(3) }]}>{cc.label}</Text>
         </View>
-        {entry.type === 'VIDEO' && !!entry.video_consultation_link && (
+        {canJoinCall(entry) && (
           <TouchableOpacity
             style={[styles.videoBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]}
             activeOpacity={0.8}
+            onPress={() => openVideoLink(entry)}
+            accessibilityRole="link"
+            accessibilityLabel={`Join video call with ${entry.patient_name}`}
           >
             <Ionicons name="videocam-outline" size={s(12)} color={BLUE} />
             <Text style={[styles.videoBtnText, { fontSize: s(11) }]}>Join Call</Text>
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          style={[styles.detailsToggle, { gap: s(3) }]}
+          activeOpacity={0.8}
+          onPress={() => setExpanded(v => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
+          accessibilityState={{ expanded }}
+        >
+          <Text style={[styles.videoBtnText, { fontSize: s(11) }]}>{expanded ? 'Hide' : 'Details'}</Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(12)} color={BLUE} />
+        </TouchableOpacity>
       </View>
+
+      {expanded && (
+        <View style={[styles.detailsPanel, { paddingHorizontal: s(14), paddingVertical: s(10), gap: s(5) }]}>
+          {([
+            ['Patient ID',   entry.patient_system_id],
+            ['Duration',     `${entry.duration_minutes} min`],
+            ['Type',         tc.label],
+            ['Status',       sc.label],
+            ['Consultation', cc.label],
+            ['Reason',       entry.reason_for_visit ?? '—'],
+            ['Notes',        entry.notes ?? '—'],
+            ...(entry.type === 'VIDEO' ? [['Video link', entry.video_consultation_link ?? 'Not provided']] : []),
+          ] as [string, string][]).map(([label, value]) => (
+            <View key={label} style={[styles.detailLine, { gap: s(10) }]}>
+              <Text style={[styles.detailLabel, { fontSize: s(11), width: s(90) }]}>{label}</Text>
+              <Text style={[styles.detailValue, { fontSize: s(11) }]} selectable>{value}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {actions.length > 0 && (
+        <View style={[styles.actionRow, { paddingHorizontal: s(14), paddingBottom: s(12), gap: s(8) }]}>
+          {actions.map(a => (
+            <TouchableOpacity
+              key={a}
+              style={[
+                styles.actionBtn,
+                { borderColor: ACTION_STYLE[a].color, borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6), gap: s(4) },
+                busy && { opacity: 0.5 },
+              ]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => onAction(entry, a)}
+              accessibilityRole="button"
+              accessibilityLabel={`${ACTION_LABELS[a]} appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy, busy }}
+            >
+              <Ionicons name={ACTION_STYLE[a].icon} size={s(12)} color={ACTION_STYLE[a].color} />
+              <Text style={[styles.actionBtnText, { fontSize: s(11), color: ACTION_STYLE[a].color }]}>{ACTION_LABELS[a]}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -209,6 +288,7 @@ export default function DoctorMobileAppointment() {
   const { s, sh } = useScale();
   const insets = useSafeAreaInsets();
   const { entries, loading, error, refetch } = useDoctorSchedule();
+  const { run, pendingId } = useDoctorAppointmentActions(refetch);
 
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -273,6 +353,8 @@ export default function DoctorMobileAppointment() {
           onPress={refetch}
           style={[styles.refreshBtn, { width: s(36), height: s(36), borderRadius: s(18) }]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -364,7 +446,9 @@ export default function DoctorMobileAppointment() {
                 <Text style={[styles.errorText, { fontSize: s(13) }]}>Try adjusting your filters</Text>
               </View>
             ) : (
-              filtered.map(e => <AppCard key={e.appointment_id} entry={e} s={s} />)
+              filtered.map(e => (
+                <AppCard key={e.appointment_id} entry={e} s={s} busy={pendingId === e.appointment_id} onAction={run} />
+              ))
             )}
           </>
         )}
@@ -423,6 +507,14 @@ const styles = StyleSheet.create({
   cardFooter:   { flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
   videoBtn:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BLUE },
   videoBtnText: { color: BLUE, fontWeight: '500' },
+  detailsToggle: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
+  detailsPanel:  { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER, backgroundColor: BG },
+  detailLine:    { flexDirection: 'row' },
+  detailLabel:   { color: GRAY, fontWeight: '600' },
+  detailValue:   { flex: 1, color: TEXT },
+  actionRow:     { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end' },
+  actionBtn:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, backgroundColor: WHITE },
+  actionBtnText: { fontWeight: '600' },
 
   errorText:    { color: GRAY, textAlign: 'center' },
   retryBtn:     { backgroundColor: BLUE },

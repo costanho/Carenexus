@@ -1,10 +1,14 @@
 package com.carenexus.api.core.service;
 
+import com.carenexus.api.common.exception.ResourceNotFoundException;
+import com.carenexus.api.common.service.AuditService;
+import com.carenexus.api.common.service.AuthorizationService;
+import com.carenexus.api.common.service.PatientPermission;
 import com.carenexus.api.core.dto.request.CreateImagingResultRequest;
 import com.carenexus.api.core.dto.response.ImagingResultResponse;
-import com.carenexus.api.core.model.Doctor;
+import com.carenexus.api.core.model.Consultation;
 import com.carenexus.api.core.model.ImagingResult;
-import com.carenexus.api.core.model.Patient;
+import com.carenexus.api.core.repository.ConsultationRepository;
 import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.repository.ImagingResultRepository;
 import com.carenexus.api.core.repository.PatientRepository;
@@ -17,21 +21,32 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Imaging results. Every public method enforces access for the current caller and writes a clinical audit row
+ * after it succeeds. Create/update/delete are DOCTOR-only (author doctor; delete also admin); status and
+ * review changes need a DOCTOR with a care relationship to the patient; reads follow
+ * AuthorizationService.requirePatientAccess with {@link PatientPermission#IMAGING}. System-wide lists are
+ * admin-only.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class ImagingResultService {
 
+    private static final String RESOURCE = "IMAGING_RESULT";
+    private static final PatientPermission PERMISSION = PatientPermission.IMAGING;
+
     private final ImagingResultRepository imagingResultRepository;
     private final PatientRepository patientRepository;
     private final DoctorRepository doctorRepository;
+    private final ConsultationRepository consultationRepository;
+    private final ConsultationService consultationService;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
 
     public ImagingResultResponse createImagingResult(CreateImagingResultRequest request) {
         if (request.getPatientSystemId() == null) {
             throw new RuntimeException("Patient ID is required");
-        }
-        if (request.getDoctorSystemId() == null) {
-            throw new RuntimeException("Doctor ID is required");
         }
         if (request.getImagingType() == null || request.getImagingType().isEmpty()) {
             throw new RuntimeException("Imaging type is required");
@@ -46,9 +61,14 @@ public class ImagingResultService {
             throw new RuntimeException("Invalid status. Must be PENDING, COMPLETED, REQUIRES_REVIEW, or CRITICAL");
         }
 
+        // Author is always the calling doctor; request.doctorSystemId and request.reviewedBy are ignored
+        // (reviews are recorded through POST /api/imaging-results/{id}/review).
+        String doctorSystemId = consultationService.requireTreatingDoctor(
+                request.getPatientSystemId(), request.getConsultationId(), PERMISSION);
+
         ImagingResult imagingResult = ImagingResult.builder()
                 .patientSystemId(request.getPatientSystemId())
-                .doctorSystemId(request.getDoctorSystemId())
+                .doctorSystemId(doctorSystemId)
                 .consultationId(request.getConsultationId())
                 .imagingType(request.getImagingType())
                 .bodyPart(request.getBodyPart())
@@ -59,103 +79,111 @@ public class ImagingResultService {
                 .thumbnailUrl(request.getThumbnailUrl())
                 .status(status)
                 .imageDate(request.getImageDate() != null ? request.getImageDate() : LocalDate.now())
-                .reviewedBySystemId(request.getReviewedBy())
                 .build();
 
         ImagingResult savedImagingResult = imagingResultRepository.save(imagingResult);
+        auditService.logClinicalAccess("CREATE", RESOURCE, savedImagingResult.getImagingId(), savedImagingResult.getPatientSystemId());
         return mapToResponse(savedImagingResult);
     }
 
     public ImagingResultResponse getImagingResultById(Integer imagingId) {
-        ImagingResult imagingResult = imagingResultRepository.findById(imagingId)
-                .orElseThrow(() -> new RuntimeException("Imaging result not found"));
+        ImagingResult imagingResult = load(imagingId);
+        authorizationService.requirePatientAccess(imagingResult.getPatientSystemId(), PERMISSION, imagingId);
+        auditService.logClinicalAccess("READ", RESOURCE, imagingId, imagingResult.getPatientSystemId());
         return mapToResponse(imagingResult);
     }
 
     public List<ImagingResultResponse> getPatientImagingResults(String patientSystemId) {
-        return imagingResultRepository.findByPatientSystemId(patientSystemId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requirePatientAccess(patientSystemId, PERMISSION);
+        return patientList(patientSystemId, imagingResultRepository.findByPatientSystemId(patientSystemId));
     }
 
     public List<ImagingResultResponse> getDoctorImagingResults(String doctorSystemId) {
-        return imagingResultRepository.findByDoctorSystemId(doctorSystemId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requireDoctorSelf(doctorSystemId);
+        return auditedList(imagingResultRepository.findByDoctorSystemId(doctorSystemId));
     }
 
     public List<ImagingResultResponse> getConsultationImagingResults(Integer consultationId) {
-        return imagingResultRepository.findByConsultationId(consultationId).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        Consultation consultation = consultationRepository.findById(consultationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Consultation not found"));
+        String patientSystemId = consultation.getPatientSystemId();
+        authorizationService.requirePatientAccess(patientSystemId, PERMISSION);
+        return patientList(patientSystemId, imagingResultRepository.findByConsultationId(consultationId).stream()
+                .filter(r -> patientSystemId.equals(r.getPatientSystemId()))
+                .toList());
     }
 
+    /**
+     * System-wide list by imaging type. Admin only.
+     */
     public List<ImagingResultResponse> getImagingResultsByType(String imagingType) {
+        authorizationService.requireAdmin();
         if (!isValidImagingType(imagingType)) {
             throw new RuntimeException("Invalid imaging type");
         }
-        return imagingResultRepository.findByImagingType(imagingType).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return auditedList(imagingResultRepository.findByImagingType(imagingType));
     }
 
     public List<ImagingResultResponse> getPatientImagingResultsByType(String patientSystemId, String imagingType) {
         if (!isValidImagingType(imagingType)) {
             throw new RuntimeException("Invalid imaging type");
         }
-        return imagingResultRepository.findByPatientSystemIdAndImagingType(patientSystemId, imagingType).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requirePatientAccess(patientSystemId, PERMISSION);
+        return patientList(patientSystemId, imagingResultRepository.findByPatientSystemIdAndImagingType(patientSystemId, imagingType));
     }
 
     public List<ImagingResultResponse> getDoctorImagingResultsByType(String doctorSystemId, String imagingType) {
         if (!isValidImagingType(imagingType)) {
             throw new RuntimeException("Invalid imaging type");
         }
-        return imagingResultRepository.findByDoctorSystemIdAndImagingType(doctorSystemId, imagingType).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requireDoctorSelf(doctorSystemId);
+        return auditedList(imagingResultRepository.findByDoctorSystemIdAndImagingType(doctorSystemId, imagingType));
     }
 
+    /**
+     * System-wide list by status. Admin only.
+     */
     public List<ImagingResultResponse> getImagingResultsByStatus(String status) {
+        authorizationService.requireAdmin();
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
         }
-        return imagingResultRepository.findByStatus(status).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        return auditedList(imagingResultRepository.findByStatus(status));
     }
 
     public List<ImagingResultResponse> getPatientImagingResultsByStatus(String patientSystemId, String status) {
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
         }
-        return imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, status).stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requirePatientAccess(patientSystemId, PERMISSION);
+        return patientList(patientSystemId, imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, status));
     }
 
+    /**
+     * System-wide critical results. Admin only (doctors use /me/critical, scoped to their own results).
+     */
     public List<ImagingResultResponse> getCriticalImagingResults() {
-        return imagingResultRepository.findByStatus("CRITICAL").stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requireAdmin();
+        return auditedList(imagingResultRepository.findByStatus("CRITICAL"));
     }
 
     public List<ImagingResultResponse> getPatientCriticalImagingResults(String patientSystemId) {
-        return imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, "CRITICAL").stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requirePatientAccess(patientSystemId, PERMISSION);
+        return patientList(patientSystemId, imagingResultRepository.findByPatientSystemIdAndStatus(patientSystemId, "CRITICAL"));
     }
 
+    /**
+     * System-wide review queue. Admin only.
+     */
     public List<ImagingResultResponse> getPendingReviewImagingResults() {
-        return imagingResultRepository.findByStatusAndReviewedBySystemIdIsNull("REQUIRES_REVIEW").stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        authorizationService.requireAdmin();
+        return auditedList(imagingResultRepository.findByStatusAndReviewedBySystemIdIsNull("REQUIRES_REVIEW"));
     }
 
     public ImagingResultResponse updateImagingResult(Integer imagingId, CreateImagingResultRequest request) {
-        ImagingResult imagingResult = imagingResultRepository.findById(imagingId)
-                .orElseThrow(() -> new RuntimeException("Imaging result not found"));
+        ImagingResult imagingResult = load(imagingId);
+        consultationService.requireAuthorDoctor(imagingResult.getDoctorSystemId(), imagingResult.getPatientSystemId(),
+                RESOURCE, imagingId, false);
 
         if (request.getImagingType() != null) {
             if (!isValidImagingType(request.getImagingType())) {
@@ -192,28 +220,34 @@ public class ImagingResultService {
         }
 
         ImagingResult updatedImagingResult = imagingResultRepository.save(imagingResult);
+        auditService.logClinicalAccess("UPDATE", RESOURCE, imagingId, imagingResult.getPatientSystemId());
         return mapToResponse(updatedImagingResult);
     }
 
-    public ImagingResultResponse reviewImagingResult(Integer imagingId, String reviewedBy, String status) {
-        ImagingResult imagingResult = imagingResultRepository.findById(imagingId)
-                .orElseThrow(() -> new RuntimeException("Imaging result not found"));
+    /**
+     * Sign off a result. The reviewer is always the calling doctor, who must have a care relationship with
+     * the patient.
+     */
+    public ImagingResultResponse reviewImagingResult(Integer imagingId, String status) {
+        ImagingResult imagingResult = load(imagingId);
+        consultationService.requireRelatedDoctor(imagingResult.getPatientSystemId(), PERMISSION, imagingId);
 
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
         }
 
-        imagingResult.setReviewedBySystemId(reviewedBy);
+        imagingResult.setReviewedBySystemId(authorizationService.currentSystemId());
         imagingResult.setReviewedAt(LocalDateTime.now());
         imagingResult.setStatus(status);
 
         ImagingResult updatedImagingResult = imagingResultRepository.save(imagingResult);
+        auditService.logClinicalAccess("UPDATE", RESOURCE, imagingId, imagingResult.getPatientSystemId());
         return mapToResponse(updatedImagingResult);
     }
 
     public ImagingResultResponse updateImagingResultStatus(Integer imagingId, String status) {
-        ImagingResult imagingResult = imagingResultRepository.findById(imagingId)
-                .orElseThrow(() -> new RuntimeException("Imaging result not found"));
+        ImagingResult imagingResult = load(imagingId);
+        consultationService.requireRelatedDoctor(imagingResult.getPatientSystemId(), PERMISSION, imagingId);
 
         if (!isValidStatus(status)) {
             throw new RuntimeException("Invalid status");
@@ -221,23 +255,30 @@ public class ImagingResultService {
 
         imagingResult.setStatus(status);
         ImagingResult updatedImagingResult = imagingResultRepository.save(imagingResult);
+        auditService.logClinicalAccess("UPDATE", RESOURCE, imagingId, imagingResult.getPatientSystemId());
         return mapToResponse(updatedImagingResult);
     }
 
+    /**
+     * Hard delete (imaging_results has no soft-delete column). Authoring doctor or admin only; audited.
+     */
     public void deleteImagingResult(Integer imagingId) {
-        imagingResultRepository.findById(imagingId)
-                .orElseThrow(() -> new RuntimeException("Imaging result not found"));
-        imagingResultRepository.deleteById(imagingId);
+        ImagingResult imagingResult = load(imagingId);
+        consultationService.requireAuthorDoctor(imagingResult.getDoctorSystemId(), imagingResult.getPatientSystemId(),
+                RESOURCE, imagingId, true);
+        imagingResultRepository.delete(imagingResult);
+        imagingResultRepository.flush();
+        auditService.logClinicalAccess("DELETE", RESOURCE, imagingId, imagingResult.getPatientSystemId());
     }
 
     public List<ImagingResultResponse> getImagingResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findBySystemId(userSystemId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            patientRepository.findBySystemId(userSystemId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Patient profile not found"));
             return getPatientImagingResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
-            Doctor doctor = doctorRepository.findBySystemId(userSystemId)
-                    .orElseThrow(() -> new RuntimeException("Doctor profile not found"));
+            doctorRepository.findBySystemId(userSystemId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
             return getDoctorImagingResults(userSystemId);
         }
         throw new RuntimeException("Unsupported user role");
@@ -245,13 +286,32 @@ public class ImagingResultService {
 
     public List<ImagingResultResponse> getCriticalImagingResultsForUser(String userSystemId, String userRole) {
         if ("PATIENT".equals(userRole)) {
-            Patient patient = patientRepository.findBySystemId(userSystemId)
-                    .orElseThrow(() -> new RuntimeException("Patient profile not found"));
+            patientRepository.findBySystemId(userSystemId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Patient profile not found"));
             return getPatientCriticalImagingResults(userSystemId);
         } else if ("DOCTOR".equals(userRole)) {
-            return getCriticalImagingResults();
+            // Only the critical results this doctor ordered, never the whole system's.
+            authorizationService.requireDoctorSelf(userSystemId);
+            return auditedList(imagingResultRepository.findByDoctorSystemIdAndStatus(userSystemId, "CRITICAL"));
         }
         throw new RuntimeException("Unsupported user role");
+    }
+
+    private ImagingResult load(Integer imagingId) {
+        return imagingResultRepository.findById(imagingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Imaging result not found"));
+    }
+
+    /** One READ row for this patient, then map. */
+    private List<ImagingResultResponse> patientList(String patientSystemId, List<ImagingResult> rows) {
+        auditService.logClinicalAccess("READ", RESOURCE, null, patientSystemId);
+        return rows.stream().map(this::mapToResponse).collect(Collectors.toList());
+    }
+
+    /** One READ row per distinct patient in the list, then map. */
+    private List<ImagingResultResponse> auditedList(List<ImagingResult> rows) {
+        consultationService.auditListRead(RESOURCE, rows, ImagingResult::getPatientSystemId);
+        return rows.stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
     private ImagingResultResponse mapToResponse(ImagingResult imagingResult) {

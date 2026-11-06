@@ -1,13 +1,12 @@
 import { api } from './auth.interceptor';
-import { clearAuth, saveTokens, saveUser } from './auth.storage';
-import type { AuthResponse, LoginPayload, RegisterPayload } from './auth.types';
+import { clearAuth, getRefreshToken, getUser, saveTokens, saveUser } from './auth.storage';
+import type { AuthResponse, AuthUser, LoginPayload, RegisterPayload } from './auth.types';
 
 const ROLE_MAP: Record<string, string> = {
   proxy:     'CAREGIVER',
   caregiver: 'CAREGIVER',
   patient:   'PATIENT',
   doctor:    'DOCTOR',
-  admin:     'ADMIN',
 };
 
 function resolveRole(role: string): string {
@@ -19,12 +18,14 @@ export function parseApiError(err: unknown, fallback: string): string {
   const raw: string = (err as any)?.response?.data?.message ?? '';
   if (!raw) return fallback;
   const lower = raw.toLowerCase();
-  if (lower.includes('email')) return 'An account with this email already exists.';
-  if (lower.includes('phone')) return 'An account with this phone number already exists.';
-  if (lower.includes('role') || lower.includes('check constraint')) return 'Invalid role selected. Please try again.';
-  if (lower.includes('password')) return 'Password does not meet requirements.';
+  // Clear, user-facing backend messages (e.g. pending clinician verification) pass through as-is.
+  if (lower.includes('pending verification')) return raw;
+  const duplicate = lower.includes('already registered') || lower.includes('already exists');
+  if (duplicate && lower.includes('email')) return 'An account with this email already exists.';
+  if (duplicate && lower.includes('phone')) return 'An account with this phone number already exists.';
+  if (lower.includes('check constraint')) return 'Invalid role selected. Please try again.';
   if (lower.includes('invalid credentials')) return 'Incorrect email or password.';
-  if (lower.includes('inactive')) return 'Your account has been deactivated. Please contact support.';
+  if (lower.includes('account is inactive')) return 'Your account has been deactivated. Please contact support.';
   if (lower.includes('refresh token')) return 'Your session has expired. Please log in again.';
   if (raw.length > 120) return fallback;
   return raw;
@@ -49,9 +50,11 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
   return data;
 }
 
+/** Revokes this device's refresh token server-side, then clears local auth. */
 export async function logout(): Promise<void> {
   try {
-    await api.post('/api/auth/logout');
+    const refreshToken = await getRefreshToken();
+    await api.post('/api/auth/logout', refreshToken ? { refreshToken } : {});
   } catch {
     // Server revocation is best-effort — always clear local tokens
   } finally {
@@ -59,7 +62,7 @@ export async function logout(): Promise<void> {
   }
 }
 
-export async function fetchCurrentUser(): Promise<AuthResponse['user']> {
-  const { data } = await api.get<AuthResponse['user']>('/api/auth/me');
-  return data;
+/** The signed-in user as returned at login/refresh (there is no /api/auth/me endpoint). */
+export async function getStoredUser(): Promise<AuthUser | null> {
+  return getUser();
 }

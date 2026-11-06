@@ -125,7 +125,7 @@ public class TestDataBuilder {
                 .patientSystemId(patientSystemId)
                 .caregiverSystemId(caregiverSystemId)
                 .authorizedBySystemId(authorizedBySystemId)
-                .accessLevel("FULL")
+                .accessLevel("FULL_ACCESS")
                 .authorizedDate(LocalDateTime.now())
                 .isActive(true)
                 .build();

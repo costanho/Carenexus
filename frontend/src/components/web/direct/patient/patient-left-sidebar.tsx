@@ -8,12 +8,13 @@ const TEAL_BG    = '#E8F5F4';
 const GRAY_LABEL = '#9CA3AF';
 const ICON_GRAY  = '#6B7280';
 const TEXT       = '#111827';
-const SUPPORT_BG = '#F3F4F6';
 const WHITE      = '#FFFFFF';
 const LOGOUT_RED = '#EF4444';
+const DISABLED_GRAY = '#D1D5DB';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type NavItem      = { key: string; label: string; icon: IoniconsName; active?: boolean };
+// `disabled` marks features that have no screen/backend yet: shown greyed out with a "Soon" pill, not navigable.
+type NavItem      = { key: string; label: string; icon: IoniconsName; active?: boolean; disabled?: boolean };
 type NavSection   = { title: string; items: NavItem[] };
 
 const sections: NavSection[] = [
@@ -27,7 +28,7 @@ const sections: NavSection[] = [
   {
     title: 'CONSULTATIONS',
     items: [
-      { key: 'join-consultation',    label: 'Join Consultation',    icon: 'videocam-outline' },
+      { key: 'join-consultation',    label: 'Join Consultation',    icon: 'videocam-outline', disabled: true },
       { key: 'consultation-history', label: 'Consultation History', icon: 'document-text-outline' },
     ],
   },
@@ -38,15 +39,15 @@ const sections: NavSection[] = [
       { key: 'prescriptions',   label: 'Prescriptions',   icon: 'medkit-outline' },
       { key: 'lab-results',     label: 'Lab Results',     icon: 'flask-outline' },
       { key: 'imaging-results', label: 'Imaging Results', icon: 'image-outline' },
-      { key: 'referrals',       label: 'Referrals',       icon: 'git-compare-outline' },
+      { key: 'referrals',       label: 'Referrals',       icon: 'git-compare-outline', disabled: true },
     ],
   },
   {
     title: 'CARE & SUPPORT',
     items: [
-      { key: 'my-proxies',    label: 'My Proxies (Caregivers)', icon: 'people-outline' },
-      { key: 'messages',      label: 'Messages',                icon: 'chatbubble-outline' },
-      { key: 'notifications', label: 'Notifications',           icon: 'notifications-outline' },
+      { key: 'my-proxies',    label: 'My Proxies (Caregivers)', icon: 'people-outline',        disabled: true },
+      { key: 'messages',      label: 'Messages',                icon: 'chatbubble-outline',    disabled: true },
+      { key: 'notifications', label: 'Notifications',           icon: 'notifications-outline', disabled: true },
     ],
   },
   {
@@ -62,16 +63,24 @@ function SidebarItem({
 }: {
   item: NavItem; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void;
 }) {
-  const color = isActive ? TEAL : ICON_GRAY;
+  const disabled = !!item.disabled;
+  const color = disabled ? DISABLED_GRAY : isActive ? TEAL : ICON_GRAY;
   return (
     <TouchableOpacity
       style={[styles.navItem, isActive && styles.navItemActive, collapsed && styles.navItemCollapsed]}
       activeOpacity={0.7}
-      onPress={() => onNavigate(item.key)}
+      onPress={disabled ? undefined : () => onNavigate(item.key)}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={disabled ? `${item.label} (coming soon)` : item.label}
+      accessibilityState={{ selected: isActive, disabled }}
     >
       <Ionicons name={item.icon} size={18} color={color} />
       {!collapsed && (
-        <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{item.label}</Text>
+        <Text style={[styles.navLabel, isActive && styles.navLabelActive, disabled && styles.navLabelDisabled]}>{item.label}</Text>
+      )}
+      {!collapsed && disabled && (
+        <View style={styles.soonPill}><Text style={styles.soonPillText}>Soon</Text></View>
       )}
     </TouchableOpacity>
   );
@@ -107,7 +116,7 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
           </View>
         )}
         {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close menu">
             <Ionicons name="close" size={20} color={ICON_GRAY} />
           </TouchableOpacity>
         )}
@@ -165,21 +174,6 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
           </View>
         ))}
 
-        {/* Support */}
-        {!collapsed ? (
-          <View style={styles.supportCard}>
-            <Ionicons name="headset-outline" size={28} color={TEAL} />
-            <View>
-              <Text style={styles.supportTitle}>Need Help?</Text>
-              <Text style={styles.supportSub}>Contact Support</Text>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.navItemCollapsed}>
-            <Ionicons name="headset-outline" size={20} color={TEAL} />
-          </TouchableOpacity>
-        )}
-
         <View style={{ height: 16 }} />
       </ScrollView>
 
@@ -191,6 +185,9 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading }}
         >
           <View style={styles.logoutIconWrap}>
             <Ionicons
@@ -265,13 +262,9 @@ const styles = StyleSheet.create({
   },
   sectionDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 8, marginHorizontal: 8 },
 
-  supportCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: SUPPORT_BG, borderRadius: 12, padding: 16,
-    marginTop: 20, marginHorizontal: 4,
-  },
-  supportTitle: { fontSize: 15, fontWeight: '700', color: TEAL },
-  supportSub:   { fontSize: 12, color: TEAL },
+  navLabelDisabled: { color: GRAY_LABEL },
+  soonPill:     { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  soonPillText: { fontSize: 10, fontWeight: '700', color: GRAY_LABEL, letterSpacing: 0.4 },
 
   logoutFooter: { paddingBottom: 16 },
   logoutBtn: {

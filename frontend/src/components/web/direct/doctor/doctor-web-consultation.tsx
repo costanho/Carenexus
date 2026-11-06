@@ -361,7 +361,7 @@ export default function DoctorWebConsultation() {
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={16} color={LGRAY} />
               </TouchableOpacity>
             )}

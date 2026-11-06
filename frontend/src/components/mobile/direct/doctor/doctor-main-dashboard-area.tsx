@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
+import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
+import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -11,6 +14,7 @@ const BLUE   = '#4F46E5';
 const GREEN  = '#10B981';
 const ORANGE = '#F59E0B';
 const RED    = '#EF4444';
+const PURPLE = '#8B5CF6';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,6 +24,40 @@ function useScale() {
   const sh = (n: number) => Math.round(n * (height / 844));
   return { s, sh, width };
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+}
+
+function formatDay(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function statusBadge(status: ScheduleEntry['status']) {
+  switch (status) {
+    case 'COMPLETED':   return { label: 'Completed',   color: GREEN,  bg: '#D1FAE5' };
+    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,    bg: '#FEE2E2' };
+    case 'NO_SHOW':     return { label: 'No Show',     color: ORANGE, bg: '#FEF3C7' };
+    case 'RESCHEDULED': return { label: 'Rescheduled', color: PURPLE, bg: '#F5F3FF' };
+    case 'IN_PROGRESS': return { label: 'In Progress', color: BLUE,   bg: '#EEF2FF' };
+    default:            return { label: 'Scheduled',   color: BLUE,   bg: '#EEF2FF' };
+  }
+}
+
+const TYPE_LABEL: Record<ScheduleEntry['type'], string> = { IN_PERSON: 'In person', VIDEO: 'Video', PHONE: 'Phone' };
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
@@ -31,7 +69,11 @@ type StatCardProps = {
 function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: StatCardProps) {
   const { s } = useScale();
   return (
-    <View style={[styles.statCard, { width: s(148), borderRadius: s(12), padding: s(14) }]}>
+    <View
+      style={[styles.statCard, { width: s(148), borderRadius: s(12), padding: s(14) }]}
+      accessible
+      accessibilityLabel={`${label}: ${value}. ${sub}`}
+    >
       <View style={[styles.statIconBg, { backgroundColor: iconBg, width: s(40), height: s(40), borderRadius: s(10), marginBottom: s(8) }]}>
         <Ionicons name={icon} size={s(20)} color={iconColor} />
       </View>
@@ -44,128 +86,94 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: Stat
 
 // ─── Appointment Row ──────────────────────────────────────────────────────────
 
-type ApptProps = {
-  time: string; name: string; type: string;
-  status: 'Confirmed' | 'Pending'; action: 'Join Call' | 'Start'; avatarId: number;
-};
-
-function AppointmentRow({ time, name, type, status, action, avatarId }: ApptProps) {
+function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: boolean }) {
   const { s } = useScale();
-  const isConfirmed = status === 'Confirmed';
-  const isJoin = action === 'Join Call';
+  const badge = statusBadge(entry.status);
   return (
     <View style={[styles.apptRow, { gap: s(8) }]}>
       <View style={{ width: s(62) }}>
-        <Text style={[styles.apptTime, { fontSize: s(11) }]}>{time}</Text>
-        <Text style={[styles.apptDur,  { fontSize: s(10) }]}>30 mins</Text>
+        <Text style={[styles.apptTime, { fontSize: s(11) }]}>
+          {showDay ? formatDay(entry.scheduled_at) : formatTime(entry.scheduled_at)}
+        </Text>
+        <Text style={[styles.apptDur,  { fontSize: s(10) }]}>
+          {showDay ? formatTime(entry.scheduled_at) : `${entry.duration_minutes} mins`}
+        </Text>
       </View>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }}
-        style={{ width: s(36), height: s(36), borderRadius: s(18), backgroundColor: BORDER }} />
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.apptName, { fontSize: s(13) }]} numberOfLines={1}>{name}</Text>
-        <Text style={[styles.apptType, { fontSize: s(11) }]} numberOfLines={1}>{type}</Text>
-      </View>
-      <View style={[styles.badge, { backgroundColor: isConfirmed ? '#D1FAE5' : '#FEF3C7', borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2) }]}>
-        <Text style={[styles.badgeText, { fontSize: s(10), color: isConfirmed ? GREEN : ORANGE }]}>{status}</Text>
-      </View>
-      <TouchableOpacity style={[styles.actionBtn, { borderColor: isJoin ? BLUE : BORDER, borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5) }]} activeOpacity={0.8}>
-        {isJoin && <Ionicons name="videocam-outline" size={s(12)} color={BLUE} style={{ marginRight: s(3) }} />}
-        <Text style={[styles.actionBtnText, { fontSize: s(11), color: isJoin ? BLUE : TEXT }]}>{action}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity activeOpacity={0.7}>
-        <Ionicons name="ellipsis-vertical" size={s(16)} color={GRAY} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// ─── Activity Row ─────────────────────────────────────────────────────────────
-
-type ActivityProps = {
-  icon: IoniconsName; iconBg: string; iconColor: string;
-  title: string; sub: string; time: string;
-};
-
-function ActivityRow({ icon, iconBg, iconColor, title, sub, time }: ActivityProps) {
-  const { s } = useScale();
-  return (
-    <View style={[styles.activityRow, { gap: s(10) }]}>
-      <View style={[styles.iconCircle, { backgroundColor: iconBg, width: s(34), height: s(34), borderRadius: s(17) }]}>
-        <Ionicons name={icon} size={s(15)} color={iconColor} />
+      <View style={[styles.avatar, { width: s(36), height: s(36), borderRadius: s(18), backgroundColor: avatarColor(entry.patient_name) }]}>
+        <Text style={[styles.avatarText, { fontSize: s(12) }]}>{initials(entry.patient_name)}</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.activityTitle, { fontSize: s(12) }]} numberOfLines={1}>{title}</Text>
-        <Text style={[styles.activitySub,   { fontSize: s(11) }]} numberOfLines={1}>{sub}</Text>
+        <Text style={[styles.apptName, { fontSize: s(13) }]} numberOfLines={1}>{entry.patient_name}</Text>
+        <Text style={[styles.apptType, { fontSize: s(11) }]} numberOfLines={1}>
+          {TYPE_LABEL[entry.type] ?? entry.type}{entry.reason_for_visit ? ` · ${entry.reason_for_visit}` : ''}
+        </Text>
       </View>
-      <Text style={[styles.activityTime, { fontSize: s(10) }]}>{time}</Text>
-    </View>
-  );
-}
-
-// ─── Task Row ─────────────────────────────────────────────────────────────────
-
-type TaskProps = { icon: IoniconsName; iconBg: string; iconColor: string; title: string; sub: string };
-
-function TaskRow({ icon, iconBg, iconColor, title, sub }: TaskProps) {
-  const { s } = useScale();
-  return (
-    <TouchableOpacity style={[styles.activityRow, { gap: s(10) }]} activeOpacity={0.7}>
-      <View style={[styles.iconCircle, { backgroundColor: iconBg, width: s(34), height: s(34), borderRadius: s(17) }]}>
-        <Ionicons name={icon} size={s(15)} color={iconColor} />
+      <View style={[styles.badge, { backgroundColor: badge.bg, borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2) }]}>
+        <Text style={[styles.badgeText, { fontSize: s(10), color: badge.color }]}>{badge.label}</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.activityTitle, { fontSize: s(13) }]}>{title}</Text>
-        <Text style={[styles.activitySub,   { fontSize: s(11) }]}>{sub}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={s(16)} color={GRAY} />
-    </TouchableOpacity>
-  );
-}
-
-// ─── Patient Mini Stat ────────────────────────────────────────────────────────
-
-type PatientStatProps = { label: string; value: string; growth: string; icon: IoniconsName; iconColor: string; bg: string };
-
-function PatientStatCard({ label, value, growth, icon, iconColor, bg }: PatientStatProps) {
-  const { s } = useScale();
-  return (
-    <View style={[styles.patientCard, { backgroundColor: bg, borderRadius: s(12), padding: s(12) }]}>
-      <Text style={[styles.activitySub,   { fontSize: s(11), marginBottom: s(6) }]}>{label}</Text>
-      <View style={styles.patientRow}>
-        <Text style={[styles.statValue, { fontSize: s(22) }]}>{value}</Text>
-        <Ionicons name={icon} size={s(22)} color={iconColor} />
-      </View>
-      <View style={[styles.activityRow, { gap: s(3), marginTop: s(4) }]}>
-        <Ionicons name="arrow-up-outline" size={s(11)} color={GREEN} />
-        <Text style={[styles.activitySub, { fontSize: s(10), color: GREEN }]}>{growth}</Text>
-      </View>
+      {canJoinCall(entry) && (
+        <TouchableOpacity
+          style={[styles.actionBtn, { borderColor: BLUE, borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(5) }]}
+          activeOpacity={0.8}
+          onPress={() => openVideoLink(entry)}
+          accessibilityRole="link"
+          accessibilityLabel={`Join video call with ${entry.patient_name}`}
+        >
+          <Ionicons name="videocam-outline" size={s(14)} color={BLUE} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 // ─── Card Wrapper ─────────────────────────────────────────────────────────────
 
-function Card({ title, action, s, children }: { title: string; action: string; s: (n: number) => number; children: React.ReactNode }) {
+function Card({ title, action, onAction, s, children }: {
+  title: string; action?: string; onAction?: () => void; s: (n: number) => number; children: React.ReactNode;
+}) {
   return (
     <View style={[styles.card, { borderRadius: s(16), padding: s(16), marginBottom: s(16) }]}>
       <View style={[styles.cardHeader, { marginBottom: s(14) }]}>
-        <Text style={[styles.cardTitle, { fontSize: s(15) }]}>{title}</Text>
-        <TouchableOpacity activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>{action}</Text>
-        </TouchableOpacity>
+        <Text style={[styles.cardTitle, { fontSize: s(15) }]} accessibilityRole="header">{title}</Text>
+        {!!action && !!onAction && (
+          <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button" accessibilityLabel={action}>
+            <Text style={[styles.cardAction, { fontSize: s(12) }]}>{action}</Text>
+          </TouchableOpacity>
+        )}
       </View>
       {children}
     </View>
   );
 }
 
+function EmptyLine({ icon, text, s }: { icon: IoniconsName; text: string; s: (n: number) => number }) {
+  return (
+    <View style={[styles.emptyLine, { gap: s(6), paddingVertical: s(16) }]}>
+      <Ionicons name={icon} size={s(26)} color={BORDER} />
+      <Text style={[styles.emptyText, { fontSize: s(12) }]}>{text}</Text>
+    </View>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function DoctorMainDashboardAreaMobile() {
+export function DoctorMainDashboardAreaMobile({ onNavigate }: { onNavigate?: (key: string) => void }) {
   const { s, sh } = useScale();
   const { user } = useCurrentUser();
-  const greeting = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
+  const { dashboard, loading, error, refetch } = useDoctorDashboard();
+
+  const first = dashboard?.first_name || user?.first_name || '';
+  const last  = dashboard?.last_name  || user?.last_name  || '';
+  const name  = first ? `Dr. ${first} ${last}`.trim() : 'Doctor';
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const todayEntries = dashboard?.today ?? [];
+  const upcoming     = dashboard?.upcoming ?? [];
+  const nowMs        = Date.now();
+  const stillToCome  = todayEntries.filter(e =>
+    (e.status === 'SCHEDULED' || e.status === 'RESCHEDULED') && new Date(e.scheduled_at).getTime() >= nowMs,
+  ).length;
+  const todayActive  = todayEntries.filter(e => e.status !== 'CANCELLED').length;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }} showsVerticalScrollIndicator={false}>
@@ -173,71 +181,66 @@ export function DoctorMainDashboardAreaMobile() {
       {/* Header */}
       <View style={[styles.header, { marginBottom: s(20) }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.greeting, { fontSize: s(18) }]}>Good morning, {greeting} 👋</Text>
-          <Text style={[styles.greetingSub, { fontSize: s(12), marginTop: s(2) }]}>Here's what's happening today.</Text>
+          <Text style={[styles.greeting, { fontSize: s(18) }]}>{greetingForHour()}, {name}</Text>
+          <Text style={[styles.greetingSub, { fontSize: s(12), marginTop: s(2) }]}>Here's your practice at a glance.</Text>
         </View>
-        <TouchableOpacity style={[styles.dateBtn, { gap: s(5), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6) }]} activeOpacity={0.8}>
+        <View style={[styles.dateBtn, { gap: s(5), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6) }]}>
           <Ionicons name="calendar-outline" size={s(13)} color={GRAY} />
           <Text style={[styles.dateText, { fontSize: s(11) }]}>{today}</Text>
-        </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Stat Cards — horizontal scroll */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(20) }} contentContainerStyle={{ gap: s(10), paddingRight: s(4) }}>
-        <StatCard icon="calendar-outline"  iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appts"       value="8" sub="3 upcoming"         subColor={BLUE}   />
-        <StatCard icon="videocam-outline"  iconBg="#D1FAE5" iconColor={GREEN}   label="Consultations"       value="5" sub="2 completed"         subColor={GREEN}  />
-        <StatCard icon="medkit-outline"    iconBg="#FEF3C7" iconColor={ORANGE}  label="Prescriptions"       value="6" sub="Today"               subColor={GRAY}   />
-        <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#3B82F6" label="New Patients"        value="3" sub="This week"            subColor={GRAY}   />
-        <StatCard icon="clipboard-outline" iconBg="#FEE2E2" iconColor={RED}     label="Pending Tasks"       value="7" sub="Requires attention"   subColor={RED}    />
-      </ScrollView>
-
-      {/* Today's Schedule */}
-      <Card title="Today's Schedule" action="View full schedule" s={s}>
-        <AppointmentRow time="09:00 AM" name="Sarah Johnson"   type="Follow-up Consultation"  status="Confirmed" action="Join Call" avatarId={47} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <AppointmentRow time="10:00 AM" name="Michael Brown"   type="Initial Consultation"    status="Confirmed" action="Join Call" avatarId={12} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <AppointmentRow time="11:30 AM" name="Esther Williams" type="Review Results"          status="Confirmed" action="Join Call" avatarId={32} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <AppointmentRow time="02:00 PM" name="David Thompson"  type="Follow-up Consultation"  status="Pending"   action="Start"    avatarId={15} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <AppointmentRow time="03:00 PM" name="Grace Mutasa"    type="Chronic Care Management" status="Confirmed" action="Start"    avatarId={56} />
-        <TouchableOpacity style={[styles.viewAll, { marginTop: s(14) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(13) }]}>View all appointments →</Text>
-        </TouchableOpacity>
-      </Card>
-
-      {/* Recent Activity */}
-      <Card title="Recent Activity" action="View all" s={s}>
-        <ActivityRow icon="chatbubble-outline"    iconBg="#EEF2FF" iconColor={BLUE}    title="New message from Sarah Johnson"         sub="Regarding lab results"            time="10 min ago" />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ActivityRow icon="flask-outline"         iconBg="#D1FAE5" iconColor={GREEN}   title="Lab results for Michael Brown"          sub="Blood Test Results"               time="45 min ago" />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ActivityRow icon="medkit-outline"        iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Grace Mutasa"    sub="Atorvastatin 20mg"               time="1 hr ago"   />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ActivityRow icon="calendar-outline"      iconBg="#EFF6FF" iconColor="#3B82F6" title="New appointment booked"                 sub="James Wilson — 24 May 2024"       time="2 hrs ago"  />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ActivityRow icon="document-text-outline" iconBg="#FEE2E2" iconColor={RED}     title="Referral from Esther Williams"          sub="Cardiology Consultation"          time="3 hrs ago"  />
-      </Card>
-
-      {/* Tasks & Reminders */}
-      <Card title="Tasks & Reminders" action="View all" s={s}>
-        <TaskRow icon="flask-outline"  iconBg="#D1FAE5" iconColor={GREEN}  title="Review lab results"      sub="3 pending" />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <TaskRow icon="people-outline" iconBg="#EEF2FF" iconColor={BLUE}   title="Follow up with patients" sub="5 pending" />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <TaskRow icon="medkit-outline" iconBg="#FEF3C7" iconColor={ORANGE} title="Pending prescriptions"   sub="2 pending" />
-      </Card>
-
-      {/* Patients Overview */}
-      <Card title="Patients Overview" action="View all patients" s={s}>
-        <View style={[styles.patientGrid, { gap: s(10) }]}>
-          <PatientStatCard label="Total Patients"  value="248" growth="12% this month" icon="people-outline"     iconColor={BLUE}    bg="#F5F3FF" />
-          <PatientStatCard label="Active Patients" value="186" growth="8% this month"  icon="people-outline"     iconColor={GREEN}   bg="#F0FDF4" />
-          <PatientStatCard label="Chronic Care"    value="72"  growth="15% this month" icon="heart-outline"      iconColor={ORANGE}  bg="#FFFBEB" />
-          <PatientStatCard label="New This Month"  value="24"  growth="20% this month" icon="person-add-outline" iconColor="#3B82F6" bg="#EFF6FF" />
+      {loading && !dashboard ? (
+        <View style={[styles.center, { paddingVertical: sh(48) }]}><ActivityIndicator size="large" color={BLUE} /></View>
+      ) : error && !dashboard ? (
+        <View style={[styles.center, { paddingVertical: sh(48), gap: s(10) }]}>
+          <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
+          <Text style={[styles.errorText, { fontSize: s(13) }]}>{error}</Text>
+          <TouchableOpacity
+            style={[styles.retryBtn, { borderRadius: s(8), paddingHorizontal: s(18), paddingVertical: s(9) }]}
+            onPress={refetch}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.retryText, { fontSize: s(13) }]}>Retry</Text>
+          </TouchableOpacity>
         </View>
-      </Card>
+      ) : (
+        <>
+          {/* Stat Cards — horizontal scroll */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(20) }} contentContainerStyle={{ gap: s(10), paddingRight: s(4) }}>
+            <StatCard icon="calendar-outline"          iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appts"   value={String(todayActive)}                              sub={`${stillToCome} still to come`} subColor={BLUE}   />
+            <StatCard icon="time-outline"              iconBg="#F5F3FF" iconColor={PURPLE}  label="Upcoming"        value={String(upcoming.length)}                          sub="Scheduled ahead"                subColor={GRAY}   />
+            <StatCard icon="checkmark-circle-outline"  iconBg="#D1FAE5" iconColor={GREEN}   label="Consultations"   value={String(dashboard?.completed_consultations ?? 0)}  sub="Completed"                      subColor={GREEN}  />
+            <StatCard icon="document-text-outline"     iconBg="#FEF3C7" iconColor={ORANGE}  label="Open Consults"   value={String(dashboard?.pending_consultations ?? 0)}    sub="Draft or in progress"           subColor={ORANGE} />
+            <StatCard icon="people-outline"            iconBg="#EFF6FF" iconColor="#3B82F6" label="My Patients"     value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="With appointments" subColor={GRAY} />
+          </ScrollView>
+
+          {/* Today's Schedule */}
+          <Card title="Today's Schedule" action="Full schedule" onAction={onNavigate && (() => onNavigate('schedule'))} s={s}>
+            {todayEntries.length === 0 ? (
+              <EmptyLine icon="calendar-clear-outline" text="No appointments today" s={s} />
+            ) : todayEntries.map((e, i) => (
+              <View key={e.appointment_id}>
+                {i > 0 && <View style={[styles.sep, { marginVertical: s(10) }]} />}
+                <AppointmentRow entry={e} />
+              </View>
+            ))}
+          </Card>
+
+          {/* Coming up */}
+          <Card title="Coming Up" action="Appointments" onAction={onNavigate && (() => onNavigate('appointments'))} s={s}>
+            {upcoming.length === 0 ? (
+              <EmptyLine icon="time-outline" text="No upcoming appointments" s={s} />
+            ) : upcoming.slice(0, 5).map((e, i) => (
+              <View key={e.appointment_id}>
+                {i > 0 && <View style={[styles.sep, { marginVertical: s(10) }]} />}
+                <AppointmentRow entry={e} showDay />
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
 
     </ScrollView>
   );
@@ -276,15 +279,14 @@ const styles = StyleSheet.create({
   badgeText:   { fontWeight: '600' },
   actionBtn:   { flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
   actionBtnText: { fontWeight: '500' },
-  viewAll:     { alignItems: 'center' },
+  avatar:      { alignItems: 'center', justifyContent: 'center' },
+  avatarText:  { color: WHITE, fontWeight: '700' },
 
-  activityRow:  { flexDirection: 'row', alignItems: 'center' },
-  iconCircle:   { alignItems: 'center', justifyContent: 'center' },
-  activityTitle:{ fontWeight: '600', color: TEXT },
-  activitySub:  { color: GRAY, marginTop: 1 },
-  activityTime: { color: GRAY },
+  center:      { alignItems: 'center', justifyContent: 'center' },
+  errorText:   { color: GRAY, textAlign: 'center' },
+  retryBtn:    { backgroundColor: BLUE },
+  retryText:   { color: WHITE, fontWeight: '600' },
+  emptyLine:   { alignItems: 'center' },
+  emptyText:   { color: GRAY },
 
-  patientGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  patientCard: {},
-  patientRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 });

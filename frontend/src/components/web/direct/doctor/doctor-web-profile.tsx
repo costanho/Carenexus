@@ -127,7 +127,7 @@ export default function DoctorWebProfile() {
           </View>
 
           {/* Refresh */}
-          <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Refresh">
             <Ionicons name="refresh-outline" size={15} color={WHITE} />
           </TouchableOpacity>
         </View>
@@ -204,7 +204,7 @@ export default function DoctorWebProfile() {
               <Text style={styles.cardTitle}>Account Details</Text>
             </View>
             <View style={{ gap: 4 }}>
-              <InfoRow icon="finger-print-outline" label="Doctor ID"  value={`#${profile.doctor_id}`} mono />
+              <InfoRow icon="finger-print-outline" label="Doctor ID"  value={profile.doctor_system_id} mono />
               <InfoRow icon="person-outline"       label="User ID"    value={`#${profile.user_id}`}   mono />
               <InfoRow icon="time-outline"         label="Joined"     value={formatDate(profile.created_at)} />
             </View>

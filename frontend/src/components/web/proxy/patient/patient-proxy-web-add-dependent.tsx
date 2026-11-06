@@ -5,7 +5,6 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { useCurrentUser } from '@/hooks/use-current-user';
 
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
@@ -58,9 +57,31 @@ interface AccessForm {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function generatePassword(firstName: string, lastName: string) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${firstName.charAt(0).toUpperCase()}${lastName.toLowerCase()}@${rand}`;
+// Temporary password: 12 random characters with at least one letter and one digit (backend rule:
+// at least 8 characters with a letter and a number).
+function generatePassword() {
+  const letters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ';
+  const digits  = '23456789';
+  const all     = letters + digits;
+  const pick = (set: string) => {
+    const buf = new Uint32Array(1);
+    if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(buf);
+    else buf[0] = Math.floor(Math.random() * 0xffffffff);
+    return set[buf[0] % set.length];
+  };
+  const chars = [pick(letters), pick(digits), ...Array.from({ length: 10 }, () => pick(all))];
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+// Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
+function isValidDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
 function permissionsForLevel(level: AccessLevel): Partial<AccessForm> {
@@ -223,12 +244,11 @@ export default function PatientProxyWebAddDependent({
   onDone:   () => void;
   onCancel: () => void;
 }) {
-  const { user } = useCurrentUser();
   const [step, setStep] = useState(0);
 
   const [personal, setPersonal] = useState<PersonalForm>({
     first_name: '', last_name: '', email: '', phone: '',
-    password: Math.random().toString(36).slice(2, 10) + 'A1!',
+    password: generatePassword(),
   });
   const [health, setHealth] = useState<HealthForm>({
     date_of_birth: '', gender: '', blood_type: '', health_status: 'STABLE',
@@ -267,11 +287,7 @@ export default function PatientProxyWebAddDependent({
   }
 
   function regeneratePassword() {
-    if (!personal.first_name && !personal.last_name) {
-      setP('password', Math.random().toString(36).slice(2, 10) + 'A1!');
-    } else {
-      setP('password', generatePassword(personal.first_name || 'user', personal.last_name || 'care'));
-    }
+    setP('password', generatePassword());
   }
 
   function copyPassword() {
@@ -289,6 +305,8 @@ export default function PatientProxyWebAddDependent({
     if (!personal.email.trim())      e.email      = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(personal.email)) e.email = 'Enter a valid email';
     if (!personal.phone.trim())      e.phone      = 'Phone number is required';
+    if (personal.password.length < 8 || !/[A-Za-z]/.test(personal.password) || !/\d/.test(personal.password))
+      e.password = 'Password must be at least 8 characters and contain a letter and a number';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -296,6 +314,7 @@ export default function PatientProxyWebAddDependent({
   function validateStep2() {
     const e: Record<string, string> = {};
     if (!health.date_of_birth) e.date_of_birth = 'Date of birth is required';
+    else if (!isValidDate(health.date_of_birth)) e.date_of_birth = 'Use the format YYYY-MM-DD';
     if (!health.gender)        e.gender        = 'Gender is required';
     if (!health.blood_type)    e.blood_type    = 'Blood type is required';
     setErrors(e);
@@ -305,6 +324,7 @@ export default function PatientProxyWebAddDependent({
   function validateStep3() {
     const e: Record<string, string> = {};
     if (!access.relationship.trim()) e.relationship = 'Relationship is required';
+    if (access.expires_at.trim() && !isValidDate(access.expires_at.trim())) e.expires_at = 'Use the format YYYY-MM-DD';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -317,60 +337,45 @@ export default function PatientProxyWebAddDependent({
 
   async function handleSubmit() {
     if (!validateStep3()) return;
-    if (!user) return;
     setSubmitting(true);
     setSubmitErr('');
 
     try {
-      // 1. Register user as PATIENT
-      const regRes = await api.post('/api/auth/register', {
-        firstName: personal.first_name.trim(),
-        lastName:  personal.last_name.trim(),
-        email:     personal.email.trim().toLowerCase(),
-        phone:     personal.phone.trim(),
-        password:  personal.password,
-        role:      'patient',
-      });
-      const newUserId = regRes.data.user.user_id;
+      // One atomic call: the backend creates the patient account, the health profile and this caregiver's
+      // access grant in a single transaction (nothing is created if any part fails). The caregiver is taken
+      // from the signed-in session, never from this body.
+      await api.post('/api/caregiver/dependents', {
+        firstName:   personal.first_name.trim(),
+        lastName:    personal.last_name.trim(),
+        email:       personal.email.trim().toLowerCase(),
+        phone:       personal.phone.trim(),
+        password:    personal.password,
 
-      // 2. Create patient health profile
-      const patRes = await api.post('/api/patients', {
-        user_id:            newUserId,
-        date_of_birth:      health.date_of_birth,
-        gender:             health.gender,
-        blood_type:         health.blood_type,
-        health_status:      health.health_status,
-        allergies:          health.allergies,
-        chronic_conditions: health.chronic_conditions,
-      });
-      const newPatientId = patRes.data.patient_id;
+        dateOfBirth:       health.date_of_birth,
+        gender:            health.gender || null,
+        bloodType:         health.blood_type || null,
+        healthStatus:      health.health_status,
+        allergies:         health.allergies,
+        chronicConditions: health.chronic_conditions,
 
-      // 3. Resolve caregiver_id for logged-in user
-      const cgRes    = await api.get(`/api/caregivers/user/${user.user_id}`);
-      const caregiverId = cgRes.data.caregiver_id;
-
-      // 4. Create dependent access record
-      await api.post('/api/dependent-access', {
-        caregiver_id:              caregiverId,
-        patient_id:                newPatientId,
-        relationship:              access.relationship.trim().toLowerCase(),
-        access_level:              access.access_level,
-        can_view_records:          access.can_view_records          ? 1 : 0,
-        can_view_appointments:     access.can_view_appointments     ? 1 : 0,
-        can_view_medications:      access.can_view_medications      ? 1 : 0,
-        can_view_lab_results:      access.can_view_lab_results      ? 1 : 0,
-        can_view_imaging:          access.can_view_imaging          ? 1 : 0,
-        can_message_care_team:     access.can_message_care_team     ? 1 : 0,
-        can_view_consultations:    access.can_view_consultations    ? 1 : 0,
-        can_schedule_appointments: access.can_schedule_appointments ? 1 : 0,
-        can_manage_care_plan:      access.can_manage_care_plan      ? 1 : 0,
-        authorized_by:             user.user_id,
-        expires_at:                access.expires_at.trim() || null,
+        relationship:            access.relationship.trim().toLowerCase(),
+        accessLevel:             access.access_level,
+        expiresAt:               access.expires_at.trim() || null,
+        canViewRecords:          access.can_view_records,
+        canViewAppointments:     access.can_view_appointments,
+        canViewMedications:      access.can_view_medications,
+        canViewLabResults:       access.can_view_lab_results,
+        canViewImaging:          access.can_view_imaging,
+        canMessageCareTeam:      access.can_message_care_team,
+        canViewConsultations:    access.can_view_consultations,
+        canScheduleAppointments: access.can_schedule_appointments,
+        canManageCarePlan:       access.can_manage_care_plan,
       });
 
       setSuccess(true);
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Something went wrong. Please try again.';
+      const msg = err?.response?.data?.message
+        ?? (err?.response ? 'Something went wrong. Please try again.' : 'Unable to reach the server. Please check your connection.');
       setSubmitErr(msg);
     } finally {
       setSubmitting(false);
@@ -398,10 +403,18 @@ export default function PatientProxyWebAddDependent({
             </View>
             <View style={styles.credRow}>
               <Text style={styles.credLabel}>Password</Text>
-              <Text style={styles.credValue}>{personal.password}</Text>
+              <TouchableOpacity
+                onPress={() => setPwVisible(v => !v)}
+                accessibilityRole="button"
+                accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              >
+                <Text style={styles.credValue}>{pwVisible ? personal.password : '••••••••••••'}</Text>
+                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={16} color={GRAY} />
+              </TouchableOpacity>
             </View>
             <Text style={styles.credNote}>
-              Please share these credentials securely with {personal.first_name}. They can change their password on first login.
+              Share these credentials with {personal.first_name} securely, in person or by phone. Do not send the password by email or SMS.
             </Text>
           </View>
 
@@ -461,6 +474,7 @@ export default function PatientProxyWebAddDependent({
                 value={personal.password}
                 onChange={v => setP('password', v)}
                 secureTextEntry={!pwVisible}
+                error={errors.password}
                 editable
               />
             </View>
@@ -475,7 +489,7 @@ export default function PatientProxyWebAddDependent({
               <Text style={styles.regenText}>Regenerate</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>This temporary password will be shared with the patient. They can change it after first login.</Text>
+          <Text style={styles.hint}>Share this temporary password securely with the patient.</Text>
         </View>
       )}
 
@@ -607,6 +621,7 @@ export default function PatientProxyWebAddDependent({
             value={access.expires_at}
             onChange={v => setA('expires_at', v)}
             placeholder="YYYY-MM-DD (leave blank for no expiry)"
+            error={errors.expires_at}
           />
           <Text style={styles.hint}>Leave blank if this proxy access should not expire.</Text>
         </View>

@@ -1,8 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import {
+  isForbidden,
+  NO_ACCESS_MESSAGE,
+  useCaregiverDependents,
+  type CaregiverDependent,
+} from '@/hooks/use-caregiver-dependents';
+import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -17,19 +23,42 @@ const RED    = '#EF4444';
 interface Prescription {
   prescription_id:      number;
   patientSystemId:      string;
-  doctor_id:            number;
   medication_name:      string;
-  generic_name:         string;
-  dosage:               string;
-  frequency:            string;
-  route:                string;
-  quantity:             string;
-  refills_allowed:      number;
-  special_instructions: string;
-  status:               'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'SUSPENDED';
-  prescribed_date:      string;
+  generic_name:         string | null;
+  dosage:               string | null;
+  frequency:            string | null;
+  route:                string | null;
+  quantity:             string | null;
+  refills_allowed:      number | null;
+  special_instructions: string | null;
+  status:               'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'SUSPENDED' | string;
+  prescribed_date:      string | null;
   expiry_date:          string | null;
-  doctor_name?:         string;
+}
+
+function mapPrescription(r: any): Prescription {
+  return {
+    prescription_id:      r.prescriptionId ?? 0,
+    patientSystemId:      r.patientSystemId ?? '',
+    medication_name:      r.medicationName ?? 'Medication',
+    generic_name:         r.genericName ?? null,
+    dosage:               r.dosage ?? null,
+    frequency:            r.frequency ?? null,
+    route:                r.route ?? null,
+    quantity:             r.quantity ?? null,
+    refills_allowed:      r.refillsAllowed ?? null,
+    special_instructions: r.specialInstructions ?? null,
+    status:               r.status ?? 'ACTIVE',
+    prescribed_date:      r.prescribedDate ?? null,
+    expiry_date:          r.expiryDate ?? null,
+  };
+}
+
+function formatDate(d: string | null) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function statusColor(s: string) {
@@ -39,7 +68,7 @@ function statusColor(s: string) {
   return { bg: '#FEE2E2', text: RED };
 }
 
-function routeIcon(route: string): React.ComponentProps<typeof Ionicons>['name'] {
+function routeIcon(route: string | null): React.ComponentProps<typeof Ionicons>['name'] {
   if (route === 'ORAL')      return 'tablet-portrait-outline';
   if (route === 'TOPICAL')   return 'hand-right-outline';
   if (route === 'INJECTION') return 'medical-outline';
@@ -59,7 +88,7 @@ function MedCard({ rx, dep }: { rx: Prescription; dep?: CaregiverDependent }) {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.medName}>{rx.medication_name}</Text>
-          <Text style={styles.medGeneric}>{rx.generic_name}</Text>
+          {rx.generic_name ? <Text style={styles.medGeneric}>{rx.generic_name}</Text> : null}
           <Text style={styles.medPatient}>{patientName}</Text>
         </View>
         <View style={[styles.badge, { backgroundColor: bg }]}>
@@ -70,32 +99,38 @@ function MedCard({ rx, dep }: { rx: Prescription; dep?: CaregiverDependent }) {
       <View style={styles.detailGrid}>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Dosage</Text>
-          <Text style={styles.detailValue}>{rx.dosage}</Text>
+          <Text style={styles.detailValue}>{rx.dosage ?? '—'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Frequency</Text>
-          <Text style={styles.detailValue}>{rx.frequency}</Text>
+          <Text style={styles.detailValue}>{rx.frequency ?? '—'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Route</Text>
-          <Text style={styles.detailValue}>{rx.route}</Text>
+          <Text style={styles.detailValue}>{rx.route ?? '—'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Quantity</Text>
-          <Text style={styles.detailValue}>{rx.quantity}</Text>
+          <Text style={styles.detailValue}>{rx.quantity ?? '—'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Refills</Text>
-          <Text style={styles.detailValue}>{rx.refills_allowed}</Text>
+          <Text style={styles.detailValue}>{rx.refills_allowed ?? '—'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Prescribed</Text>
-          <Text style={styles.detailValue}>{new Date(rx.prescribed_date).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+          <Text style={styles.detailValue}>{formatDate(rx.prescribed_date)}</Text>
         </View>
       </View>
 
-      {rx.special_instructions && (
-        <TouchableOpacity onPress={() => setExpanded(e => !e)} activeOpacity={0.7}>
+      {!!rx.special_instructions && (
+        <TouchableOpacity
+          onPress={() => setExpanded(e => !e)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Special instructions"
+          accessibilityState={{ expanded }}
+        >
           <View style={styles.instructionHeader}>
             <Ionicons name="information-circle-outline" size={15} color={PURPLE} />
             <Text style={styles.instructionToggle}>Special Instructions</Text>
@@ -115,24 +150,47 @@ function MedCard({ rx, dep }: { rx: Prescription; dep?: CaregiverDependent }) {
 type Filter = 'all' | 'ACTIVE' | 'COMPLETED';
 
 export default function PatientProxyMedications() {
-  const { dependents, loading: depsLoading } = useCaregiverDependents();
+  const { dependents, loading: depsLoading, error: depsError, refetch: refetchDeps } = useCaregiverDependents();
   const [prescriptions, setPrescriptions]   = useState<Prescription[]>([]);
   const [loading, setLoading]               = useState(false);
+  const [error,   setError]                 = useState<string | null>(null);
+  const [denied,  setDenied]                = useState<string[]>([]);
   const [filter,  setFilter]                = useState<Filter>('all');
+  const [tick,    setTick]                  = useState(0);
 
   const depMap = new Map(dependents.map(d => [d.patientSystemId, d]));
+  const depKey = dependents.map(d => `${d.patientSystemId}:${d.canViewMedications ? 1 : 0}`).join(',');
 
   useEffect(() => {
-    if (dependents.length === 0) return;
+    if (dependents.length === 0) { setPrescriptions([]); setDenied([]); return; }
+    let cancelled = false;
+    const allowed  = dependents.filter(d => d.canViewMedications);
+    const noAccess = dependents.filter(d => !d.canViewMedications).map(d => d.patientName ?? 'a linked patient');
     setLoading(true);
-    Promise.all(
-      dependents.map(d =>
-        api.get<Prescription[]>(`/api/prescriptions/patient/${d.patientSystemId}`).then(r => r.data)
+    setError(null);
+    Promise.allSettled(
+      allowed.map(d =>
+        api.get<any[]>(`/api/prescriptions/patient/${d.patientSystemId}`)
+          .then(r => (Array.isArray(r.data) ? r.data : []).map(mapPrescription))
       )
     )
-      .then(results => setPrescriptions(results.flat()))
-      .finally(() => setLoading(false));
-  }, [dependents.length]);
+      .then(settled => {
+        if (cancelled) return;
+        const all: Prescription[] = [];
+        const forbidden = [...noAccess];
+        let failed = 0;
+        settled.forEach((res, i) => {
+          if (res.status === 'fulfilled') all.push(...res.value);
+          else if (isForbidden(res.reason)) forbidden.push(allowed[i].patientName ?? 'a linked patient');
+          else failed++;
+        });
+        setPrescriptions(all);
+        setDenied(forbidden);
+        setError(failed > 0 ? 'Some prescriptions could not be loaded.' : null);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [depKey, tick]);
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all',       label: 'All' },
@@ -140,53 +198,81 @@ export default function PatientProxyMedications() {
     { key: 'COMPLETED', label: 'Completed' },
   ];
 
-  const visible  = filter === 'all' ? prescriptions : prescriptions.filter(r => r.status === filter);
-  const active   = prescriptions.filter(r => r.status === 'ACTIVE').length;
-  const total    = prescriptions.length;
+  const visible   = filter === 'all' ? prescriptions : prescriptions.filter(r => r.status === filter);
+  const active    = prescriptions.filter(r => r.status === 'ACTIVE').length;
+  const total     = prescriptions.length;
+  const allDenied = dependents.length > 0 && denied.length === dependents.length;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Medications</Text>
-          <Text style={styles.pageSub}>Prescriptions for all linked patients</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Medications</Text>
+          <Text style={styles.pageSub}>Prescriptions for your linked patients</Text>
         </View>
       </View>
 
-      <View style={styles.statsRow}>
-        {[
-          { label: 'Total',  value: total,  bg: '#F5F3FF', color: PURPLE },
-          { label: 'Active', value: active, bg: '#D1FAE5', color: GREEN  },
-        ].map(s => (
-          <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
-            <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.filterRow}>
-        {filters.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
-            activeOpacity={0.7}
-            onPress={() => setFilter(f.key)}
-          >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {depsLoading || loading ? (
-        <ActivityIndicator size="large" color={PURPLE} style={{ marginTop: 60 }} />
-      ) : visible.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="medical-outline" size={40} color={BORDER} />
-          <Text style={styles.emptyText}>No prescriptions found</Text>
-        </View>
+      {depsLoading ? (
+        <LoadingState label="Loading linked patients" />
+      ) : depsError ? (
+        <ErrorState message={depsError} onRetry={refetchDeps} />
+      ) : dependents.length === 0 ? (
+        <EmptyState icon="people-outline" title="No linked patients yet" />
+      ) : allDenied ? (
+        <ErrorState message={NO_ACCESS_MESSAGE} />
       ) : (
-        visible.map(rx => <MedCard key={rx.prescription_id} rx={rx} dep={depMap.get(rx.patientSystemId)} />)
+        <>
+          <View style={styles.statsRow}>
+            {[
+              { label: 'Total',  value: total,  bg: '#F5F3FF', color: PURPLE },
+              { label: 'Active', value: active, bg: '#D1FAE5', color: GREEN  },
+            ].map(s => (
+              <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
+                <Text style={[styles.statVal, { color: s.color }]}>{loading ? '…' : s.value}</Text>
+                <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.filterRow}>
+            {filters.map(f => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+                activeOpacity={0.7}
+                onPress={() => setFilter(f.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: filter === f.key }}
+              >
+                <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {denied.length > 0 && (
+            <View style={styles.noticeBanner}>
+              <Ionicons name="lock-closed-outline" size={14} color={ORANGE} importantForAccessibility="no" />
+              <Text style={styles.noticeText}>
+                You don't have access to medications for {denied.join(', ')}.
+              </Text>
+            </View>
+          )}
+
+          {loading ? (
+            <LoadingState label="Loading prescriptions" />
+          ) : error && prescriptions.length === 0 ? (
+            <ErrorState message={error} onRetry={() => setTick(t => t + 1)} />
+          ) : (
+            <>
+              {error && <ErrorState compact message={error} onRetry={() => setTick(t => t + 1)} />}
+              {visible.length === 0 ? (
+                <EmptyState icon="medical-outline" title="No prescriptions found" />
+              ) : (
+                visible.map(rx => <MedCard key={`${rx.patientSystemId}-${rx.prescription_id}`} rx={rx} dep={depMap.get(rx.patientSystemId)} />)
+              )}
+            </>
+          )}
+        </>
       )}
     </ScrollView>
   );
@@ -232,6 +318,6 @@ const styles = StyleSheet.create({
   instructions:      { backgroundColor: '#F5F3FF', borderRadius: 8, padding: 12, marginTop: 8 },
   instructionText:   { fontSize: 12, color: TEXT, lineHeight: 20 },
 
-  empty:     { alignItems: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: GRAY },
+  noticeBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFBEB', borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', padding: 12 },
+  noticeText:   { fontSize: 12, color: TEXT, flex: 1 },
 });

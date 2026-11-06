@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { api } from '@/lib/auth/auth.interceptor';
+import {
+  caregiverErrorMessage,
+  parseList,
+  useCaregiverDependents,
+  type CaregiverDependent,
+} from '@/hooks/use-caregiver-dependents';
+import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -12,8 +20,6 @@ const PURPLE_BG = '#F5F3FF';
 const GREEN  = '#10B981';
 const ORANGE = '#F59E0B';
 const RED    = '#EF4444';
-
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
 function avatarColor(name: string) {
@@ -35,57 +41,44 @@ function healthColor(s: string | null) {
   return { color: GRAY, bg: '#F3F4F6' };
 }
 
-// Static enrichment per patient (supplemental data not in dependent_access)
-const PATIENT_EXTRAS: Record<string, {
-  conditions: string[];
-  vitals: { label: string; value: string; unit: string; icon: IoniconsName; alert?: boolean }[];
-  allergies: string[];
-  immunizations: { name: string; date: string; status: 'DONE' | 'DUE' }[];
-  emergency: { name: string; relation: string; phone: string };
-}> = {
-  3: {
-    conditions: ['Hypertension (Stage 2)', 'Type 2 Diabetes Mellitus'],
-    vitals: [
-      { label: 'Blood Pressure', value: '148/92', unit: 'mmHg', icon: 'pulse-outline',       alert: true  },
-      { label: 'Heart Rate',     value: '78',     unit: 'bpm',  icon: 'heart-outline',        alert: false },
-      { label: 'Blood Glucose',  value: '9.4',    unit: 'mmol/L', icon: 'water-outline',      alert: true  },
-      { label: 'Weight',         value: '84',     unit: 'kg',   icon: 'scale-outline',        alert: false },
-      { label: 'Temperature',    value: '36.8',   unit: '°C',   icon: 'thermometer-outline',  alert: false },
-      { label: 'SpO₂',          value: '97',     unit: '%',    icon: 'medical-outline',      alert: false },
-    ],
-    allergies: ['Penicillin (rash)', 'Sulfonamides (angioedema)'],
-    immunizations: [
-      { name: 'Influenza (Flu)',    date: 'Mar 2026', status: 'DONE' },
-      { name: 'COVID-19 Booster',  date: 'Jan 2026', status: 'DONE' },
-      { name: 'Pneumococcal (PCV)',date: 'Due Aug 2026', status: 'DUE'  },
-    ],
-    emergency: { name: 'Sarah Dube (Daughter)', relation: 'Daughter', phone: '+263 773 456 789' },
-  },
-  4: {
-    conditions: ['Chronic Kidney Disease (Stage 3b)', 'Osteoarthritis — Bilateral Knees'],
-    vitals: [
-      { label: 'Blood Pressure', value: '152/94', unit: 'mmHg', icon: 'pulse-outline',      alert: true  },
-      { label: 'Heart Rate',     value: '82',     unit: 'bpm',  icon: 'heart-outline',      alert: false },
-      { label: 'eGFR',          value: '32',     unit: 'mL/min/1.73m²', icon: 'flask-outline', alert: true },
-      { label: 'Weight',        value: '61',     unit: 'kg',   icon: 'scale-outline',      alert: false },
-      { label: 'Temperature',   value: '37.1',   unit: '°C',   icon: 'thermometer-outline',alert: false },
-      { label: 'SpO₂',         value: '96',     unit: '%',    icon: 'medical-outline',    alert: false },
-    ],
-    allergies: ['NSAIDs (contraindicated — CKD)', 'Contrast dye (renal impairment)'],
-    immunizations: [
-      { name: 'Influenza (Flu)',   date: 'Apr 2026', status: 'DONE' },
-      { name: 'Pneumococcal',     date: 'Feb 2026', status: 'DONE' },
-      { name: 'Hepatitis B',      date: 'Due Sep 2026', status: 'DUE' },
-    ],
-    emergency: { name: 'Sarah Dube (Guardian)', relation: 'Guardian', phone: '+263 773 456 789' },
-  },
-};
+interface ProfileExtras {
+  allergies:         string[];
+  conditions:        string[];
+  emergencyContacts: { contactId: number; name: string; relationship: string | null; phone: string | null; isPrimary: boolean | null }[];
+}
+
+function usePatientExtras(patientSystemId: string) {
+  const [extras,  setExtras]  = useState<ProfileExtras | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [tick,    setTick]    = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.get<any>(`/api/profile/user/${patientSystemId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setExtras({
+          allergies:         parseList(data?.allergies),
+          conditions:        parseList(data?.chronicConditions),
+          emergencyContacts: Array.isArray(data?.emergencyContacts) ? data.emergencyContacts : [],
+        });
+        setError(null);
+      })
+      .catch(err => { if (!cancelled) setError(caregiverErrorMessage(err, 'Could not load the health profile.')); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [patientSystemId, tick]);
+
+  return { extras, loading, error, refetch: () => setTick(t => t + 1) };
+}
 
 function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
   const name   = dep.patientName ?? 'Unknown';
   const age    = calcAge(dep.patientDateOfBirth);
   const { color, bg } = healthColor(dep.patientHealthStatus);
-  const extras = PATIENT_EXTRAS[dep.patientSystemId];
+  const { extras, loading, error, refetch } = usePatientExtras(dep.patientSystemId);
 
   return (
     <View style={styles.card}>
@@ -100,18 +93,13 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.patName}>{name}</Text>
           <View style={styles.patMetaRow}>
-            {age && <Text style={styles.patMeta}>{age} yrs</Text>}
+            {age !== null && <Text style={styles.patMeta}>{age} yrs</Text>}
             {dep.patientGender && <Text style={styles.patMeta}>{dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()}</Text>}
             {dep.patientBloodType && (
               <View style={styles.bloodType}>
                 <Text style={styles.bloodText}>{dep.patientBloodType}</Text>
               </View>
             )}
-          </View>
-          <View style={styles.condRow}>
-            {extras?.conditions.map(c => (
-              <View key={c} style={styles.condTag}><Text style={styles.condText}>{c}</Text></View>
-            ))}
           </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: bg }]}>
@@ -121,89 +109,91 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         </View>
       </View>
 
-      {/* Vitals */}
-      {extras && (
+      {/* Vitals: no vitals store exists yet */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Latest Vitals</Text>
+        <Text style={styles.noneText}>No vitals recorded</Text>
+      </View>
+
+      {loading ? (
+        <LoadingState compact label="Loading health profile" />
+      ) : error ? (
+        <ErrorState compact message={error} onRetry={refetch} />
+      ) : extras ? (
         <>
+          {/* Conditions */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Latest Vitals</Text>
-            <View style={styles.vitalsGrid}>
-              {extras.vitals.map(v => (
-                <View key={v.label} style={[styles.vitalCard, v.alert && styles.vitalAlert]}>
-                  <Ionicons name={v.icon} size={16} color={v.alert ? RED : PURPLE} />
-                  <Text style={styles.vitalLabel}>{v.label}</Text>
-                  <Text style={[styles.vitalValue, v.alert && { color: RED }]}>
-                    {v.value} <Text style={styles.vitalUnit}>{v.unit}</Text>
-                  </Text>
-                </View>
-              ))}
-            </View>
+            <Text style={styles.sectionTitle}>Chronic Conditions</Text>
+            {extras.conditions.length === 0 ? (
+              <Text style={styles.noneText}>None recorded</Text>
+            ) : (
+              <View style={styles.condRow}>
+                {extras.conditions.map(c => (
+                  <View key={c} style={styles.condTag}><Text style={styles.condText}>{c}</Text></View>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* Allergies */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Allergies & Contraindications</Text>
-            <View style={{ gap: 6 }}>
-              {extras.allergies.map(a => (
-                <View key={a} style={styles.allergyRow}>
-                  <Ionicons name="warning-outline" size={14} color={RED} />
-                  <Text style={styles.allergyText}>{a}</Text>
-                </View>
-              ))}
-            </View>
+            {extras.allergies.length === 0 ? (
+              <Text style={styles.noneText}>None recorded</Text>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {extras.allergies.map(a => (
+                  <View key={a} style={styles.allergyRow}>
+                    <Ionicons name="warning-outline" size={14} color={RED} importantForAccessibility="no" />
+                    <Text style={styles.allergyText}>{a}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
-          {/* Immunizations */}
+          {/* Emergency contacts */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Immunizations</Text>
-            <View style={{ gap: 8 }}>
-              {extras.immunizations.map(im => (
-                <View key={im.name} style={styles.immunRow}>
-                  <Ionicons
-                    name={im.status === 'DONE' ? 'checkmark-circle' : 'alert-circle-outline'}
-                    size={16}
-                    color={im.status === 'DONE' ? GREEN : ORANGE}
-                  />
-                  <Text style={styles.immunName}>{im.name}</Text>
-                  <Text style={[styles.immunDate, im.status === 'DUE' && { color: ORANGE, fontWeight: '600' }]}>
-                    {im.date}
-                  </Text>
+            <Text style={styles.sectionTitle}>Emergency Contacts</Text>
+            {extras.emergencyContacts.length === 0 ? (
+              <Text style={styles.noneText}>None recorded</Text>
+            ) : (
+              extras.emergencyContacts.map(ec => (
+                <View key={ec.contactId} style={styles.emergencyCard}>
+                  <Ionicons name="call-outline" size={18} color={RED} importantForAccessibility="no" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emergencyTitle}>{ec.isPrimary ? 'Primary contact' : 'Contact'}</Text>
+                    <Text style={styles.emergencyName}>
+                      {ec.name}{ec.relationship ? ` (${ec.relationship})` : ''}
+                    </Text>
+                    {ec.phone ? <Text style={styles.emergencyPhone}>{ec.phone}</Text> : null}
+                  </View>
                 </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Emergency contact */}
-          <View style={[styles.emergencyCard]}>
-            <Ionicons name="call-outline" size={18} color={RED} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.emergencyTitle}>Emergency Contact</Text>
-              <Text style={styles.emergencyName}>{extras.emergency.name}</Text>
-              <Text style={styles.emergencyPhone}>{extras.emergency.phone}</Text>
-            </View>
+              ))
+            )}
           </View>
         </>
-      )}
+      ) : null}
     </View>
   );
 }
 
 export default function PatientProxyHealthSummary() {
-  const { dependents, loading } = useCaregiverDependents();
+  const { dependents, loading, error, refetch } = useCaregiverDependents();
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Health Summary</Text>
-        <Text style={styles.pageSub}>Complete health overview for all linked patients</Text>
+        <Text style={styles.pageTitle} accessibilityRole="header">Health Summary</Text>
+        <Text style={styles.pageSub}>Health overview for your linked patients</Text>
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color={PURPLE} style={{ marginTop: 60 }} />
+        <LoadingState label="Loading linked patients" />
+      ) : error ? (
+        <ErrorState message={error} onRetry={refetch} />
       ) : dependents.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="heart-outline" size={40} color={BORDER} />
-          <Text style={styles.emptyText}>No linked patients</Text>
-        </View>
+        <EmptyState icon="heart-outline" title="No linked patients" />
       ) : (
         dependents.map(dep => <PatientHealthCard key={dep.accessId} dep={dep} />)
       )}
@@ -235,27 +225,17 @@ const styles = StyleSheet.create({
   statusText:  { fontSize: 12, fontWeight: '700' },
 
   section:      { gap: 10 },
+  noneText:     { fontSize: 13, color: GRAY },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: TEXT, borderBottomWidth: 1, borderBottomColor: BORDER, paddingBottom: 8 },
 
-  vitalsGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  vitalCard:   { backgroundColor: PURPLE_BG, borderRadius: 10, padding: 12, minWidth: 120, flex: 1, gap: 4, alignItems: 'flex-start' },
-  vitalAlert:  { backgroundColor: '#FEE2E2' },
-  vitalLabel:  { fontSize: 11, color: GRAY },
-  vitalValue:  { fontSize: 18, fontWeight: '700', color: TEXT },
-  vitalUnit:   { fontSize: 11, fontWeight: '400', color: GRAY },
 
   allergyRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF2F2', borderRadius: 8, padding: 10 },
   allergyText: { fontSize: 13, color: TEXT, flex: 1 },
 
-  immunRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  immunName:  { fontSize: 13, color: TEXT, flex: 1 },
-  immunDate:  { fontSize: 12, color: GRAY },
 
   emergencyCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FEF2F2', borderRadius: 10, borderWidth: 1, borderColor: '#FECACA', padding: 14 },
   emergencyTitle:{ fontSize: 11, fontWeight: '600', color: RED, marginBottom: 2 },
   emergencyName: { fontSize: 14, fontWeight: '700', color: TEXT },
   emergencyPhone:{ fontSize: 13, color: GRAY, marginTop: 2 },
 
-  empty:     { alignItems: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: GRAY },
 });

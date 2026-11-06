@@ -11,20 +11,10 @@ const RED   = '#EF4444';
 interface Props {
   showMenuButton?: boolean;
   onMenuPress?: () => void;
+  onProfilePress?: () => void;
 }
 
-function BellIcon({ count }: { count: number }) {
-  return (
-    <View style={styles.bellWrapper}>
-      <Ionicons name="notifications-outline" size={22} color={GRAY} />
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>{count}</Text>
-      </View>
-    </View>
-  );
-}
-
-export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
+export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }: Props) {
   const { width } = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
@@ -38,7 +28,13 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
     <View style={styles.navbar}>
       <View style={styles.left}>
         {showMenuButton && (
-          <TouchableOpacity onPress={onMenuPress} style={styles.menuBtn} activeOpacity={0.7}>
+          <TouchableOpacity
+            onPress={onMenuPress}
+            style={styles.menuBtn}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+          >
             <Ionicons name="menu-outline" size={26} color={TEXT} />
           </TouchableOpacity>
         )}
@@ -51,12 +47,15 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
       </View>
 
       <View style={styles.right}>
-        <BellIcon count={3} />
-        {!isSmall && <BellIcon count={2} />}
-        <View style={styles.divider} />
-
         {/* Profile */}
-        <TouchableOpacity style={styles.userRow} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.userRow}
+          activeOpacity={0.7}
+          onPress={onProfilePress}
+          disabled={!onProfilePress}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile and settings"
+        >
           {avatarUri ? (
             <Image source={{ uri: avatarUri }} style={styles.avatar} />
           ) : (
@@ -64,8 +63,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
               <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>
             </View>
           )}
-          {!isSmall && fullName && <Text style={styles.userName}>{fullName}</Text>}
-          <Ionicons name="chevron-down" size={16} color={GRAY} />
+          {!isSmall && !!fullName && <Text style={styles.userName}>{fullName}</Text>}
         </TouchableOpacity>
 
         <View style={styles.divider} />
@@ -76,6 +74,9 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading }}
         >
           <Ionicons
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
@@ -126,30 +127,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  bellWrapper: {
-    position: 'relative',
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: RED,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    color: WHITE,
-    fontSize: 10,
-    fontWeight: '700',
   },
   divider: {
     width: 1,

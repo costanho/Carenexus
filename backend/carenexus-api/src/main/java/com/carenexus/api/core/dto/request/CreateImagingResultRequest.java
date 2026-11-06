@@ -15,6 +15,7 @@ public class CreateImagingResultRequest {
     @JsonProperty("patientSystemId")
     private String patientSystemId;
 
+    /** Ignored by the server: the author doctor is always the authenticated caller. Kept for compatibility. */
     @JsonProperty("doctorSystemId")
     private String doctorSystemId;
 
@@ -48,6 +49,7 @@ public class CreateImagingResultRequest {
     @JsonProperty("imageDate")
     private LocalDate imageDate;
 
+    /** Ignored by the server: reviews are recorded via POST /{id}/review as the authenticated doctor. */
     @JsonProperty("reviewedBy")
     private String reviewedBy;
 }

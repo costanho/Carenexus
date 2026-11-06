@@ -107,7 +107,7 @@ export function PatientMobileProfile() {
       {/* Teal header */}
       <View style={[styles.header, { paddingTop: headerPadTop, paddingBottom: sh(80), paddingHorizontal: s(20) }]}>
         <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Profile &amp; Settings</Text>
-        <TouchableOpacity onPress={refetch} style={[styles.headerRefresh, { padding: s(8) }]}>
+        <TouchableOpacity onPress={refetch} style={[styles.headerRefresh, { padding: s(8) }]} accessibilityRole="button" accessibilityLabel="Refresh">
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
       </View>

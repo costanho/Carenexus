@@ -23,10 +23,12 @@ interface State {
   error:   string | null;
 }
 
-export function useDoctors() {
+export function useDoctors(): State & { refetch: () => void } {
   const [state, setState] = useState<State>({ doctors: [], loading: true, error: null });
+  const [tick, setTick]   = useState(0);
 
   useEffect(() => {
+    setState(prev => ({ ...prev, loading: true, error: null }));
     api.get<any[]>('/api/doctors/profile/list/active')
       .then(({ data }) => {
         const doctors: Doctor[] = data.map((d: any) => {
@@ -54,7 +56,7 @@ export function useDoctors() {
         console.error('useDoctors error:', err?.response?.status, err?.response?.data ?? err?.message);
         setState({ doctors: [], loading: false, error: 'Failed to load doctors.' });
       });
-  }, []);
+  }, [tick]);
 
-  return state;
+  return { ...state, refetch: () => setTick(t => t + 1) };
 }

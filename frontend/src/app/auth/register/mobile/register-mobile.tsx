@@ -17,6 +17,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PhoneInput } from '@/components/shared/phone-input';
 import { parseApiError, register } from '@/lib/auth/auth.service';
+import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { registerSchema } from '@/lib/validation/register/register.schema';
 import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '@/lib/validation/register/register.types';
 import { getPasswordStrength } from '@/lib/validation/register/register.validators';
@@ -56,7 +58,7 @@ export default function RegisterMobile() {
     setAuthError('');
     setLoading(true);
     try {
-      await register({
+      const res = await register({
         firstName: data.firstName,
         lastName:  data.lastName,
         email:     data.email,
@@ -64,6 +66,13 @@ export default function RegisterMobile() {
         password:  data.password,
         role,
       });
+      if (res.tokens && res.user && ROLE_HOME[res.user.role]) {
+        // Signed in straight away
+        router.replace(ROLE_HOME[res.user.role] as any);
+        return;
+      }
+      // No session issued (e.g. clinician accounts pending verification): show the server's message.
+      showMessage('Account created', res.message ?? 'Your account has been created. Please sign in.');
       router.replace('/auth/login/mobile/login-mobile');
     } catch (err) {
       setAuthError(parseApiError(err, 'Registration failed. Please try again.'));
@@ -225,7 +234,7 @@ export default function RegisterMobile() {
             <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
               value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
               rightEl={
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPass ? 'Hide password' : 'Show password'} onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={s(16)} color={GRAY} />
                 </TouchableOpacity>
               }
@@ -246,7 +255,7 @@ export default function RegisterMobile() {
             <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter password"
               value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
               rightEl={
-                <TouchableOpacity onPress={() => setShowConf(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showConf ? 'Hide password confirmation' : 'Show password confirmation'} onPress={() => setShowConf(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
                   <Ionicons name={showConf ? 'eye-off-outline' : 'eye-outline'} size={s(16)} color={GRAY} />
                 </TouchableOpacity>
               }

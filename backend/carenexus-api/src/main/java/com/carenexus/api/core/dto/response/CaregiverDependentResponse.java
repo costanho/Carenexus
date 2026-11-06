@@ -70,7 +70,15 @@ public class CaregiverDependentResponse {
     @JsonProperty("revokedAt")
     private LocalDateTime revokedAt;
 
-    // Enriched patient fields
+    // Enriched caregiver fields (filled for the patient-side view, GET /api/patients/me/caregivers)
+    @JsonProperty("caregiverName")
+    private String caregiverName;
+
+    @JsonProperty("caregiverEmail")
+    private String caregiverEmail;
+
+    // Enriched patient fields (date of birth, blood type and health status are only filled when the
+    // grant allows viewing records)
     @JsonProperty("patientName")
     private String patientName;
 

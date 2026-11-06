@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const NAVY   = '#0D1B2E';
@@ -39,6 +40,7 @@ function statusConfig(st: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show'     };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled' };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress' };
+    default:            return { bg: BG,        color: GRAY,  label: String(st)    };
   }
 }
 
@@ -47,6 +49,7 @@ function typeConfig(t: ScheduleEntry['type']) {
     case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
     case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG        };
   }
 }
 
@@ -82,6 +85,7 @@ function consultLabel(c: ScheduleEntry['consultation']) {
   if (!c) return 'No consultation';
   if (c.status === 'DRAFT')       return 'Draft';
   if (c.status === 'IN_PROGRESS') return 'In Progress';
+  if (c.status === 'CANCELLED')   return 'Cancelled';
   return 'Completed';
 }
 
@@ -163,6 +167,18 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
         <Text style={[styles.consultText, { fontSize: s(11), color: entry.consultation ? BLUE : GRAY }]}>
           {entry.consultation ? `Consultation: ${consultLabel(entry.consultation)}` : 'No consultation'}
         </Text>
+        {canJoinCall(entry) && (
+          <TouchableOpacity
+            style={[styles.joinBtn, { gap: s(4), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5) }]}
+            activeOpacity={0.8}
+            onPress={() => openVideoLink(entry)}
+            accessibilityRole="link"
+            accessibilityLabel={`Join video call with ${entry.patient_name}`}
+          >
+            <Ionicons name="videocam-outline" size={s(12)} color={BLUE} />
+            <Text style={[styles.consultText, { fontSize: s(11), color: BLUE }]}>Join Call</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -230,6 +246,8 @@ export default function DoctorMobileSchedule() {
           onPress={refetch}
           style={[styles.refreshBtn, { width: s(36), height: s(36), borderRadius: s(18) }]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -346,6 +364,7 @@ export default function DoctorMobileSchedule() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  joinBtn: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BLUE, marginLeft: 'auto' },
   container: { flex: 1, backgroundColor: BG },
   scroll:    { flex: 1 },
   center:    { alignItems: 'center', justifyContent: 'center' },

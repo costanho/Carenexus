@@ -118,6 +118,8 @@ export default function DoctorMobileMedicalRecords() {
           onPress={refetch}
           activeOpacity={0.7}
           style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(20)} color={WHITE} />
         </TouchableOpacity>
@@ -301,7 +303,7 @@ export default function DoctorMobileMedicalRecords() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: s(16), paddingTop: sh(10), paddingBottom: sh(4), gap: s(8), alignItems: 'flex-start' }}>
           <StatChip icon="folder-open-outline"   iconBg="#EEF2FF" iconColor={BLUE}      label="Total"   value={stats.total}         />
-          <StatChip icon="stethoscope"            iconBg="#EEF2FF" iconColor={BLUE}      label="Consults" value={stats.consults}      />
+          <StatChip icon="pulse-outline"            iconBg="#EEF2FF" iconColor={BLUE}      label="Consults" value={stats.consults}      />
           <StatChip icon="flask-outline"          iconBg="#CCFBF1" iconColor={TEAL}      label="Labs"    value={stats.labs}          />
           <StatChip icon="medkit-outline"         iconBg="#D1FAE5" iconColor={GREEN}     label="Rx"      value={stats.prescriptions} />
           <StatChip icon="git-compare-outline"    iconBg="#DBEAFE" iconColor={DARK_BLUE} label="Refs"    value={stats.referrals}     />
@@ -326,7 +328,7 @@ export default function DoctorMobileMedicalRecords() {
             clearButtonMode="while-editing"
           />
           {!!search && (
-            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
               <Ionicons name="close-circle" size={s(16)} color={LGRAY} />
             </TouchableOpacity>
           )}

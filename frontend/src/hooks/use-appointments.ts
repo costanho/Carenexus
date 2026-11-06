@@ -30,15 +30,59 @@ interface State {
   refetch:      () => void;
 }
 
+/** Pulls the backend's `{ message }` out of an axios error, falling back to a generic sentence. */
+export function apiErrorMessage(e: any, fallback: string): string {
+  const msg = e?.response?.data?.message;
+  return typeof msg === 'string' && msg.trim() ? msg : fallback;
+}
+
+/**
+ * Builds the wall-clock LocalDateTime string the backend expects (no offset).
+ * The backend interprets it in the clinic's time zone.
+ */
+export function toScheduledAt(date: string, time: string): string {
+  return `${date}T${time}:00`;
+}
+
+/** True when the given local date (YYYY-MM-DD) and time (HH:mm) are later than now on this device. */
+export function isFutureSlot(date: string, time: string): boolean {
+  if (!date || !time) return false;
+  const t = new Date(toScheduledAt(date, time)).getTime();
+  return !Number.isNaN(t) && t > Date.now();
+}
+
+/** SCHEDULED/RESCHEDULED appointments that have not started yet. */
+export function isUpcomingAppointment(a: Appointment): boolean {
+  if (a.status !== 'SCHEDULED' && a.status !== 'RESCHEDULED') return false;
+  const t = new Date(a.scheduled_at).getTime();
+  return !Number.isNaN(t) && t > Date.now();
+}
+
+/** Soft-cancels an appointment (backend sets status CANCELLED). Throws the axios error on failure. */
+export async function cancelAppointment(appointmentId: number): Promise<void> {
+  await api.delete(`/api/appointments/${appointmentId}`);
+}
+
+/** Moves an appointment to a new local date/time via PUT /api/appointments/{id}. Throws the axios error on failure. */
+export async function rescheduleAppointment(appointmentId: number, date: string, time: string): Promise<void> {
+  await api.put(`/api/appointments/${appointmentId}`, { scheduledAt: toScheduledAt(date, time) });
+}
+
 export function useAppointments(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [tick, setTick]                 = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) {
+        setError(userError ?? 'Could not load your account.');
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
 
     Promise.all([
@@ -85,7 +129,7 @@ export function useAppointments(): State {
       })
       .catch(() => setError('Failed to load appointments.'))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, tick]);
 
   return { appointments, loading, error, refetch: () => setTick(t => t + 1) };
 }

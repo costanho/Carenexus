@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { canJoinCall, openVideoLink } from '@/hooks/use-doctor-appointment-actions';
+import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
+import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
 
 const WHITE   = '#FFFFFF';
 const TEXT    = '#111827';
@@ -11,8 +14,43 @@ const BLUE    = '#4F46E5';
 const GREEN   = '#10B981';
 const ORANGE  = '#F59E0B';
 const RED     = '#EF4444';
+const PURPLE  = '#8B5CF6';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+}
+
+function formatDay(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+function avatarColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function statusBadge(status: ScheduleEntry['status']) {
+  switch (status) {
+    case 'COMPLETED':   return { label: 'Completed',   color: GREEN,  bg: '#D1FAE5' };
+    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,    bg: '#FEE2E2' };
+    case 'NO_SHOW':     return { label: 'No Show',     color: ORANGE, bg: '#FEF3C7' };
+    case 'RESCHEDULED': return { label: 'Rescheduled', color: PURPLE, bg: '#F5F3FF' };
+    case 'IN_PROGRESS': return { label: 'In Progress', color: BLUE,   bg: '#EEF2FF' };
+    default:            return { label: 'Scheduled',   color: BLUE,   bg: '#EEF2FF' };
+  }
+}
+
+const TYPE_LABEL: Record<ScheduleEntry['type'], string> = { IN_PERSON: 'In person', VIDEO: 'Video', PHONE: 'Phone' };
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
 
@@ -28,7 +66,7 @@ type StatCardProps = {
 
 function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: StatCardProps) {
   return (
-    <View style={styles.statCard}>
+    <View style={styles.statCard} accessible accessibilityLabel={`${label}: ${value}. ${sub}`}>
       <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={22} color={iconColor} />
       </View>
@@ -41,226 +79,158 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: Stat
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-type AppointmentProps = {
-  time: string;
-  name: string;
-  type: string;
-  status: 'Confirmed' | 'Pending';
-  action: 'Join Call' | 'Start';
-  avatarId: number;
-};
-
-function AppointmentRow({ time, name, type, status, action, avatarId }: AppointmentProps) {
-  const isConfirmed = status === 'Confirmed';
-  const isJoin = action === 'Join Call';
+function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: boolean }) {
+  const badge = statusBadge(entry.status);
   return (
     <View style={styles.apptRow}>
       <View style={styles.apptTime}>
-        <Text style={styles.apptTimeText}>{time}</Text>
-        <Text style={styles.apptDuration}>30 mins</Text>
+        <Text style={styles.apptTimeText}>{showDay ? formatDay(entry.scheduled_at) : formatTime(entry.scheduled_at)}</Text>
+        <Text style={styles.apptDuration}>
+          {showDay ? formatTime(entry.scheduled_at) : `${entry.duration_minutes} mins`}
+        </Text>
       </View>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }} style={styles.apptAvatar} />
+      <View style={[styles.apptAvatar, { backgroundColor: avatarColor(entry.patient_name) }]}>
+        <Text style={styles.apptAvatarText}>{initials(entry.patient_name)}</Text>
+      </View>
       <View style={styles.apptInfo}>
-        <Text style={styles.apptName}>{name}</Text>
-        <Text style={styles.apptType}>{type}</Text>
+        <Text style={styles.apptName}>{entry.patient_name}</Text>
+        <Text style={styles.apptType} numberOfLines={1}>
+          {TYPE_LABEL[entry.type] ?? entry.type}{entry.reason_for_visit ? ` · ${entry.reason_for_visit}` : ''}
+        </Text>
       </View>
-      <View style={[styles.badge, { backgroundColor: isConfirmed ? '#D1FAE5' : '#FEF3C7' }]}>
-        <Text style={[styles.badgeText, { color: isConfirmed ? GREEN : ORANGE }]}>{status}</Text>
+      <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+        <Text style={[styles.badgeText, { color: badge.color }]}>{badge.label}</Text>
       </View>
-      <TouchableOpacity style={[styles.actionBtn, isJoin && styles.actionBtnJoin]} activeOpacity={0.8}>
-        {isJoin && <Ionicons name="videocam-outline" size={14} color={BLUE} style={{ marginRight: 4 }} />}
-        <Text style={[styles.actionBtnText, isJoin && { color: BLUE }]}>{action}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.moreBtn} activeOpacity={0.7}>
-        <Ionicons name="ellipsis-vertical" size={18} color={GRAY} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// ─── Activity Row ─────────────────────────────────────────────────────────────
-
-type ActivityProps = {
-  icon: IoniconsName;
-  iconBg: string;
-  iconColor: string;
-  title: string;
-  sub: string;
-  time: string;
-};
-
-function ActivityRow({ icon, iconBg, iconColor, title, sub, time }: ActivityProps) {
-  return (
-    <View style={styles.activityRow}>
-      <View style={[styles.activityIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={16} color={iconColor} />
-      </View>
-      <View style={styles.activityText}>
-        <Text style={styles.activityTitle}>{title}</Text>
-        <Text style={styles.activitySub}>{sub}</Text>
-      </View>
-      <Text style={styles.activityTime}>{time}</Text>
-    </View>
-  );
-}
-
-// ─── Task Row ─────────────────────────────────────────────────────────────────
-
-type TaskProps = {
-  icon: IoniconsName;
-  iconBg: string;
-  iconColor: string;
-  title: string;
-  sub: string;
-};
-
-function TaskRow({ icon, iconBg, iconColor, title, sub }: TaskProps) {
-  return (
-    <TouchableOpacity style={styles.taskRow} activeOpacity={0.7}>
-      <View style={[styles.activityIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={16} color={iconColor} />
-      </View>
-      <View style={styles.activityText}>
-        <Text style={styles.activityTitle}>{title}</Text>
-        <Text style={styles.activitySub}>{sub}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={16} color={GRAY} />
-    </TouchableOpacity>
-  );
-}
-
-// ─── Patient Stat Mini Card ───────────────────────────────────────────────────
-
-type PatientStatProps = {
-  label: string;
-  value: string;
-  growth: string;
-  icon: IoniconsName;
-  iconColor: string;
-  bg: string;
-};
-
-function PatientStatCard({ label, value, growth, icon, iconColor, bg }: PatientStatProps) {
-  return (
-    <View style={[styles.patientStatCard, { backgroundColor: bg }]}>
-      <Text style={styles.patientStatLabel}>{label}</Text>
-      <View style={styles.patientStatRow}>
-        <Text style={styles.patientStatValue}>{value}</Text>
-        <Ionicons name={icon} size={26} color={iconColor} />
-      </View>
-      <View style={styles.patientGrowthRow}>
-        <Ionicons name="arrow-up-outline" size={12} color={GREEN} />
-        <Text style={styles.patientGrowth}>{growth}</Text>
-      </View>
+      {canJoinCall(entry) && (
+        <TouchableOpacity
+          style={[styles.actionBtn, styles.actionBtnJoin]}
+          activeOpacity={0.8}
+          onPress={() => openVideoLink(entry)}
+          accessibilityRole="link"
+          accessibilityLabel={`Join video call with ${entry.patient_name}`}
+        >
+          <Ionicons name="videocam-outline" size={14} color={BLUE} style={{ marginRight: 4 }} />
+          <Text style={[styles.actionBtnText, { color: BLUE }]}>Join Call</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 // ─── Section Card Wrapper ─────────────────────────────────────────────────────
 
-function Card({ title, action, children }: { title: string; action: string; children: React.ReactNode }) {
+function Card({ title, action, onAction, children }: {
+  title: string; action?: string; onAction?: () => void; children: React.ReactNode;
+}) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        <TouchableOpacity activeOpacity={0.7}>
-          <Text style={styles.cardAction}>{action}</Text>
-        </TouchableOpacity>
+        <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
+        {!!action && !!onAction && (
+          <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button" accessibilityLabel={action}>
+            <Text style={styles.cardAction}>{action}</Text>
+          </TouchableOpacity>
+        )}
       </View>
       {children}
     </View>
   );
 }
 
+function EmptyLine({ icon, text }: { icon: IoniconsName; text: string }) {
+  return (
+    <View style={styles.emptyLine}>
+      <Ionicons name={icon} size={28} color={BORDER} />
+      <Text style={styles.emptyText}>{text}</Text>
+    </View>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function DoctorMainDashboardArea() {
+export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: string) => void }) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const { user } = useCurrentUser();
-  const greeting = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
+  const { dashboard, loading, error, refetch } = useDoctorDashboard();
+
+  const first = dashboard?.first_name || user?.first_name || '';
+  const last  = dashboard?.last_name  || user?.last_name  || '';
+  const name  = first ? `Dr. ${first} ${last}`.trim() : 'Doctor';
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const todayEntries = dashboard?.today ?? [];
+  const nowMs        = Date.now();
+  const stillToCome  = todayEntries.filter(e =>
+    (e.status === 'SCHEDULED' || e.status === 'RESCHEDULED') && new Date(e.scheduled_at).getTime() >= nowMs,
+  ).length;
+  const todayActive  = todayEntries.filter(e => e.status !== 'CANCELLED').length;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good morning, {greeting} 👋</Text>
-          <Text style={styles.greetingSub}>Here's what's happening in your practice today.</Text>
+          <Text style={styles.greeting}>{greetingForHour()}, {name}</Text>
+          <Text style={styles.greetingSub}>Here's your practice at a glance.</Text>
         </View>
-        <TouchableOpacity style={styles.dateBtn} activeOpacity={0.8}>
+        <View style={styles.dateBtn}>
           <Ionicons name="calendar-outline" size={16} color={GRAY} />
           <Text style={styles.dateText}>{today}</Text>
-          <Ionicons name="chevron-down" size={14} color={GRAY} />
-        </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Stat Cards */}
-      <View style={styles.statsRow}>
-        <StatCard icon="calendar-outline"   iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appointments" value="8" sub="3 upcoming"       subColor={BLUE}   />
-        <StatCard icon="videocam-outline"   iconBg="#D1FAE5" iconColor={GREEN}   label="Consultations Today"  value="5" sub="2 completed"      subColor={GREEN}  />
-        <StatCard icon="medkit-outline"     iconBg="#FEF3C7" iconColor={ORANGE}  label="Prescriptions Issued" value="6" sub="Today"            subColor={GRAY}   />
-        <StatCard icon="people-outline"     iconBg="#EFF6FF" iconColor="#3B82F6" label="New Patients"         value="3" sub="This week"        subColor={GRAY}   />
-        <StatCard icon="clipboard-outline"  iconBg="#FEE2E2" iconColor={RED}     label="Pending Tasks"        value="7" sub="Requires attention" subColor={RED}  />
-      </View>
+      {loading && !dashboard ? (
+        <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>
+      ) : error && !dashboard ? (
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={44} color={RED} />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8} accessibilityRole="button">
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          {/* Stat Cards */}
+          <View style={styles.statsRow}>
+            <StatCard icon="calendar-outline"  iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appointments"   value={String(todayActive)}                              sub={`${stillToCome} still to come`} subColor={BLUE}  />
+            <StatCard icon="time-outline"      iconBg="#F5F3FF" iconColor={PURPLE}  label="Upcoming Appointments"  value={String(dashboard?.upcoming.length ?? 0)}          sub="Scheduled ahead"                subColor={GRAY}  />
+            <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed Consultations" value={String(dashboard?.completed_consultations ?? 0)} sub="All time"                    subColor={GRAY}  />
+            <StatCard icon="document-text-outline" iconBg="#FEF3C7" iconColor={ORANGE} label="Open Consultations"  value={String(dashboard?.pending_consultations ?? 0)}   sub="Draft or in progress"           subColor={ORANGE} />
+            <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#3B82F6" label="My Patients"            value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="With appointments" subColor={GRAY} />
+          </View>
 
-      {/* Two-column body */}
-      <View style={[styles.body, isLarge && styles.bodyRow]}>
-        {/* Left column */}
-        <View style={[styles.leftCol, isLarge && styles.leftColWide]}>
-          {/* Today's Schedule */}
-          <Card title="Today's Schedule" action="View full schedule">
-            <AppointmentRow time="09:00 AM" name="Sarah Johnson"   type="Follow-up Consultation"   status="Confirmed" action="Join Call" avatarId={47} />
-            <View style={styles.separator} />
-            <AppointmentRow time="10:00 AM" name="Michael Brown"   type="Initial Consultation"     status="Confirmed" action="Join Call" avatarId={12} />
-            <View style={styles.separator} />
-            <AppointmentRow time="11:30 AM" name="Esther Williams" type="Review Results"           status="Confirmed" action="Join Call" avatarId={32} />
-            <View style={styles.separator} />
-            <AppointmentRow time="02:00 PM" name="David Thompson"  type="Follow-up Consultation"   status="Pending"   action="Start"    avatarId={15} />
-            <View style={styles.separator} />
-            <AppointmentRow time="03:00 PM" name="Grace Mutasa"    type="Chronic Care Management"  status="Confirmed" action="Start"    avatarId={56} />
-            <TouchableOpacity style={styles.viewAll} activeOpacity={0.7}>
-              <Text style={styles.viewAllText}>View all appointments →</Text>
-            </TouchableOpacity>
-          </Card>
-
-          {/* Patients Overview */}
-          <Card title="Patients Overview" action="View all patients">
-            <View style={styles.patientStatsGrid}>
-              <PatientStatCard label="Total Patients"   value="248" growth="12% this month" icon="people-outline"      iconColor={BLUE}    bg="#F5F3FF" />
-              <PatientStatCard label="Active Patients"  value="186" growth="8% this month"  icon="people-outline"      iconColor={GREEN}   bg="#F0FDF4" />
-              <PatientStatCard label="Chronic Care"     value="72"  growth="15% this month" icon="heart-outline"       iconColor={ORANGE}  bg="#FFFBEB" />
-              <PatientStatCard label="New This Month"   value="24"  growth="20% this month" icon="person-add-outline"  iconColor="#3B82F6" bg="#EFF6FF" />
+          {/* Two-column body */}
+          <View style={[styles.body, isLarge && styles.bodyRow]}>
+            <View style={[styles.leftCol, isLarge && styles.leftColWide]}>
+              <Card title="Today's Schedule" action="View full schedule" onAction={onNavigate && (() => onNavigate('schedule'))}>
+                {todayEntries.length === 0 ? (
+                  <EmptyLine icon="calendar-clear-outline" text="No appointments today" />
+                ) : todayEntries.map((e, i) => (
+                  <View key={e.appointment_id}>
+                    {i > 0 && <View style={styles.separator} />}
+                    <AppointmentRow entry={e} />
+                  </View>
+                ))}
+              </Card>
             </View>
-          </Card>
-        </View>
 
-        {/* Right column */}
-        <View style={[styles.rightCol, isLarge && styles.rightColNarrow]}>
-          {/* Recent Activity */}
-          <Card title="Recent Activity" action="View all">
-            <ActivityRow icon="chatbubble-outline"   iconBg="#EEF2FF" iconColor={BLUE}    title="New message from Sarah Johnson"        sub="Regarding lab results"           time="10 min ago" />
-            <View style={styles.separator} />
-            <ActivityRow icon="flask-outline"        iconBg="#D1FAE5" iconColor={GREEN}   title="Lab results uploaded for Michael Brown" sub="Blood Test Results"              time="45 min ago" />
-            <View style={styles.separator} />
-            <ActivityRow icon="medkit-outline"       iconBg="#FEF3C7" iconColor={ORANGE}  title="Prescription issued to Grace Mutasa"    sub="Atorvastatin 20mg"              time="1 hr ago"   />
-            <View style={styles.separator} />
-            <ActivityRow icon="calendar-outline"     iconBg="#EFF6FF" iconColor="#3B82F6" title="New appointment booked"                 sub="With James Wilson on 24 May 2024" time="2 hrs ago"  />
-            <View style={styles.separator} />
-            <ActivityRow icon="document-text-outline" iconBg="#FEE2E2" iconColor={RED}    title="Referral request from Esther Williams"  sub="Cardiology Consultation"         time="3 hrs ago"  />
-          </Card>
-
-          {/* Tasks & Reminders */}
-          <Card title="Tasks & Reminders" action="View all">
-            <TaskRow icon="flask-outline"    iconBg="#D1FAE5" iconColor={GREEN}   title="Review lab results"      sub="3 pending" />
-            <View style={styles.separator} />
-            <TaskRow icon="people-outline"   iconBg="#EEF2FF" iconColor={BLUE}    title="Follow up with patients" sub="5 pending" />
-            <View style={styles.separator} />
-            <TaskRow icon="medkit-outline"   iconBg="#FEF3C7" iconColor={ORANGE}  title="Pending prescriptions"   sub="2 pending" />
-          </Card>
-        </View>
-      </View>
+            <View style={[styles.rightCol, isLarge && styles.rightColNarrow]}>
+              <Card title="Coming Up" action="View appointments" onAction={onNavigate && (() => onNavigate('appointments'))}>
+                {(dashboard?.upcoming ?? []).length === 0 ? (
+                  <EmptyLine icon="time-outline" text="No upcoming appointments" />
+                ) : (dashboard?.upcoming ?? []).slice(0, 5).map((e, i) => (
+                  <View key={e.appointment_id}>
+                    {i > 0 && <View style={styles.separator} />}
+                    <AppointmentRow entry={e} showDay />
+                  </View>
+                ))}
+              </Card>
+            </View>
+          </View>
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -287,10 +257,10 @@ const styles = StyleSheet.create({
 
   // Stats
   statsRow: {
-    flexDirection: 'row', gap: 12, marginBottom: 24,
+    flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24,
   },
   statCard: {
-    flex: 1,
+    flex: 1, minWidth: 160,
     backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
     borderRadius: 12, padding: 16,
   },
@@ -324,6 +294,13 @@ const styles = StyleSheet.create({
 
   separator: { height: 1, backgroundColor: BORDER, marginVertical: 10 },
 
+  center:       { alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 64 },
+  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
+  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
+  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  emptyLine:    { alignItems: 'center', gap: 6, paddingVertical: 20 },
+  emptyText:    { fontSize: 13, color: GRAY },
+
   // Appointment row
   apptRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap',
@@ -331,7 +308,8 @@ const styles = StyleSheet.create({
   apptTime:     { width: 74 },
   apptTimeText: { fontSize: 13, fontWeight: '600', color: BLUE },
   apptDuration: { fontSize: 11, color: GRAY, marginTop: 2 },
-  apptAvatar:   { width: 40, height: 40, borderRadius: 20, backgroundColor: BORDER },
+  apptAvatar:   { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  apptAvatarText: { color: WHITE, fontSize: 14, fontWeight: '700' },
   apptInfo:     { flex: 1, minWidth: 100 },
   apptName:     { fontSize: 14, fontWeight: '600', color: TEXT },
   apptType:     { fontSize: 12, color: GRAY, marginTop: 1 },
@@ -347,38 +325,4 @@ const styles = StyleSheet.create({
   },
   actionBtnJoin: { borderColor: BLUE },
   actionBtnText: { fontSize: 13, fontWeight: '500', color: TEXT },
-  moreBtn:       { padding: 4 },
-  viewAll: { alignItems: 'center', marginTop: 14 },
-  viewAllText:   { fontSize: 13, color: BLUE, fontWeight: '500' },
-
-  // Activity row
-  activityRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
-  activityIcon: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  activityText:  { flex: 1 },
-  activityTitle: { fontSize: 13, fontWeight: '600', color: TEXT },
-  activitySub:   { fontSize: 12, color: GRAY, marginTop: 1 },
-  activityTime:  { fontSize: 11, color: GRAY, whiteSpace: 'nowrap' } as any,
-
-  // Task row
-  taskRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
-
-  // Patient stats
-  patientStatsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 12,
-  },
-  patientStatCard: {
-    flex: 1, minWidth: 120, borderRadius: 12, padding: 14,
-  },
-  patientStatLabel: { fontSize: 12, color: GRAY, marginBottom: 8 },
-  patientStatRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  patientStatValue: { fontSize: 26, fontWeight: '700', color: TEXT },
-  patientGrowthRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
-  patientGrowth:    { fontSize: 11, color: GREEN, fontWeight: '500' },
 });

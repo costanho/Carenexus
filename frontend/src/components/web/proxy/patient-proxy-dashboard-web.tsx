@@ -56,14 +56,14 @@ export function PatientProxyDashboardWeb() {
       case 'health-summary':
         return <Suspense fallback={<Loader />}><ProxyHealthSummary /></Suspense>;
       case 'profile-settings':
-        return <Suspense fallback={<Loader />}><ProxyProfileSettings /></Suspense>;
+        return <Suspense fallback={<Loader />}><ProxyProfileSettings onNavigate={navigate} onSelectPatient={selectPatient} /></Suspense>;
       case 'notification-settings':
         return <Suspense fallback={<Loader />}><ProxyNotificationSettings /></Suspense>;
       case 'add-dependent':
         return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => navigate('dashboard')} onCancel={() => navigate('dashboard')} /></Suspense>;
       case 'patient-profile':
         return selectedDependent
-          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} /></Suspense>
+          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} /></Suspense>
           : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
       default:
         return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
@@ -79,7 +79,7 @@ export function PatientProxyDashboardWeb() {
         onSelectPatient={selectPatient}
       />
       <View style={styles.main}>
-        <PatientProxyTopNavbar />
+        <PatientProxyTopNavbar onNavigate={navigate} />
         {renderContent()}
       </View>
     </View>

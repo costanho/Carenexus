@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { login, logout } from '@/lib/auth/auth.service';
 import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
 const TEAL   = '#0D9488';
@@ -61,17 +62,9 @@ export default function LoginMobile() {
     setAuthError('');
     setLoading(true);
     try {
-      console.log('🔐 Login attempt:', { email: data.email, selectedRole: role });
-      const response = await login({ ...data, role });
-      console.log('✅ Full response:', JSON.stringify(response, null, 2));
-      console.log('Response type:', typeof response);
-      console.log('Response keys:', Object.keys(response));
-      const { user } = response;
-      console.log('User extracted:', user);
-      console.log('User role:', user?.role, 'Selected role:', role, 'Match:', user?.role === role);
+      const { user } = await login({ ...data, role });
 
       if (!user) {
-        console.error('❌ No user in response!');
         setAuthError('Login failed: no user data returned');
         return;
       }
@@ -79,21 +72,14 @@ export default function LoginMobile() {
       if (user.role !== role) {
         await logout();
         const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };
-        const msg = `This account is registered as a ${labels[user.role]}. Please select the correct role.`;
-        console.error('Role mismatch:', msg);
-        setAuthError(msg);
+        setAuthError(`This account is registered as a ${labels[user.role]}. Please select the correct role.`);
         return;
       }
 
-      console.log('✅ Role check passed');
-      console.log('🚀 About to navigate to:', ROLE_HOME[user.role]);
-      await router.replace(ROLE_HOME[user.role] as any);
-      console.log('✅ Navigation complete');
+      router.replace(ROLE_HOME[user.role] as any);
     } catch (err: any) {
-      console.error('❌ Login failed:', err);
-      console.error('Error stack:', err?.stack);
-      const msg = err?.response?.data?.message ?? err?.message ?? 'Invalid email or password.';
-      console.error('📌 Error message:', msg);
+      const msg = err?.response?.data?.message
+        ?? (err?.response ? 'Invalid email or password.' : 'Unable to reach the server. Check your connection and try again.');
       setAuthError(msg);
     } finally {
       setLoading(false);
@@ -152,6 +138,9 @@ export default function LoginMobile() {
                   ]}
                   onPress={() => setRole(r.key)}
                   activeOpacity={0.8}
+                  accessibilityRole="radio"
+                  accessibilityLabel={r.label}
+                  accessibilityState={{ selected: on }}
                 >
                   <Ionicons name={r.icon} size={s(22)} color={on ? r.color : GRAY} />
                   <Text style={[styles.roleLabel, { fontSize: s(11) }, on && { color: r.color, fontWeight: '700' }]}>
@@ -186,6 +175,7 @@ export default function LoginMobile() {
                 <Ionicons name="mail-outline" size={s(18)} color={GRAY} style={{ marginRight: s(10) }} />
                 <TextInput
                   style={[styles.input, { fontSize: s(14) }]}
+                  accessibilityLabel="Email address"
                   placeholder="you@example.com"
                   placeholderTextColor={GRAY}
                   value={value}
@@ -209,7 +199,15 @@ export default function LoginMobile() {
         <View style={{ gap: s(6) }}>
           <View style={styles.fieldHeaderRow}>
             <Text style={[styles.label, { fontSize: s(13) }]}>Password</Text>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => showMessage(
+                'Password reset',
+                "Password reset isn't available in the app yet. Please contact CareNexus support to regain access to your account.",
+              )}
+              accessibilityRole="button"
+              accessibilityLabel="Forgot password"
+            >
               <Text style={[styles.forgotText, { fontSize: s(12), color: active.color }]}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
@@ -225,6 +223,7 @@ export default function LoginMobile() {
                 <Ionicons name="lock-closed-outline" size={s(18)} color={GRAY} style={{ marginRight: s(10) }} />
                 <TextInput
                   style={[styles.input, { fontSize: s(14) }]}
+                  accessibilityLabel="Password"
                   placeholder="Enter your password"
                   placeholderTextColor={GRAY}
                   value={value}
@@ -232,7 +231,13 @@ export default function LoginMobile() {
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
                 />
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={() => setShowPass(v => !v)}
+                  style={{ padding: s(4) }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPass ? 'Hide password' : 'Show password'}
+                >
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={s(18)} color={GRAY} />
                 </TouchableOpacity>
               </View>
@@ -266,6 +271,9 @@ export default function LoginMobile() {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <Text style={[styles.signInText, { fontSize: s(15) }]}>Signing in…</Text>

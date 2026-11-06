@@ -85,13 +85,13 @@ export function DoctorDashboardMobile() {
         </Suspense>
       );
     }
-    return <DoctorMainDashboardAreaMobile />;
+    return <DoctorMainDashboardAreaMobile onNavigate={setActiveKey} />;
   }
 
   return (
     <SafeAreaProvider>
       <View style={styles.container}>
-        <DoctorTopNavbarMobile />
+        <DoctorTopNavbarMobile onProfilePress={() => setActiveKey('profile')} />
         {renderContent()}
         <DoctorBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
       </View>

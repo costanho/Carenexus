@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -9,6 +10,7 @@ import {
 import { z } from 'zod';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useDoctors } from '@/hooks/use-doctors';
+import { apiErrorMessage, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
 import { api } from '@/lib/auth/auth.interceptor';
 
 const TEAL   = '#0D9488';
@@ -32,18 +34,11 @@ const appointmentSchema = z.object({
   scheduled_time:   z.string().min(1, 'Please select a time'),
   duration_minutes: z.string().min(1, 'Please select a duration'),
   type:             z.enum(['IN_PERSON', 'VIDEO', 'PHONE']),
-  facility_id:      z.string().optional(),
   reason_for_visit: z.string().min(5, 'Please describe the reason for your visit (min 5 characters)'),
   notes:            z.string().optional(),
 });
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
-
-const FACILITIES = [
-  { id: '1', name: 'CareNexus Main Clinic' },
-  { id: '2', name: 'Parirenyatwa Hospital' },
-  { id: '3', name: 'Avenues Clinic'        },
-];
 
 const DURATIONS = [
   { value: '15', label: '15 min' },
@@ -65,7 +60,7 @@ const MINUTES     = [0,15,30,45];
 
 // ─── Calendar Picker ──────────────────────────────────────────────────────────
 
-function CalendarPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function CalendarPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const todayRef = new Date();
   todayRef.setHours(0, 0, 0, 0);
 
@@ -111,11 +106,20 @@ function CalendarPicker({ value, onChange }: { value: string; onChange: (v: stri
           onPress={prevMonth}
           disabled={isPrevDisabled}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+          accessibilityState={{ disabled: isPrevDisabled }}
         >
           <Ionicons name="chevron-back" size={16} color={isPrevDisabled ? GRAY2 : TEAL} />
         </TouchableOpacity>
         <Text style={styles.calMonthLabel}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
-        <TouchableOpacity style={styles.calNavBtn} onPress={nextMonth} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.calNavBtn}
+          onPress={nextMonth}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+        >
           <Ionicons name="chevron-forward" size={16} color={TEAL} />
         </TouchableOpacity>
       </View>
@@ -142,6 +146,9 @@ function CalendarPicker({ value, onChange }: { value: string; onChange: (v: stri
               disabled={isPast}
               onPress={() => selectDay(day)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              accessibilityState={{ disabled: isPast, selected: !!isSel }}
             >
               <View style={[
                 styles.calDayCircle,
@@ -177,7 +184,7 @@ function CalendarPicker({ value, onChange }: { value: string; onChange: (v: stri
 
 // ─── Time Picker ──────────────────────────────────────────────────────────────
 
-function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   function parse24(v: string): { h12: number; min: number; ap: 'AM' | 'PM' } {
     const m = v.match(/^(\d{1,2}):(\d{2})$/);
     if (!m) return { h12: 9, min: 0, ap: 'AM' };
@@ -293,9 +300,14 @@ function FieldError({ message }: { message?: string }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
+  const router    = useRouter();
   const { width } = useWindowDimensions();
   const { user }  = useCurrentUser();
-  const { doctors, loading: doctorsLoading } = useDoctors();
+  const { doctors, loading: doctorsLoading, error: doctorsError, refetch: refetchDoctors } = useDoctors();
+  const goBack = onBack ?? (() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/dashboard/patient' as any);
+  });
   const narrow = width < 900;
 
   const [loading,          setLoading]          = useState(false);
@@ -309,13 +321,15 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
     defaultValues: {
       doctor_id: '', scheduled_date: '', scheduled_time: '',
       duration_minutes: '30', type: 'IN_PERSON',
-      facility_id: '', reason_for_visit: '', notes: '',
+      reason_for_visit: '', notes: '',
     },
   });
 
-  const watchedType   = watch('type');
   const watchedDoctor = watch('doctor_id');
+  const watchedDate   = watch('scheduled_date');
+  const watchedTime   = watch('scheduled_time');
   const selectedDoctor = doctors.find(d => d.doctor_system_id === watchedDoctor);
+  const slotInPast = !!watchedDate && !!watchedTime && !isFutureSlot(watchedDate, watchedTime);
 
   const activeDoctors = doctors.filter(d => d.is_active === 1);
   const filteredDoctors = doctorSearch.trim()
@@ -328,21 +342,30 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
 
   async function onSubmit(data: AppointmentFormData) {
     setAuthError('');
+    if (!user?.system_id) {
+      setAuthError('We could not load your account. Please refresh the page and try again.');
+      return;
+    }
+    if (!isFutureSlot(data.scheduled_date, data.scheduled_time)) {
+      setAuthError('Please choose a date and time in the future.');
+      return;
+    }
     setLoading(true);
     try {
+      // VIDEO appointments: the backend generates the video link, so none is sent from here.
       await api.post('/api/appointments', {
-        patientSystemId:  user?.system_id,
+        patientSystemId:  user.system_id,
         doctorSystemId:   data.doctor_id,
-        facilityId:       data.facility_id ? parseInt(data.facility_id) : null,
-        scheduledAt:      `${data.scheduled_date}T${data.scheduled_time}:00`,
+        facilityId:       null,
+        scheduledAt:      toScheduledAt(data.scheduled_date, data.scheduled_time),
         durationMinutes:  parseInt(data.duration_minutes),
         type:             data.type,
         reasonForVisit:   data.reason_for_visit,
         notes:            data.notes ?? null,
       });
       setSuccess(true);
-    } catch {
-      setAuthError('Failed to book appointment. Please try again.');
+    } catch (e: any) {
+      setAuthError(apiErrorMessage(e, 'Failed to book appointment. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -358,9 +381,9 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
           <Text style={styles.successTitle}>Appointment Booked!</Text>
           <Text style={styles.successSub}>
             Your appointment with {selectedDoctor?.full_name ?? 'your doctor'} has been scheduled.
-            You will receive a confirmation shortly.
+            You can view or manage it under My Appointments.
           </Text>
-          <TouchableOpacity style={styles.successBtn} onPress={onBack} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.successBtn} onPress={goBack} activeOpacity={0.85} accessibilityRole="button">
             <Text style={styles.successBtnText}>Back to Dashboard</Text>
           </TouchableOpacity>
         </View>
@@ -398,6 +421,8 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                       style={[styles.typeCard, on && { borderColor: t.color, backgroundColor: t.bg }]}
                       onPress={() => onChange(t.value)}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
                     >
                       {on && (
                         <View style={[styles.typeCheck, { backgroundColor: t.color }]}>
@@ -425,12 +450,18 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
               style={[styles.input, { fontSize: 13 }]}
               placeholder="Search by name or specialization…"
               placeholderTextColor={GRAY}
+              accessibilityLabel="Search doctors"
               value={doctorSearch}
               onChangeText={t => { setDoctorSearch(t); setDoctorsExpanded(false); }}
               autoCorrect={false}
             />
             {doctorSearch.length > 0 && (
-              <TouchableOpacity onPress={() => setDoctorSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity
+                onPress={() => setDoctorSearch('')}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Clear doctor search"
+              >
                 <Ionicons name="close-circle" size={16} color={GRAY} />
               </TouchableOpacity>
             )}
@@ -438,6 +469,16 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
 
           {doctorsLoading ? (
             <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>Loading doctors…</Text>
+          ) : doctorsError ? (
+            <View style={[styles.errorBanner, { marginTop: 10, marginBottom: 0 }]}>
+              <Ionicons name="alert-circle-outline" size={15} color={RED} />
+              <Text style={styles.errorText}>Could not load doctors.</Text>
+              <TouchableOpacity onPress={refetchDoctors} activeOpacity={0.7} accessibilityRole="button">
+                <Text style={[styles.errorText, { flex: 0, fontWeight: '700', textDecorationLine: 'underline' }]}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : activeDoctors.length === 0 ? (
+            <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>No doctors are available for booking right now.</Text>
           ) : filteredDoctors.length === 0 ? (
             <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>No doctors match your search.</Text>
           ) : (
@@ -454,6 +495,8 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                           style={[styles.doctorCard, on && styles.doctorCardActive]}
                           onPress={() => onChange(id)}
                           activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
                         >
                           <View style={[styles.doctorAvatar, on && { borderColor: TEAL }]}>
                             <Text style={styles.doctorAvatarText}>{d.first_name[0]}</Text>
@@ -516,7 +559,7 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
                   </View>
                 )}
               />
-              <FieldError message={errors.scheduled_time?.message} />
+              <FieldError message={errors.scheduled_time?.message ?? (slotInPast ? 'This time has already passed. Please choose a later time.' : undefined)} />
             </View>
           </View>
         </View>
@@ -544,34 +587,6 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
             )}
           />
         </View>
-
-        {/* Facility */}
-        {watchedType === 'IN_PERSON' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Facility <Text style={styles.optional}>(optional)</Text></Text>
-            <Controller control={control} name="facility_id"
-              render={({ field: { onChange, value } }) => (
-                <View style={styles.facilityList}>
-                  {FACILITIES.map(f => {
-                    const on = value === f.id;
-                    return (
-                      <TouchableOpacity
-                        key={f.id}
-                        style={[styles.facilityItem, on && styles.facilityItemActive]}
-                        onPress={() => onChange(on ? '' : f.id)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="business-outline" size={16} color={on ? TEAL : GRAY} />
-                        <Text style={[styles.facilityName, on && { color: TEAL, fontWeight: '600' }]}>{f.name}</Text>
-                        {on && <Ionicons name="checkmark-circle" size={16} color={TEAL} />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            />
-          </View>
-        )}
 
         {/* Reason */}
         <View style={styles.section}>
@@ -628,6 +643,8 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: loading }}
         >
           <Ionicons name="calendar-outline" size={18} color={WHITE} />
           <Text style={styles.submitText}>{loading ? 'Booking…' : 'Book Appointment'}</Text>
@@ -728,11 +745,6 @@ const styles = StyleSheet.create({
   durationBtnActive:  { borderColor: TEAL, backgroundColor: '#E6F4F1' },
   durationLabel:      { fontSize: 13, fontWeight: '600', color: GRAY },
   durationLabelActive:{ color: TEAL },
-
-  facilityList:      { gap: 8 },
-  facilityItem:      { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1.5, borderColor: BORDER, borderRadius: 12 },
-  facilityItemActive:{ borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  facilityName:      { flex: 1, fontSize: 14, color: TEXT },
 
   textarea: { borderWidth: 1.5, borderColor: BORDER, borderRadius: 12, padding: 14, fontSize: 14, color: TEXT, backgroundColor: BG, minHeight: 100, outlineStyle: 'none' } as any,
 

@@ -1,8 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
-import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import {
+  useCaregiverActivity,
+  useCaregiverDependents,
+  type CaregiverAppointment,
+  type CaregiverDependent,
+} from '@/hooks/use-caregiver-dependents';
+import { showMessage } from '@/lib/ui/dialogs';
+import { EmptyState, ErrorState } from '@/components/web/proxy/patient/proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -82,106 +88,60 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor = GRAY 
 
 // ─── Card Wrapper ─────────────────────────────────────────────────────────────
 
-function Card({ title, action, s, children }: {
-  title: string; action?: string; s: (n: number) => number; children: React.ReactNode;
+function Card({ title, s, children }: {
+  title: string; s: (n: number) => number; children: React.ReactNode;
 }) {
   return (
     <View style={[styles.card, { borderRadius: s(14), padding: s(14), marginBottom: s(14) }]}>
       <View style={[styles.cardHeader, { marginBottom: s(12) }]}>
-        <Text style={[styles.cardTitle, { fontSize: s(14) }]}>{title}</Text>
-        {action && (
-          <TouchableOpacity activeOpacity={0.7}>
-            <Text style={[styles.cardAction, { fontSize: s(11) }]}>{action}</Text>
-          </TouchableOpacity>
-        )}
+        <Text style={[styles.cardTitle, { fontSize: s(14) }]} accessibilityRole="header">{title}</Text>
       </View>
       {children}
     </View>
   );
 }
 
-// ─── Loved One Row ────────────────────────────────────────────────────────────
-
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-function ScheduleRow({ time, timeColor = TEXT, title, person, doctor, avatarId, s }: {
-  time: string; timeColor?: string; title: string; person: string; doctor: string; avatarId: number; s: (n: number) => number;
-}) {
+async function openVideoLink(url: string) {
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) throw new Error('unsupported');
+    await Linking.openURL(url);
+  } catch {
+    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
+  }
+}
+
+function ScheduleRow({ appt, person, s }: { appt: CaregiverAppointment; person: string; s: (n: number) => number }) {
+  const date    = new Date(appt.scheduledAt);
+  const time    = date.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
+  const day     = date.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' });
+  const isVideo = appt.type === 'VIDEO' && !!appt.videoConsultationLink;
   return (
     <View style={[styles.scheduleRow, { gap: s(8) }]}>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }}
-        style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: BORDER }} />
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.cardTitle, { fontSize: s(12) }]} numberOfLines={1}>{title}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(11) }]}>{person}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>{doctor}</Text>
-      </View>
-      <View style={[styles.timePill, { borderRadius: s(6), paddingHorizontal: s(7), paddingVertical: s(3), borderColor: timeColor === ORANGE ? ORANGE : BORDER }]}>
-        <Text style={[{ fontSize: s(11), fontWeight: '700', color: timeColor }]}>{time}</Text>
-      </View>
-      <TouchableOpacity style={[styles.videoBtn, { width: s(32), height: s(32), borderRadius: s(8) }]} activeOpacity={0.8}>
-        <Ionicons name="videocam-outline" size={s(15)} color={GREEN} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// ─── Update Row ───────────────────────────────────────────────────────────────
-
-function UpdateRow({ icon, iconBg, iconColor, title, sub, time, s }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; title: string; sub: string; time: string; s: (n: number) => number;
-}) {
-  return (
-    <View style={[styles.updateRow, { gap: s(10) }]}>
-      <View style={[styles.iconCircle, { backgroundColor: iconBg, width: s(32), height: s(32), borderRadius: s(16) }]}>
-        <Ionicons name={icon} size={s(14)} color={iconColor} />
+      <View style={{ width: s(38), height: s(38), borderRadius: s(19), backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: WHITE, fontSize: s(13), fontWeight: '700' }}>{initials(person)}</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.updateTitle, { fontSize: s(12) }]} numberOfLines={1}>{title}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]} numberOfLines={1}>{sub}</Text>
+        <Text style={[styles.cardTitle, { fontSize: s(12) }]} numberOfLines={1}>{appt.reasonForVisit ?? 'Appointment'}</Text>
+        <Text style={[styles.lovedOneMeta, { fontSize: s(11) }]} numberOfLines={1}>{person}</Text>
+        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>{day}</Text>
       </View>
-      <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>{time}</Text>
-    </View>
-  );
-}
-
-// ─── Med Row ──────────────────────────────────────────────────────────────────
-
-function MedRow({ name, dose, dueTime, dueColor, s }: {
-  name: string; dose: string; dueTime: string; dueColor: string; s: (n: number) => number;
-}) {
-  return (
-    <View style={[styles.updateRow, { gap: s(10) }]}>
-      <View style={[styles.iconCircle, { backgroundColor: PURPLE_BG, width: s(32), height: s(32), borderRadius: s(16) }]}>
-        <Ionicons name="medical-outline" size={s(14)} color={PURPLE} />
+      <View style={[styles.timePill, { borderRadius: s(6), paddingHorizontal: s(7), paddingVertical: s(3), borderColor: BORDER }]}>
+        <Text style={[{ fontSize: s(11), fontWeight: '700', color: TEXT }]}>{time}</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.updateTitle, { fontSize: s(12) }]}>{name}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(10) }]}>{dose}</Text>
-      </View>
-      <View style={[styles.duePill, { backgroundColor: dueColor + '20', borderColor: dueColor + '40', borderRadius: s(8), paddingHorizontal: s(8), paddingVertical: s(4) }]}>
-        <Text style={[{ fontSize: s(10), fontWeight: '700', color: dueColor }]}>Due {dueTime}</Text>
-        <Text style={[{ fontSize: s(9), color: dueColor }]}>Today</Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── Care Team Row ────────────────────────────────────────────────────────────
-
-function CareRow({ name, role, avatarId, s }: { name: string; role: string; avatarId: number; s: (n: number) => number }) {
-  return (
-    <View style={[styles.updateRow, { gap: s(10) }]}>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }}
-        style={{ width: s(36), height: s(36), borderRadius: s(18), backgroundColor: BORDER }} />
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.updateTitle,  { fontSize: s(13) }]}>{name}</Text>
-        <Text style={[styles.lovedOneMeta, { fontSize: s(11) }]}>{role}</Text>
-      </View>
-      <TouchableOpacity style={[styles.msgBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]} activeOpacity={0.8}>
-        <Ionicons name="chatbox-outline" size={s(12)} color={WHITE} />
-        <Text style={[styles.msgBtnText, { fontSize: s(11) }]}>Message</Text>
-      </TouchableOpacity>
+      {isVideo && (
+        <TouchableOpacity
+          style={[styles.videoBtn, { width: s(32), height: s(32), borderRadius: s(8) }]}
+          activeOpacity={0.8}
+          onPress={() => openVideoLink(appt.videoConsultationLink!)}
+          accessibilityRole="link"
+          accessibilityLabel={`Open video link for ${person}'s appointment`}
+        >
+          <Ionicons name="videocam-outline" size={s(15)} color={GREEN} importantForAccessibility="no" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -190,47 +150,53 @@ function CareRow({ name, role, avatarId, s }: { name: string; role: string; avat
 
 const SHOW_LIMIT = 3;
 
-export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: any) => void }) {
-  const { s, sh } = useScale();
-  const { dependents, loading: depsLoading } = useCaregiverDependents();
-  const [expanded,     setExpanded]     = useState(false);
-  const [apptCount,    setApptCount]    = useState<number | null>(null);
-  const [apptSub,      setApptSub]      = useState('');
+const UPCOMING_LIMIT = 5;
 
-  useEffect(() => {
-    api.get<{ appointments: { status: string; scheduledAt: string }[] }>('/api/caregiver/dependents/activity')
-      .then(({ data }) => {
-        const now = Date.now();
-        const scheduled = (data.appointments ?? [])
-          .filter(a => a.status === 'SCHEDULED' && new Date(a.scheduledAt).getTime() > now)
-          .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-        setApptCount(scheduled.length);
-        if (scheduled.length > 0) {
-          const next = new Date(scheduled[0].scheduledAt);
-          setApptSub(`${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })}`);
-        } else {
-          setApptSub('No upcoming');
-        }
-      })
-      .catch(() => { setApptCount(0); setApptSub(''); });
-  }, []);
+export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
+  const { s, sh } = useScale();
+  const { dependents, loading: depsLoading, error: depsError, refetch: refetchDeps } = useCaregiverDependents();
+  const { appointments, loading: actLoading, error: actError, refetch: refetchActivity } = useCaregiverActivity();
+  const [expanded, setExpanded] = useState(false);
+
+  const nameFor = (patientSystemId: string | null, fallback: string | null) =>
+    dependents.find(d => d.patientSystemId === patientSystemId)?.patientName ?? fallback ?? 'Your loved one';
+
+  const upcoming = useMemo(() => {
+    const now = Date.now();
+    return appointments
+      .filter(a => a.status === 'SCHEDULED' && new Date(a.scheduledAt).getTime() > now)
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }, [appointments]);
+
+  const apptSub = upcoming.length > 0
+    ? new Date(upcoming[0].scheduledAt).toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })
+    : 'No upcoming';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(14), paddingBottom: sh(90) }} showsVerticalScrollIndicator={false}>
 
-      {/* Stat cards — horizontal scroll */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(16) }} contentContainerStyle={{ gap: s(10), paddingRight: s(4) }}>
-        <StatCard icon="calendar-outline" iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appts" value={apptCount === null ? '…' : String(apptCount)} sub={apptSub} />
-        <StatCard icon="medical-outline"  iconBg="#D1FAE5" iconColor={GREEN}  label="Medications Due" value="3" sub="Today"              />
-        <StatCard icon="flask-outline"    iconBg="#FEF3C7" iconColor={ORANGE} label="Pending Results" value="1" sub="Awaiting Review"    />
-        <StatCard icon="chatbox-outline"  iconBg="#EDE9FE" iconColor={PURPLE} label="Unread Messages" value="2" sub="From Care Team"     />
-        <StatCard icon="warning-outline"  iconBg="#FEE2E2" iconColor={RED}    label="Alerts"          value="1" sub="Requires Attention" subColor={RED} />
-      </ScrollView>
+      {/* Stat cards */}
+      <View style={{ flexDirection: 'row', gap: s(10), marginBottom: s(16) }}>
+        <StatCard
+          icon="calendar-outline" iconBg="#EDE9FE" iconColor={PURPLE}
+          label="Upcoming Appts"
+          value={actLoading ? '…' : actError ? '—' : String(upcoming.length)}
+          sub={actLoading ? '' : actError ? 'Unavailable' : apptSub}
+        />
+        <StatCard
+          icon="people-outline" iconBg="#D1FAE5" iconColor={GREEN}
+          label="Loved Ones"
+          value={depsLoading ? '…' : depsError ? '—' : String(dependents.length)}
+          sub={depsLoading ? '' : depsError ? 'Unavailable' : 'Linked'}
+        />
+      </View>
 
       {/* Loved One Overview */}
       <Card title="Loved One Overview" s={s}>
         {depsLoading ? (
-          <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: s(12) }} />
+          <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: s(12) }} accessibilityLabel="Loading loved ones" />
+        ) : depsError ? (
+          <ErrorState compact message={depsError} onRetry={refetchDeps} />
         ) : dependents.length === 0 ? (
           <Text style={{ fontSize: s(13), color: GRAY, textAlign: 'center', paddingVertical: s(12) }}>
             No linked patients yet.
@@ -257,6 +223,8 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
                     style={[styles.lovedOneRow, { gap: s(10), borderRadius: s(10), padding: s(10) }]}
                     activeOpacity={0.8}
                     onPress={() => onSelectPatient?.(dep)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open profile for ${name}`}
                   >
                     <View>
                       <View style={{
@@ -307,6 +275,8 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: s(5), paddingVertical: s(10) }}
                 activeOpacity={0.7}
                 onPress={() => setExpanded(e => !e)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
               >
                 <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={PURPLE} />
                 <Text style={[styles.cardAction, { fontSize: s(12) }]}>
@@ -320,76 +290,50 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
           style={[styles.addLovedOneBtn, { borderRadius: s(8), paddingVertical: s(9), paddingHorizontal: s(12), gap: s(6), marginTop: s(8) }]}
           activeOpacity={0.8}
           onPress={() => onNavigate?.('add-dependent')}
+          accessibilityRole="button"
         >
-          <Ionicons name="add" size={s(16)} color={PURPLE} />
+          <Ionicons name="add" size={s(16)} color={PURPLE} importantForAccessibility="no" />
           <Text style={[styles.cardAction, { fontSize: s(13), fontWeight: '500' }]}>Add Another Loved One</Text>
         </TouchableOpacity>
       </Card>
 
-      {/* Today's Schedule */}
-      <Card title="Today's Schedule" action="View Calendar" s={s}>
-        <ScheduleRow time="10:30 AM" title="Follow-up Consultation" person="Mary Davis (Mom)"  doctor="Dr. Matt (Physician)" avatarId={47} s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ScheduleRow time="02:00 PM" timeColor={ORANGE} title="Lab Review" person="Mary Davis (Mom)" doctor="Dr. Matt (Physician)" avatarId={47} s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <ScheduleRow time="04:30 PM" title="Blood Pressure Check" person="Robert Davis (Dad)" doctor="Care Nurse" avatarId={15} s={s} />
-        <TouchableOpacity style={[styles.viewAllBtn, { marginTop: s(12) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>View all appointments →</Text>
-        </TouchableOpacity>
-      </Card>
-
-      {/* Recent Updates */}
-      <Card title="Recent Updates" action="View all" s={s}>
-        <UpdateRow icon="document-text-outline" iconBg={PURPLE_LIGHT} iconColor={PURPLE} title="Dr. Matt sent consultation summary" sub="Mary Davis • 24 May 2024"   time="2 hrs ago"  s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <UpdateRow icon="medkit-outline"         iconBg="#FEF3C7"      iconColor={ORANGE} title="New prescription issued"            sub="Mary Davis • Amlodipine 5mg" time="3 hrs ago"  s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <UpdateRow icon="flask-outline"          iconBg="#D1FAE5"      iconColor={GREEN}  title="Lab results uploaded"               sub="Mary Davis • Blood Test"      time="1 day ago"  s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <UpdateRow icon="chatbox-outline"        iconBg={PURPLE_LIGHT} iconColor={PURPLE} title="Message from Dr. Matt"              sub='"Ensure medication is taken daily."' time="2 days ago" s={s} />
-        <TouchableOpacity style={[styles.viewAllBtn, { marginTop: s(12) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>View all updates →</Text>
-        </TouchableOpacity>
-      </Card>
-
-      {/* Medications */}
-      <Card title="Medications" action="View all" s={s}>
-        <MedRow name="Amlodipine 5mg"    dose="1 tablet • Once daily"  dueTime="08:00 AM" dueColor={GREEN}  s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <MedRow name="Metformin 500mg"   dose="1 tablet • Twice daily" dueTime="08:00 AM" dueColor={GREEN}  s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <MedRow name="Atorvastatin 20mg" dose="1 tablet • At night"    dueTime="08:00 PM" dueColor={PURPLE} s={s} />
-        <TouchableOpacity style={[styles.viewAllBtn, { marginTop: s(12) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>View all medications →</Text>
-        </TouchableOpacity>
-      </Card>
-
-      {/* Care Team */}
-      <Card title="Care Team" action="View all" s={s}>
-        <CareRow name="Dr. Matt"        role="Physician"  avatarId={12} s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <CareRow name="Nurse Clara"     role="Care Nurse" avatarId={32} s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <CareRow name="Lab Support"     role="Laboratory" avatarId={22} s={s} />
-        <View style={[styles.sep, { marginVertical: s(10) }]} />
-        <CareRow name="Pharmacy Support" role="Pharmacist" avatarId={55} s={s} />
-        <TouchableOpacity style={[styles.viewAllBtn, { marginTop: s(12) }]} activeOpacity={0.7}>
-          <Text style={[styles.cardAction, { fontSize: s(12) }]}>View full care team →</Text>
-        </TouchableOpacity>
+      {/* Upcoming appointments — from caregiver activity */}
+      <Card title="Upcoming Appointments" s={s}>
+        {actLoading ? (
+          <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: s(12) }} accessibilityLabel="Loading appointments" />
+        ) : actError ? (
+          <ErrorState compact message={actError} onRetry={refetchActivity} />
+        ) : upcoming.length === 0 ? (
+          <EmptyState compact icon="calendar-outline" title="No upcoming appointments" />
+        ) : (
+          upcoming.slice(0, UPCOMING_LIMIT).map((a, i) => (
+            <View key={a.appointmentId}>
+              {i > 0 && <View style={[styles.sep, { marginVertical: s(10) }]} />}
+              <ScheduleRow appt={a} person={nameFor(a.patientSystemId, a.patientName)} s={s} />
+            </View>
+          ))
+        )}
+        {upcoming.length > UPCOMING_LIMIT && (
+          <Text style={[styles.lovedOneMeta, { fontSize: s(11), textAlign: 'center', marginTop: s(10) }]}>
+            +{upcoming.length - UPCOMING_LIMIT} more upcoming
+          </Text>
+        )}
       </Card>
 
       {/* Proxy Access Banner */}
       {dependents.length > 0 && (
       <View style={[styles.banner, { borderRadius: s(14), padding: s(14), gap: s(12) }]}>
         <View style={[styles.bannerIcon, { width: s(48), height: s(48), borderRadius: s(24) }]}>
-          <Ionicons name="shield-outline" size={s(24)} color={PURPLE} />
+          <Ionicons name="shield-outline" size={s(24)} color={PURPLE} importantForAccessibility="no" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.updateTitle, { fontSize: s(13), marginBottom: s(4) }]}>
-            {accessLabel(dependents[0].accessLevel)} Proxy for {dependents[0].patientName ?? 'your loved one'}
+            {dependents.length === 1
+              ? `${accessLabel(dependents[0].accessLevel)} proxy for ${dependents[0].patientName ?? 'your loved one'}`
+              : `Proxy for ${dependents.length} loved ones`}
           </Text>
           <Text style={[styles.lovedOneMeta, { fontSize: s(11), lineHeight: s(16) }]}>
-            You can view health info, appointments, medications and communicate with the care team.
+            Tap a loved one to see their health profile and the access they have granted you.
           </Text>
         </View>
       </View>
@@ -416,7 +360,6 @@ const styles = StyleSheet.create({
   cardAction: { color: PURPLE, fontWeight: '500' },
 
   sep:        { height: StyleSheet.hairlineWidth, backgroundColor: BORDER },
-  viewAllBtn: { alignItems: 'center' },
   addLovedOneBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: PURPLE, backgroundColor: WHITE },
 
   lovedOneRow:   { flexDirection: 'row', alignItems: 'center', backgroundColor: BG },
@@ -431,14 +374,9 @@ const styles = StyleSheet.create({
   timePill:    { borderWidth: 1, alignItems: 'center' },
   videoBtn:    { borderWidth: 1, borderColor: GREEN + '50', backgroundColor: GREEN + '15', alignItems: 'center', justifyContent: 'center' },
 
-  updateRow:   { flexDirection: 'row', alignItems: 'center' },
-  iconCircle:  { alignItems: 'center', justifyContent: 'center' },
+
+
   updateTitle: { fontWeight: '600', color: TEXT },
-  duePill:     { borderWidth: 1, alignItems: 'center' },
-
-  msgBtn:      { flexDirection: 'row', alignItems: 'center', backgroundColor: PURPLE },
-  msgBtnText:  { color: WHITE, fontWeight: '600' },
-
   banner:      { flexDirection: 'row', alignItems: 'center', backgroundColor: PURPLE_BG, borderWidth: 1, borderColor: PURPLE_LIGHT },
   bannerIcon:  { backgroundColor: WHITE, borderWidth: 1, borderColor: PURPLE_LIGHT, alignItems: 'center', justifyContent: 'center' },
 });

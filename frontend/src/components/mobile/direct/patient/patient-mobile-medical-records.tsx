@@ -188,6 +188,8 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
           onPress={() => onBack ? onBack() : router.back()}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
         >
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -199,6 +201,8 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
           style={[styles.headerRefresh, { width: s(34), height: s(34), borderRadius: s(17) }]}
           onPress={refetch}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(17)} color={TEAL} />
         </TouchableOpacity>

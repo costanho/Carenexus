@@ -6,12 +6,10 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { logout } from '@/lib/auth/auth.service';
 
-const PURPLE = '#7C3AED';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
 const RED    = '#EF4444';
 
 const LOGIN_ROUTE = Platform.OS === 'web'
@@ -34,20 +32,7 @@ function greeting() {
   return 'Good evening';
 }
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-function IconBadge({ name, badge }: { name: IoniconsName; badge: string }) {
-  return (
-    <View style={styles.iconWrapper}>
-      <Ionicons name={name} size={24} color={TEXT} />
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>{badge}</Text>
-      </View>
-    </View>
-  );
-}
-
-export function PatientProxyTopNavbar() {
+export function PatientProxyTopNavbar({ onNavigate }: { onNavigate?: (key: string) => void } = {}) {
   const { user }              = useCurrentUser();
   const router                = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -79,22 +64,18 @@ export function PatientProxyTopNavbar() {
         <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>
       </View>
 
-      {/* Right: icons + profile + switch */}
+      {/* Right: profile menu */}
       <View style={styles.right}>
-        <View style={styles.iconsRow}>
-          <TouchableOpacity activeOpacity={0.7}>
-            <IconBadge name="notifications-outline" badge="5" />
-          </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.7}>
-            <IconBadge name="mail-outline" badge="3" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.divider} />
-
         {/* Profile + dropdown */}
         <View style={styles.profileBlock}>
-          <TouchableOpacity style={styles.profileRow} activeOpacity={0.8} onPress={() => setMenuOpen(o => !o)}>
+          <TouchableOpacity
+            style={styles.profileRow}
+            activeOpacity={0.8}
+            onPress={() => setMenuOpen(o => !o)}
+            accessibilityRole="button"
+            accessibilityLabel="Account menu"
+            accessibilityState={{ expanded: menuOpen }}
+          >
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
@@ -112,25 +93,32 @@ export function PatientProxyTopNavbar() {
           {/* Dropdown menu */}
           {menuOpen && (
             <View style={styles.dropdown}>
+              {onNavigate && (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  activeOpacity={0.7}
+                  onPress={() => { setMenuOpen(false); onNavigate('profile-settings'); }}
+                  accessibilityRole="menuitem"
+                >
+                  <Ionicons name="settings-outline" size={16} color={TEXT} importantForAccessibility="no" />
+                  <Text style={styles.dropdownItemText}>Profile & Settings</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.dropdownItem}
                 activeOpacity={0.7}
                 onPress={handleLogout}
                 disabled={loggingOut}
+                accessibilityRole="menuitem"
+                accessibilityState={{ disabled: loggingOut }}
               >
-                <Ionicons name="log-out-outline" size={16} color={RED} />
+                <Ionicons name="log-out-outline" size={16} color={RED} importantForAccessibility="no" />
                 <Text style={styles.dropdownLogoutText}>
                   {loggingOut ? 'Signing out…' : 'Log Out'}
                 </Text>
               </TouchableOpacity>
             </View>
           )}
-
-          <TouchableOpacity style={styles.switchBtn} activeOpacity={0.8}>
-            <Ionicons name="people-outline" size={15} color={PURPLE} />
-            <Text style={styles.switchText}>Switch to another</Text>
-            <Ionicons name="chevron-down" size={14} color={PURPLE} />
-          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -171,39 +159,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  iconsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-  },
-  iconWrapper: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: PURPLE,
-    borderRadius: 8,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: WHITE,
-  },
-  divider: {
-    width: 1,
-    height: 36,
-    backgroundColor: BORDER,
-  },
 
   // Profile block
   profileBlock: {
@@ -240,22 +195,6 @@ const styles = StyleSheet.create({
     color: GRAY,
     marginTop: 1,
   },
-  switchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  switchText: {
-    fontSize: 12,
-    color: PURPLE,
-    fontWeight: '600',
-  },
 
   dropdown: {
     position: 'absolute',
@@ -278,6 +217,11 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 13,
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: TEXT,
+    fontWeight: '500',
   },
   dropdownLogoutText: {
     fontSize: 14,

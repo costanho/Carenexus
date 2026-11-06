@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { SoonPill } from './proxy-states';
 
 
 const PURPLE      = '#7C3AED';
-const PURPLE_LIGHT= '#EDE9FE';
 const PURPLE_BG   = '#F5F3FF';
 const TEXT        = '#111827';
 const GRAY        = '#6B7280';
@@ -14,13 +14,13 @@ const WHITE       = '#FFFFFF';
 const BORDER      = '#E5E7EB';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type NavItem      = { key: string; label: string; icon: IoniconsName };
+type NavItem      = { key: string; label: string; icon: IoniconsName; comingSoon?: boolean };
 
 const careItems: NavItem[] = [
   { key: 'appointments',       label: 'Appointments',        icon: 'calendar-outline' },
   { key: 'medications',        label: 'Medications',         icon: 'pencil-outline' },
-  { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline' },
-  { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline' },
+  { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline',       comingSoon: true },
+  { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline', comingSoon: true },
   { key: 'documents-results',  label: 'Documents & Results', icon: 'document-outline' },
   { key: 'health-summary',     label: 'Health Summary',      icon: 'download-outline' },
 ];
@@ -57,15 +57,21 @@ function accessLabel(level: string) {
   }
 }
 
-function SidebarNavItem({ item, active, onPress }: { item: NavItem; active?: boolean; onPress?: () => void }) {
+function SidebarNavItem({ item, active, collapsed, onPress }: { item: NavItem; active?: boolean; collapsed?: boolean; onPress?: () => void }) {
+  const disabled = !!item.comingSoon;
   return (
     <TouchableOpacity
-      style={[styles.navItem, active && styles.navItemActive]}
+      style={[styles.navItem, active && styles.navItemActive, disabled && styles.navItemDisabled]}
       activeOpacity={0.7}
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={disabled ? `${item.label}, coming soon` : item.label}
+      accessibilityState={{ selected: !!active, disabled }}
     >
-      <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} />
+      <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} importantForAccessibility="no" />
       <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+      {!collapsed && disabled && <SoonPill />}
     </TouchableOpacity>
   );
 }
@@ -106,6 +112,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
         <SidebarNavItem
           item={{ key: 'dashboard', label: 'Dashboard', icon: 'home-outline' }}
           active={activeKey === 'dashboard'}
+          collapsed={collapsed}
           onPress={() => onNavigate?.('dashboard')}
         />
 
@@ -130,7 +137,14 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
                     ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
                     : '';
                   return (
-                    <TouchableOpacity key={dep.accessId} style={styles.lovedOneRow} activeOpacity={0.7} onPress={() => onSelectPatient?.(dep)}>
+                    <TouchableOpacity
+                      key={dep.accessId}
+                      style={styles.lovedOneRow}
+                      activeOpacity={0.7}
+                      onPress={() => onSelectPatient?.(dep)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open profile for ${name}`}
+                    >
                       <View style={styles.avatarWrapper}>
                         <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
                           <Text style={styles.avatarInitials}>{initials(name)}</Text>
@@ -146,7 +160,13 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
                   );
                 })}
                 {dependents.length > SHOW_LIMIT && (
-                  <TouchableOpacity style={styles.expandBtn} activeOpacity={0.7} onPress={() => setExpanded(e => !e)}>
+                  <TouchableOpacity
+                    style={styles.expandBtn}
+                    activeOpacity={0.7}
+                    onPress={() => setExpanded(e => !e)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded }}
+                  >
                     <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={PURPLE} />
                     <Text style={styles.expandText}>
                       {expanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
@@ -156,8 +176,13 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
               </>
             )}
 
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => onNavigate?.('add-dependent')}>
-              <Ionicons name="add" size={16} color={PURPLE} />
+            <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.8}
+              onPress={() => onNavigate?.('add-dependent')}
+              accessibilityRole="button"
+            >
+              <Ionicons name="add" size={16} color={PURPLE} importantForAccessibility="no" />
               <Text style={styles.addBtnText}>Add Another Loved One</Text>
             </TouchableOpacity>
           </>
@@ -170,7 +195,14 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
               const name     = dep.patientName ?? '?';
               const dotColor = healthDotColor(dep.patientHealthStatus);
               return (
-                <TouchableOpacity key={dep.accessId} activeOpacity={0.7} style={{ position: 'relative' }}>
+                <TouchableOpacity
+                  key={dep.accessId}
+                  activeOpacity={0.7}
+                  style={{ position: 'relative' }}
+                  onPress={() => onSelectPatient?.(dep)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open profile for ${name}`}
+                >
                   <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
                     <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
                   </View>
@@ -188,6 +220,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             key={item.key}
             item={item}
             active={activeKey === item.key}
+            collapsed={collapsed}
             onPress={() => onNavigate?.(item.key)}
           />
         ))}
@@ -200,25 +233,10 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             key={item.key}
             item={item}
             active={activeKey === item.key}
+            collapsed={collapsed}
             onPress={() => onNavigate?.(item.key)}
           />
         ))}
-
-        {/* Help card */}
-        {!collapsed && (
-          <View style={styles.helpCard}>
-            <View style={styles.helpIconWrapper}>
-              <Ionicons name="headset-outline" size={26} color={PURPLE} />
-            </View>
-            <View>
-              <Text style={styles.helpTitle}>Need Help?</Text>
-              <Text style={styles.helpSub}>We're here for you.</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.helpLink}>Contact Support</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -289,6 +307,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   navItemActive: { backgroundColor: PURPLE },
+  navItemDisabled: { opacity: 0.55 },
   navLabel:      { fontSize: 14, color: TEXT, fontWeight: '400' },
   navLabelActive:{ color: WHITE, fontWeight: '600' },
 
@@ -350,25 +369,4 @@ const styles = StyleSheet.create({
   },
   addBtnText: { fontSize: 13, color: PURPLE, fontWeight: '500' },
 
-  helpCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: PURPLE_LIGHT,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 24,
-    marginHorizontal: 4,
-  },
-  helpIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: WHITE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  helpTitle: { fontSize: 14, fontWeight: '700', color: PURPLE },
-  helpSub:   { fontSize: 12, color: GRAY, marginTop: 2 },
-  helpLink:  { fontSize: 13, color: PURPLE, fontWeight: '600', marginTop: 4 },
 });

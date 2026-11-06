@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -45,9 +46,15 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function PatientProxyProfileSettings() {
+export default function PatientProxyProfileSettings({
+  onNavigate,
+  onSelectPatient,
+}: {
+  onNavigate?:      (key: string) => void;
+  onSelectPatient?: (dep: CaregiverDependent) => void;
+}) {
   const { user }       = useCurrentUser();
-  const { dependents } = useCaregiverDependents();
+  const { dependents, loading, error, refetch } = useCaregiverDependents();
 
   const fullName = user ? `${user.first_name} ${user.last_name}` : '...';
   const bg       = user ? avatarColor(fullName) : '#7C3AED';
@@ -66,17 +73,10 @@ export default function PatientProxyProfileSettings() {
                 <Text style={styles.avatarText}>{ini}</Text>
               </View>
             )}
-            <TouchableOpacity style={styles.avatarEdit} activeOpacity={0.8}>
-              <Ionicons name="camera-outline" size={14} color={WHITE} />
-            </TouchableOpacity>
           </View>
           <View>
             <Text style={styles.heroName}>{fullName}</Text>
             <Text style={styles.heroRole}>Proxy / Caregiver</Text>
-            <View style={styles.verifiedRow}>
-              <Ionicons name="shield-checkmark-outline" size={14} color={GREEN} />
-              <Text style={styles.verifiedText}>Verified Caregiver</Text>
-            </View>
           </View>
         </View>
       </View>
@@ -86,10 +86,6 @@ export default function PatientProxyProfileSettings() {
         <View style={styles.card}>
           <View style={styles.cardHead}>
             <Text style={styles.cardTitle}>Personal Information</Text>
-            <TouchableOpacity style={styles.editBtn} activeOpacity={0.7}>
-              <Ionicons name="pencil-outline" size={14} color={PURPLE} />
-              <Text style={styles.editBtnText}>Edit</Text>
-            </TouchableOpacity>
           </View>
           <InfoRow label="First Name"    value={user?.first_name ?? '—'} />
           <View style={styles.sep} />
@@ -109,7 +105,11 @@ export default function PatientProxyProfileSettings() {
           <Text style={styles.cardTitle}>Linked Patients</Text>
           <Text style={styles.cardSub}>Patients you have been authorised to manage as proxy</Text>
 
-          {dependents.length === 0 ? (
+          {loading ? (
+            <LoadingState compact label="Loading linked patients" />
+          ) : error ? (
+            <ErrorState compact message={error} onRetry={refetch} />
+          ) : dependents.length === 0 ? (
             <Text style={styles.emptyText}>No linked patients yet.</Text>
           ) : (
             dependents.map((dep, i) => {
@@ -144,73 +144,45 @@ export default function PatientProxyProfileSettings() {
                         <Text style={styles.depExpiry}>{expiry}</Text>
                       </View>
                     </View>
-                    <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8}>
-                      <Text style={styles.manageBtnText}>Manage</Text>
-                    </TouchableOpacity>
+                    {onSelectPatient && (
+                      <TouchableOpacity
+                        style={styles.manageBtn}
+                        activeOpacity={0.8}
+                        onPress={() => onSelectPatient(dep)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Manage access for ${name}`}
+                      >
+                        <Text style={styles.manageBtnText}>Manage</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               );
             })
           )}
 
-          <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
-            <Ionicons name="add" size={16} color={PURPLE} />
-            <Text style={styles.addBtnText}>Add Linked Patient</Text>
-          </TouchableOpacity>
+          {onNavigate && (
+            <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.8}
+              onPress={() => onNavigate('add-dependent')}
+              accessibilityRole="button"
+            >
+              <Ionicons name="add" size={16} color={PURPLE} importantForAccessibility="no" />
+              <Text style={styles.addBtnText}>Add Linked Patient</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Security */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Security</Text>
           <View style={styles.secRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.secLabel}>Password</Text>
-              <Text style={styles.secSub}>Last changed 90 days ago</Text>
-            </View>
-            <TouchableOpacity style={styles.secBtn} activeOpacity={0.8}>
-              <Text style={styles.secBtnText}>Change Password</Text>
-            </TouchableOpacity>
+            <Ionicons name="lock-closed-outline" size={16} color={GRAY} importantForAccessibility="no" />
+            <Text style={[styles.secSub, { flex: 1, marginTop: 0, marginLeft: 8 }]}>
+              Password changes and two-factor authentication are not available in the app yet.
+            </Text>
           </View>
-          <View style={styles.sep} />
-          <View style={styles.secRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.secLabel}>Two-Factor Authentication</Text>
-              <Text style={styles.secSub}>Not enabled</Text>
-            </View>
-            <TouchableOpacity style={[styles.secBtn, { backgroundColor: '#D1FAE5', borderColor: GREEN }]} activeOpacity={0.8}>
-              <Text style={[styles.secBtnText, { color: GREEN }]}>Enable 2FA</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Change password form */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Change Password</Text>
-          <View style={styles.formGroup}>
-            <Text style={styles.formLabel}>Current Password</Text>
-            <TextInput style={styles.input} secureTextEntry placeholder="••••••••" placeholderTextColor="#9CA3AF" />
-          </View>
-          <View style={styles.formGroup}>
-            <Text style={styles.formLabel}>New Password</Text>
-            <TextInput style={styles.input} secureTextEntry placeholder="••••••••" placeholderTextColor="#9CA3AF" />
-          </View>
-          <View style={styles.formGroup}>
-            <Text style={styles.formLabel}>Confirm New Password</Text>
-            <TextInput style={styles.input} secureTextEntry placeholder="••••••••" placeholderTextColor="#9CA3AF" />
-          </View>
-          <TouchableOpacity style={styles.saveBtn} activeOpacity={0.8}>
-            <Text style={styles.saveBtnText}>Update Password</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Danger zone */}
-        <View style={[styles.card, styles.dangerCard]}>
-          <Text style={[styles.cardTitle, { color: RED }]}>Danger Zone</Text>
-          <Text style={styles.dangerText}>These actions are irreversible. Proceed with caution.</Text>
-          <TouchableOpacity style={styles.dangerBtn} activeOpacity={0.8}>
-            <Ionicons name="trash-outline" size={15} color={RED} />
-            <Text style={styles.dangerBtnText}>Deactivate Account</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </ScrollView>
@@ -226,24 +198,14 @@ const styles = StyleSheet.create({
   avatarWrap:  { position: 'relative' },
   avatar:      { width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: WHITE },
   avatarText:  { color: WHITE, fontSize: 26, fontWeight: '700' },
-  avatarEdit:  {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: PURPLE, borderWidth: 2, borderColor: WHITE,
-    alignItems: 'center', justifyContent: 'center',
-  },
   heroName:    { fontSize: 22, fontWeight: '700', color: WHITE },
   heroRole:    { fontSize: 13, color: '#94A3B8', marginTop: 4 },
-  verifiedRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
-  verifiedText:{ fontSize: 12, color: GREEN, fontWeight: '600' },
 
   body:      { padding: 24, gap: 20 },
   card:      { backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 0 },
   cardHead:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   cardTitle: { fontSize: 16, fontWeight: '700', color: TEXT },
   cardSub:   { fontSize: 12, color: GRAY, marginTop: 2, marginBottom: 16 },
-  editBtn:   { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  editBtnText:{ fontSize: 12, color: PURPLE, fontWeight: '500' },
 
   infoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
   infoLabel: { fontSize: 13, color: GRAY },
@@ -267,19 +229,7 @@ const styles = StyleSheet.create({
   emptyText:   { fontSize: 13, color: GRAY, paddingVertical: 8 },
 
   secRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  secLabel:    { fontSize: 14, fontWeight: '600', color: TEXT },
   secSub:      { fontSize: 12, color: GRAY, marginTop: 2 },
-  secBtn:      { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 },
-  secBtnText:  { fontSize: 12, color: TEXT, fontWeight: '500' },
 
-  formGroup:  { gap: 6, marginTop: 14 },
-  formLabel:  { fontSize: 13, fontWeight: '600', color: TEXT },
-  input:      { borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: TEXT } as any,
-  saveBtn:    { backgroundColor: PURPLE, borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 16 },
-  saveBtnText:{ fontSize: 14, color: WHITE, fontWeight: '700' },
 
-  dangerCard: { borderColor: '#FECACA' },
-  dangerText: { fontSize: 13, color: GRAY, marginBottom: 14 },
-  dangerBtn:  { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: RED, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, alignSelf: 'flex-start' },
-  dangerBtnText:{ fontSize: 13, color: RED, fontWeight: '600' },
 });

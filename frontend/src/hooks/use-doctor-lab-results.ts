@@ -16,7 +16,10 @@ export interface LabSubTest {
 
 export interface DoctorLabResult {
   result_id:       number;
+  patient_system_id: string;
+  /** @deprecated not exposed by the API; always 0. Use patient_system_id. */
   patient_id:      number;
+  /** @deprecated not exposed by the API; always 0. */
   doctor_id:       number;
   consultation_id: number | null;
   test_name:       string;
@@ -32,7 +35,7 @@ export interface DoctorLabResult {
   reviewed_at:     string | null;
   file_url:        string | null;
   created_at:      string;
-  // server-enriched
+  // enriched client-side from the doctor's own profile / patient list
   doctor_name:           string;
   doctor_specialization: string | null;
   doctor_avatar_url:     string | null;
@@ -48,6 +51,31 @@ interface State {
   refetch:  () => void;
 }
 
+const FLAGS: LabFlag[] = ['NORMAL', 'LOW', 'HIGH'];
+
+/** resultData arrives as a JSON string; keep only well-formed sub-test objects. */
+function parseResultData(raw: unknown): Record<string, LabSubTest> | null {
+  if (!raw) return null;
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch { return null; }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const out: Record<string, LabSubTest> = {};
+  Object.entries(obj as Record<string, any>).forEach(([key, v]) => {
+    if (!v || typeof v !== 'object') return;
+    const flag = String(v.flag ?? 'NORMAL').toUpperCase() as LabFlag;
+    out[key] = {
+      value:          v.value ?? '',
+      unit:           v.unit ?? '',
+      reference:      v.reference ?? v.referenceRange ?? '',
+      flag:           FLAGS.includes(flag) ? flag : 'NORMAL',
+      interpretation: v.interpretation ?? undefined,
+    };
+  });
+  return Object.keys(out).length ? out : null;
+}
+
 export function useDoctorLabResults(): State {
   const { user } = useCurrentUser();
   const [results,  setResults]  = useState<DoctorLabResult[]>([]);
@@ -61,37 +89,43 @@ export function useDoctorLabResults(): State {
 
     Promise.all([
         api.get<any[]>(`/api/lab-results/doctor/${user.system_id}`),
-        api.get<any[]>('/api/patients'),
+        api.get<any[]>('/api/doctors/patients'),
       ])
-      .then(([labRes, patientsRes]) => [{ data: [] }, labRes, patientsRes])
-      .then(([apptRes, labRes, patientsRes]) => {
-        const avatarMap = new Map<number, string | null>();
-        patientsRes.data.forEach((p: any) => avatarMap.set(p.user_id, p.avatar_url ?? null));
+      .then(([labRes, patientsRes]) => {
+        // patientSystemId → full name, from the doctor's own patient list
+        const nameMap = new Map<string, string>();
+        (patientsRes.data ?? []).forEach((p: any) => {
+          if (!p.patientSystemId) return;
+          const name = `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim();
+          if (name) nameMap.set(p.patientSystemId, name);
+        });
+        const doctorName = user.first_name ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Unknown Doctor';
 
-        const merged: DoctorLabResult[] = labRes.data
+        const merged: DoctorLabResult[] = (labRes.data ?? [])
           .map((r: any) => ({
-            result_id:       r.result_id,
-            patient_id:      r.patient_id,
-            doctor_id:       r.doctor_id,
-            consultation_id: r.consultation_id ?? null,
-            test_name:       r.test_name       ?? '',
-            test_type:       r.test_type       ?? 'BLOOD',
-            result_value:    r.result_value    ?? null,
-            unit:            r.unit            ?? null,
-            reference_range: r.reference_range ?? null,
-            result_data:     r.result_data     ?? null,
-            status:          r.status          as LabStatus,
-            is_critical:     r.is_critical     ?? 0,
-            test_date:       r.test_date       ?? '',
-            reviewed_by:     r.reviewed_by     ?? null,
-            reviewed_at:     r.reviewed_at     ?? null,
-            file_url:        r.file_url        ?? null,
-            created_at:      r.created_at      ?? '',
-            doctor_name:           r.doctor_name           ?? 'Unknown Doctor',
-            doctor_specialization: r.doctor_specialization ?? null,
-            doctor_avatar_url:     r.doctor_avatar_url     ?? null,
-            patient_name:          r.patient_name          ?? 'Unknown Patient',
-            patient_avatar_url:    avatarMap.get(r.patient_id) ?? null,
+            result_id:       r.resultId ?? 0,
+            patient_system_id: r.patientSystemId ?? '',
+            patient_id:      0,
+            doctor_id:       0,
+            consultation_id: r.consultationId ?? null,
+            test_name:       r.testName       ?? '',
+            test_type:       r.testType       ?? 'BLOOD',
+            result_value:    r.resultValue    ?? null,
+            unit:            r.unit           ?? null,
+            reference_range: r.referenceRange ?? null,
+            result_data:     parseResultData(r.resultData),
+            status:          r.status as LabStatus,
+            is_critical:     r.isCritical ? 1 : 0,
+            test_date:       r.testDate   ? String(r.testDate)   : '',
+            reviewed_by:     null,
+            reviewed_at:     r.reviewedAt ? String(r.reviewedAt) : null,
+            file_url:        r.fileUrl    ?? null,
+            created_at:      r.createdAt  ? String(r.createdAt)  : '',
+            doctor_name:           doctorName,
+            doctor_specialization: null,
+            doctor_avatar_url:     null,
+            patient_name:          nameMap.get(r.patientSystemId) ?? 'Unknown Patient',
+            patient_avatar_url:    null,
           }));
 
         merged.sort((a, b) => new Date(b.test_date).getTime() - new Date(a.test_date).getTime());

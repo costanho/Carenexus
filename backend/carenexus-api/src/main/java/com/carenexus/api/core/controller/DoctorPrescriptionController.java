@@ -6,42 +6,33 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Doctor-facing prescription views. Access is enforced in PrescriptionService: every list is scoped to a doctor
+ * and requires the caller to be that doctor (or an admin), and status changes require the authoring doctor.
+ */
 @RestController
 @RequestMapping("/api/doctors/prescriptions")
 @RequiredArgsConstructor
 public class DoctorPrescriptionController {
+
+    private static final List<String> STATUS_ORDER = List.of("ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED", "EXPIRED");
 
     private final PrescriptionService prescriptionService;
 
     @GetMapping
     public ResponseEntity<List<PrescriptionResponse>> getMyPrescriptions(
             @RequestAttribute("systemId") String systemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getActiveForUser(systemId, "DOCTOR");
-        List<PrescriptionResponse> onHold = prescriptionService.getOnHoldForUser(systemId, "DOCTOR");
-        List<PrescriptionResponse> all = new java.util.ArrayList<>();
-        all.addAll(prescriptions);
-        all.addAll(onHold);
-        all.addAll(prescriptionService.getCompletedForUser(systemId, "DOCTOR"));
-        all.addAll(prescriptionService.getCancelledForUser(systemId, "DOCTOR"));
-        all.addAll(prescriptionService.getExpiredForUser(systemId, "DOCTOR"));
-        return ResponseEntity.ok(all);
+        return ResponseEntity.ok(inStatusOrder(prescriptionService.getDoctorPrescriptions(systemId)));
     }
 
     @GetMapping("/{doctorSystemId}")
     public ResponseEntity<List<PrescriptionResponse>> getDoctorPrescriptions(@PathVariable String doctorSystemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getActiveForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> onHold = prescriptionService.getOnHoldForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> all = new java.util.ArrayList<>();
-        all.addAll(prescriptions);
-        all.addAll(onHold);
-        all.addAll(prescriptionService.getCompletedForUser(doctorSystemId, "DOCTOR"));
-        all.addAll(prescriptionService.getCancelledForUser(doctorSystemId, "DOCTOR"));
-        all.addAll(prescriptionService.getExpiredForUser(doctorSystemId, "DOCTOR"));
-        return ResponseEntity.ok(all);
+        return ResponseEntity.ok(inStatusOrder(prescriptionService.getDoctorPrescriptions(doctorSystemId)));
     }
 
     @GetMapping("/status/active")
@@ -300,22 +291,14 @@ public class DoctorPrescriptionController {
     public ResponseEntity<List<PrescriptionResponse>> getMyPatientPrescriptions(
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(systemId);
-        List<PrescriptionResponse> patientPrescriptions = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId))
-                .toList();
-        return ResponseEntity.ok(patientPrescriptions);
+        return ResponseEntity.ok(prescriptionService.getDoctorPatientPrescriptions(systemId, patientSystemId));
     }
 
     @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
     public ResponseEntity<List<PrescriptionResponse>> getDoctorPatientPrescriptions(
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(doctorSystemId);
-        List<PrescriptionResponse> patientPrescriptions = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId))
-                .toList();
-        return ResponseEntity.ok(patientPrescriptions);
+        return ResponseEntity.ok(prescriptionService.getDoctorPatientPrescriptions(doctorSystemId, patientSystemId));
     }
 
     @GetMapping("/patient/{patientSystemId}/status/{status}")
@@ -323,11 +306,11 @@ public class DoctorPrescriptionController {
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId,
             @PathVariable String status) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(systemId);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPatientPrescriptions(systemId, patientSystemId);
         String upperStatus = status.toUpperCase();
 
         List<PrescriptionResponse> filtered = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId) && p.getStatus().equalsIgnoreCase(upperStatus))
+                .filter(p -> p.getStatus().equalsIgnoreCase(upperStatus))
                 .toList();
         return ResponseEntity.ok(filtered);
     }
@@ -337,11 +320,11 @@ public class DoctorPrescriptionController {
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId,
             @PathVariable String status) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(doctorSystemId);
+        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPatientPrescriptions(doctorSystemId, patientSystemId);
         String upperStatus = status.toUpperCase();
 
         List<PrescriptionResponse> filtered = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId) && p.getStatus().equalsIgnoreCase(upperStatus))
+                .filter(p -> p.getStatus().equalsIgnoreCase(upperStatus))
                 .toList();
         return ResponseEntity.ok(filtered);
     }
@@ -363,10 +346,7 @@ public class DoctorPrescriptionController {
     public ResponseEntity<Map<String, Object>> getMyPatientPrescriptionStats(
             @RequestAttribute("systemId") String systemId,
             @PathVariable String patientSystemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(systemId);
-        List<PrescriptionResponse> patientPrescriptions = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId))
-                .toList();
+        List<PrescriptionResponse> patientPrescriptions = prescriptionService.getDoctorPatientPrescriptions(systemId, patientSystemId);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalPrescriptions", patientPrescriptions.size());
@@ -383,10 +363,7 @@ public class DoctorPrescriptionController {
     public ResponseEntity<Map<String, Object>> getDoctorPatientPrescriptionStats(
             @PathVariable String doctorSystemId,
             @PathVariable String patientSystemId) {
-        List<PrescriptionResponse> prescriptions = prescriptionService.getDoctorPrescriptions(doctorSystemId);
-        List<PrescriptionResponse> patientPrescriptions = prescriptions.stream()
-                .filter(p -> p.getPatientSystemId().equals(patientSystemId))
-                .toList();
+        List<PrescriptionResponse> patientPrescriptions = prescriptionService.getDoctorPatientPrescriptions(doctorSystemId, patientSystemId);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalPrescriptions", patientPrescriptions.size());
@@ -449,21 +426,33 @@ public class DoctorPrescriptionController {
     }
 
     private Map<String, Object> buildPrescriptionStats(String doctorSystemId) {
-        List<PrescriptionResponse> activePrescriptions = prescriptionService.getActiveForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> completedPrescriptions = prescriptionService.getCompletedForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> cancelledPrescriptions = prescriptionService.getCancelledForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> expiredPrescriptions = prescriptionService.getExpiredForUser(doctorSystemId, "DOCTOR");
-        List<PrescriptionResponse> onHoldPrescriptions = prescriptionService.getOnHoldForUser(doctorSystemId, "DOCTOR");
+        List<PrescriptionResponse> all = prescriptionService.getDoctorPrescriptions(doctorSystemId);
+        long active = countStatus(all, "ACTIVE");
+        long completed = countStatus(all, "COMPLETED");
+        long cancelled = countStatus(all, "CANCELLED");
+        long expired = countStatus(all, "EXPIRED");
+        long onHold = countStatus(all, "ON_HOLD");
 
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalPrescriptions", activePrescriptions.size() + completedPrescriptions.size() +
-                  cancelledPrescriptions.size() + expiredPrescriptions.size() + onHoldPrescriptions.size());
-        stats.put("activePrescriptions", activePrescriptions.size());
-        stats.put("completedPrescriptions", completedPrescriptions.size());
-        stats.put("cancelledPrescriptions", cancelledPrescriptions.size());
-        stats.put("expiredPrescriptions", expiredPrescriptions.size());
-        stats.put("onHoldPrescriptions", onHoldPrescriptions.size());
+        stats.put("totalPrescriptions", (int) (active + completed + cancelled + expired + onHold));
+        stats.put("activePrescriptions", (int) active);
+        stats.put("completedPrescriptions", (int) completed);
+        stats.put("cancelledPrescriptions", (int) cancelled);
+        stats.put("expiredPrescriptions", (int) expired);
+        stats.put("onHoldPrescriptions", (int) onHold);
 
         return stats;
+    }
+
+    private static long countStatus(List<PrescriptionResponse> prescriptions, String status) {
+        return prescriptions.stream().filter(p -> status.equals(p.getStatus())).count();
+    }
+
+    /** Known statuses grouped as active, on hold, completed, cancelled, expired. */
+    private static List<PrescriptionResponse> inStatusOrder(List<PrescriptionResponse> prescriptions) {
+        return prescriptions.stream()
+                .filter(p -> STATUS_ORDER.contains(p.getStatus()))
+                .sorted(Comparator.comparingInt(p -> STATUS_ORDER.indexOf(p.getStatus())))
+                .toList();
     }
 }

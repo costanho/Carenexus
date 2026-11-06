@@ -17,7 +17,7 @@ const tabs: TabItem[] = [
   { key: 'dashboard',    label: 'Dashboard',    icon: 'home-outline',         activeIcon: 'home' },
   { key: 'appointments', label: 'Appointments', icon: 'calendar-outline',     activeIcon: 'calendar' },
   { key: 'records',      label: 'Records',      icon: 'folder-open-outline',  activeIcon: 'folder-open' },
-  { key: 'messages',     label: 'Messages',     icon: 'chatbubble-outline',   activeIcon: 'chatbubble' },
+  { key: 'prescriptions', label: 'Prescriptions', icon: 'medkit-outline',      activeIcon: 'medkit' },
   { key: 'profile',      label: 'Profile',      icon: 'person-outline',       activeIcon: 'person' },
 ];
 
@@ -66,6 +66,9 @@ export function PatientBottomNavbar({
             style={[styles.tab, { gap: s(4) }]}
             activeOpacity={0.7}
             onPress={() => handlePress(tab)}
+            accessibilityRole="tab"
+            accessibilityLabel={tab.label}
+            accessibilityState={{ selected: isActive }}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />

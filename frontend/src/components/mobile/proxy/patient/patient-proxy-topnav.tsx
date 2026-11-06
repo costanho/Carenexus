@@ -11,7 +11,6 @@ const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
-const PURPLE = '#7C3AED';
 const RED    = '#EF4444';
 
 const LOGIN_ROUTE = Platform.OS === 'web'
@@ -31,21 +30,6 @@ function greeting() {
   return 'Good evening';
 }
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-function IconBadge({ name, badge, iconSize, badgeSize }: {
-  name: IoniconsName; badge: string; iconSize: number; badgeSize: number;
-}) {
-  return (
-    <View style={styles.iconWrapper}>
-      <Ionicons name={name} size={iconSize} color={TEXT} />
-      <View style={[styles.badge, { minWidth: badgeSize, height: badgeSize, borderRadius: badgeSize / 2 }]}>
-        <Text style={[styles.badgeText, { fontSize: badgeSize * 0.62 }]}>{badge}</Text>
-      </View>
-    </View>
-  );
-}
-
 export function PatientProxyTopNavMobile() {
   const { user }   = useCurrentUser();
   const router     = useRouter();
@@ -58,8 +42,6 @@ export function PatientProxyTopNavMobile() {
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
 
-  const iconSize   = s(22);
-  const badgeSize  = s(15);
   const avatarSize = s(34);
 
   const firstName = user?.first_name ?? '';
@@ -97,23 +79,17 @@ export function PatientProxyTopNavMobile() {
         </Text>
       </View>
 
-      {/* Right: badges + avatar + caret */}
+      {/* Right: avatar + account menu */}
       <View style={[styles.right, { gap: s(10) }]}>
-        <TouchableOpacity activeOpacity={0.7}>
-          <IconBadge name="notifications-outline" badge="5" iconSize={iconSize} badgeSize={badgeSize} />
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7}>
-          <IconBadge name="mail-outline" badge="3" iconSize={iconSize} badgeSize={badgeSize} />
-        </TouchableOpacity>
-
-        <View style={[styles.divider, { height: s(24) }]} />
-
         {/* Profile row with dropdown */}
         <View>
           <TouchableOpacity
             style={[styles.profileRow, { gap: s(6) }]}
             activeOpacity={0.8}
             onPress={() => setMenuOpen(o => !o)}
+            accessibilityRole="button"
+            accessibilityLabel="Account menu"
+            accessibilityState={{ expanded: menuOpen }}
           >
             {avatarUrl ? (
               <Image
@@ -149,8 +125,10 @@ export function PatientProxyTopNavMobile() {
                 onPress={handleLogout}
                 disabled={loggingOut}
                 activeOpacity={0.7}
+                accessibilityRole="menuitem"
+                accessibilityState={{ disabled: loggingOut }}
               >
-                <Ionicons name="log-out-outline" size={s(15)} color={RED} />
+                <Ionicons name="log-out-outline" size={s(15)} color={RED} importantForAccessibility="no" />
                 <Text style={[styles.dropdownLogoutText, { fontSize: s(13) }]}>
                   {loggingOut ? 'Signing out…' : 'Log Out'}
                 </Text>
@@ -160,18 +138,6 @@ export function PatientProxyTopNavMobile() {
         </View>
       </View>
 
-      {/* Switch to another — below, full width */}
-      <TouchableOpacity style={[styles.switchBtn, {
-        marginTop: sh(8),
-        borderRadius: s(8),
-        paddingHorizontal: s(10),
-        paddingVertical: s(5),
-        gap: s(5),
-      }]} activeOpacity={0.8}>
-        <Ionicons name="people-outline" size={s(13)} color={PURPLE} />
-        <Text style={[styles.switchText, { fontSize: s(11) }]}>Switch to another</Text>
-        <Ionicons name="chevron-down" size={s(11)} color={PURPLE} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -192,23 +158,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  iconWrapper: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 2,
-  },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 2,
-  },
-  badgeText:   { color: WHITE, fontWeight: '700' },
-  divider:     { width: StyleSheet.hairlineWidth, backgroundColor: BORDER },
   profileRow:  { flexDirection: 'row', alignItems: 'center' },
   profileName: { fontWeight: '700', color: '#111827' },
   profileRole: { color: GRAY },
@@ -235,13 +184,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  switchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#F9FAFB',
-    alignSelf: 'flex-end',
-  },
-  switchText: { color: PURPLE, fontWeight: '600' },
 });
