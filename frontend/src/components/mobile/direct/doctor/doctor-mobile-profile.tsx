@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ActivityIndicator, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDoctorProfile } from '@/hooks/use-doctor-profile';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -25,8 +25,10 @@ function avatarColor(name: string) {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
+/** Initials without the "Dr." title, so "Dr. Michael Kariuki" gives "MK" rather than "DM". */
 function initials(name: string) {
-  return name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  return name.replace(/^\s*(dr(\.\s*|\s+))+/i, '')
+    .split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'DR';
 }
 function formatDate(iso: string): string {
   if (!iso) return '—';
@@ -37,15 +39,50 @@ function memberSince(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 }
 
+// ─── Info Row helper ────────────────────────────────────────────────────────
+type Scale = (n: number) => number;
+
+function InfoRow({ icon, label, value, mono, s, sh }: {
+  icon: IoniconsName; label: string; value: string; mono?: boolean; s: Scale; sh: Scale;
+}) {
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'flex-start', gap: s(10),
+      paddingVertical: sh(10),
+      borderBottomWidth: 1, borderBottomColor: BG,
+    }}>
+      <View style={{
+        width: s(30), height: s(30), borderRadius: s(8),
+        backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center',
+        marginTop: 1,
+      }}>
+        <Ionicons name={icon} size={s(14)} color={BLUE} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: s(10), color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+          {label}
+        </Text>
+        <Text style={{ fontSize: s(13), color: TEXT, fontWeight: '500', fontFamily: mono ? 'monospace' : undefined }} selectable>
+          {value}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function SectionTitle({ title, s }: { title: string; s: Scale }) {
+  return <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT, flexShrink: 1 }} accessibilityRole="header">{title}</Text>;
+}
+
 export default function DoctorMobileProfile() {
   const { profile, stats, loading, error, refetch } = useDoctorProfile();
-  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
 
-  if (loading) {
+  // Full-screen spinner only before the first load; a refetch keeps the profile on screen.
+  if (loading && !profile) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color={BLUE} />
@@ -53,7 +90,7 @@ export default function DoctorMobileProfile() {
     );
   }
 
-  if (error || !profile) {
+  if (!profile) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: s(12), padding: s(24) }}>
         <Ionicons name="alert-circle-outline" size={s(48)} color={RED} />
@@ -62,6 +99,8 @@ export default function DoctorMobileProfile() {
           style={{ backgroundColor: BLUE, borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: sh(10) }}
           onPress={refetch}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading profile"
         >
           <Text style={{ color: WHITE, fontWeight: '600', fontSize: s(14) }}>Retry</Text>
         </TouchableOpacity>
@@ -69,34 +108,8 @@ export default function DoctorMobileProfile() {
     );
   }
 
-  const ac = avatarColor(profile.full_name);
-
-  // ─── Info Row helper ────────────────────────────────────────────────────────
-  function InfoRow({ icon, label, value, mono }: { icon: IoniconsName; label: string; value: string; mono?: boolean }) {
-    return (
-      <View style={{
-        flexDirection: 'row', alignItems: 'flex-start', gap: s(10),
-        paddingVertical: sh(10),
-        borderBottomWidth: 1, borderBottomColor: BG,
-      }}>
-        <View style={{
-          width: s(30), height: s(30), borderRadius: s(8),
-          backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center',
-          marginTop: 1,
-        }}>
-          <Ionicons name={icon} size={s(14)} color={BLUE} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: s(10), color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-            {label}
-          </Text>
-          <Text style={{ fontSize: s(13), color: TEXT, fontWeight: '500', fontFamily: mono ? 'monospace' : undefined }}>
-            {value}
-          </Text>
-        </View>
-      </View>
-    );
-  }
+  const name = tidyDoctorName(profile.full_name);
+  const ac   = avatarColor(name);
 
   return (
     <View style={{ flex: 1, backgroundColor: BG }}>
@@ -106,10 +119,14 @@ export default function DoctorMobileProfile() {
         contentContainerStyle={{ paddingBottom: sh(40) }}
       >
 
+        {!!error && (
+          <Text style={{ fontSize: s(12), color: RED, backgroundColor: '#FEE2E2', paddingHorizontal: s(16), paddingVertical: sh(6) }} accessibilityRole="alert">{error}</Text>
+        )}
+
         {/* Hero banner */}
         <View style={{
           backgroundColor: NAVY,
-          paddingTop: insets.top + sh(20),
+          paddingTop: sh(20),
           paddingBottom: sh(28),
           paddingHorizontal: s(20),
           overflow: 'hidden',
@@ -127,7 +144,7 @@ export default function DoctorMobileProfile() {
           <TouchableOpacity
             style={{
               position: 'absolute',
-              top: insets.top + sh(14),
+              top: sh(14),
               right: s(16),
               width: s(34), height: s(34), borderRadius: s(17),
               backgroundColor: 'rgba(255,255,255,0.1)',
@@ -153,7 +170,7 @@ export default function DoctorMobileProfile() {
                 <Image source={{ uri: profile.avatar_url }} style={{ width: '100%', height: '100%' }} />
               ) : (
                 <View style={{ flex: 1, backgroundColor: ac, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: WHITE, fontSize: s(28), fontWeight: '700' }}>{initials(profile.full_name)}</Text>
+                  <Text style={{ color: WHITE, fontSize: s(28), fontWeight: '700' }}>{initials(name)}</Text>
                 </View>
               )}
             </View>
@@ -162,8 +179,8 @@ export default function DoctorMobileProfile() {
           {/* Name + status */}
           <View style={{ alignItems: 'center', gap: sh(6) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(8), flexWrap: 'wrap', justifyContent: 'center' }}>
-              <Text style={{ fontSize: s(20), fontWeight: '700', color: WHITE, textAlign: 'center' }}>
-                {profile.full_name}
+              <Text style={{ fontSize: s(20), fontWeight: '700', color: WHITE, textAlign: 'center', flexShrink: 1 }} accessibilityRole="header">
+                {name}
               </Text>
               {!!profile.is_active && (
                 <View style={{
@@ -210,7 +227,7 @@ export default function DoctorMobileProfile() {
             { icon: 'videocam-outline'         as IoniconsName, iconBg: '#F5F3FF', iconColor: PURPLE, label: 'Consultations', value: stats.consultations },
             { icon: 'medkit-outline'           as IoniconsName, iconBg: '#FEF3C7', iconColor: AMBER,  label: 'Prescriptions', value: stats.prescriptions },
           ] as const).map(chip => (
-            <View key={chip.label} style={{
+            <View key={chip.label} accessible accessibilityLabel={`${chip.label}: ${chip.value}`} style={{
               backgroundColor: WHITE, borderRadius: s(12), borderWidth: 1, borderColor: BORDER,
               paddingHorizontal: s(14), paddingVertical: sh(8),
               alignItems: 'center', gap: sh(4), minWidth: s(86), alignSelf: 'flex-start',
@@ -237,7 +254,7 @@ export default function DoctorMobileProfile() {
               <View style={{ width: s(32), height: s(32), borderRadius: s(9), backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="person-outline" size={s(15)} color={BLUE} />
               </View>
-              <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT }}>About</Text>
+              <SectionTitle title="About" s={s} />
             </View>
             <Text style={{ fontSize: s(13), color: GRAY, lineHeight: s(20) }}>{profile.bio}</Text>
           </View>
@@ -252,10 +269,10 @@ export default function DoctorMobileProfile() {
             <View style={{ width: s(32), height: s(32), borderRadius: s(9), backgroundColor: '#D1FAE5', alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="call-outline" size={s(15)} color={GREEN} />
             </View>
-            <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT }}>Contact Information</Text>
+            <SectionTitle title="Contact Information" s={s} />
           </View>
-          <InfoRow icon="mail-outline" label="Email Address" value={profile.email} />
-          <InfoRow icon="call-outline" label="Phone Number"  value={profile.phone ?? 'Not provided'} />
+          <InfoRow icon="mail-outline" label="Email Address" value={profile.email} s={s} sh={sh} />
+          <InfoRow icon="call-outline" label="Phone Number"  value={profile.phone ?? 'Not provided'} s={s} sh={sh} />
         </View>
 
         {/* Professional Details */}
@@ -267,12 +284,12 @@ export default function DoctorMobileProfile() {
             <View style={{ width: s(32), height: s(32), borderRadius: s(9), backgroundColor: '#F5F3FF', alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="ribbon-outline" size={s(15)} color={PURPLE} />
             </View>
-            <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT }}>Professional Details</Text>
+            <SectionTitle title="Professional Details" s={s} />
           </View>
-          <InfoRow icon="briefcase-outline"        label="Specialization" value={profile.specialization}          />
-          <InfoRow icon="shield-checkmark-outline" label="License Number" value={profile.license_no}  mono        />
-          <InfoRow icon="calendar-outline"         label="Member Since"   value={memberSince(profile.created_at)} />
-          <InfoRow icon="checkmark-circle-outline" label="Status"         value={profile.is_active ? 'Active' : 'Inactive'} />
+          <InfoRow icon="briefcase-outline"        label="Specialization" value={profile.specialization} s={s} sh={sh} />
+          <InfoRow icon="shield-checkmark-outline" label="License Number" value={profile.license_no}  mono s={s} sh={sh} />
+          <InfoRow icon="calendar-outline"         label="Member Since"   value={memberSince(profile.created_at)} s={s} sh={sh} />
+          <InfoRow icon="checkmark-circle-outline" label="Status"         value={profile.is_active ? 'Active' : 'Inactive'} s={s} sh={sh} />
         </View>
 
         {/* Account Details */}
@@ -284,11 +301,11 @@ export default function DoctorMobileProfile() {
             <View style={{ width: s(32), height: s(32), borderRadius: s(9), backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center' }}>
               <Ionicons name="information-circle-outline" size={s(15)} color={AMBER} />
             </View>
-            <Text style={{ fontSize: s(14), fontWeight: '700', color: TEXT }}>Account Details</Text>
+            <SectionTitle title="Account Details" s={s} />
           </View>
-          <InfoRow icon="finger-print-outline" label="Doctor ID" value={profile.doctor_system_id} mono />
-          <InfoRow icon="person-outline"       label="User ID"   value={`#${profile.user_id}`}   mono />
-          <InfoRow icon="time-outline"         label="Joined"    value={formatDate(profile.created_at)} />
+          <InfoRow icon="finger-print-outline" label="Doctor ID" value={profile.doctor_system_id} mono s={s} sh={sh} />
+          <InfoRow icon="person-outline"       label="User ID"   value={`#${profile.user_id}`}   mono s={s} sh={sh} />
+          <InfoRow icon="time-outline"         label="Joined"    value={formatDate(profile.created_at)} s={s} sh={sh} />
         </View>
 
       </ScrollView>

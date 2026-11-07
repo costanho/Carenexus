@@ -6,6 +6,10 @@ import {
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
 
 const TEAL   = '#0D9488';
@@ -53,11 +57,6 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'CANCELLED', label: 'Cancelled' },
 ];
 
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 function PrescriptionCard({ item, s }: { item: Prescription; s: (n: number) => number }) {
   const [expanded, setExpanded] = useState(false);
   const statusCfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.ACTIVE;
@@ -76,7 +75,7 @@ function PrescriptionCard({ item, s }: { item: Prescription; s: (n: number) => n
             {item.generic_name && (
               <Text style={[styles.cardGeneric, { fontSize: s(10) }]}>{item.generic_name}</Text>
             )}
-            <Text style={[styles.cardDoctorName, { fontSize: s(11) }]}>{item.doctor_name}</Text>
+            <Text style={[styles.cardDoctorName, { fontSize: s(11) }]}>{tidyDoctorName(item.doctor_name)}</Text>
           </View>
           <View style={[styles.statusBadge, { borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3), backgroundColor: statusCfg.bg, gap: s(3) }]}>
             <Ionicons name={statusCfg.icon} size={s(10)} color={statusCfg.color} />
@@ -105,13 +104,13 @@ function PrescriptionCard({ item, s }: { item: Prescription; s: (n: number) => n
           <View style={[styles.metaItem, { gap: s(3) }]}>
             <Ionicons name="calendar-outline" size={s(11)} color={GRAY} />
             <Text style={[styles.metaLabel, { fontSize: s(10) }]}>Prescribed</Text>
-            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDate(item.prescribed_date)}</Text>
+            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDateOnly(item.prescribed_date)}</Text>
           </View>
           {item.expiry_date && (
             <View style={[styles.metaItem, { gap: s(3) }]}>
               <Ionicons name="hourglass-outline" size={s(11)} color={AMBER} />
               <Text style={[styles.metaLabel, { fontSize: s(10) }]}>Expires</Text>
-              <Text style={[styles.metaValue, { fontSize: s(11), color: AMBER }]}>{formatDate(item.expiry_date)}</Text>
+              <Text style={[styles.metaValue, { fontSize: s(11), color: AMBER }]}>{formatDateOnly(item.expiry_date)}</Text>
             </View>
           )}
           <View style={[styles.metaItem, { gap: s(3) }]}>
@@ -152,6 +151,8 @@ function PrescriptionCard({ item, s }: { item: Prescription; s: (n: number) => n
           style={[styles.expandToggle, { paddingTop: s(8), gap: s(4) }]}
           onPress={() => setExpanded(e => !e)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
         >
           <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>{expanded ? 'Hide ▲' : 'Show details ▼'}</Text>
         </TouchableOpacity>
@@ -178,6 +179,7 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -187,7 +189,7 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -195,7 +197,7 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Prescriptions</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Prescriptions</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Your medication history</Text>
         </View>
         <TouchableOpacity
@@ -244,6 +246,8 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -262,12 +266,12 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
         contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {loading && prescriptions.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading prescriptions…</Text>
           </View>
-        ) : error ? (
+        ) : error && prescriptions.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -275,6 +279,7 @@ export function PatientMobilePrescription({ onBack }: { onBack?: () => void }) {
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>

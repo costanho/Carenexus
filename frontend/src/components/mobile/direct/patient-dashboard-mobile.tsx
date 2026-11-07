@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PatientBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientMainDashboardAreaMobile } from './patient/patient-main-dashboard-area';
@@ -42,6 +42,16 @@ function LoadingFallback() {
 
 export function PatientDashboardMobile() {
   const [activeKey, setActiveKey] = useState<ActiveKey>('dashboard');
+
+  // Android back: leave a sub-screen for the dashboard instead of leaving the app's dashboard route.
+  useEffect(() => {
+    if (activeKey === 'dashboard') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setActiveKey(activeKey === 'book-appointment' ? 'appointments' : 'dashboard');
+      return true;
+    });
+    return () => sub.remove();
+  }, [activeKey]);
 
   function handleNavigate(key: string) {
     if (

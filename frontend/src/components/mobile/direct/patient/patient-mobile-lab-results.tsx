@@ -6,6 +6,10 @@ import {
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 import { useLabResults, type LabResult } from '@/hooks/use-lab-results';
 
 const TEAL   = '#0D9488';
@@ -84,7 +88,8 @@ function ResultDataSection({ data, s }: { data: Record<string, unknown>; s: (n: 
     else if (typeof v === 'object' && v !== null) objectEntries.push([k, v as Record<string, unknown>]);
   }
 
-  const comment = data['comment'] as string | undefined;
+  // Only a string can be rendered as text; a structured comment would crash the screen.
+  const comment = typeof data['comment'] === 'string' ? data['comment'] : undefined;
 
   return (
     <View style={{ gap: s(10) }}>
@@ -191,7 +196,7 @@ function LabResultCard({ item, s }: { item: LabResult; s: (n: number) => number 
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { fontSize: s(13) }]}>{item.test_name}</Text>
-            <Text style={[styles.cardDoctor, { fontSize: s(11) }]}>{item.doctor_name}</Text>
+            <Text style={[styles.cardDoctor, { fontSize: s(11) }]}>{tidyDoctorName(item.doctor_name)}</Text>
           </View>
           <View style={[styles.statusBadge, { borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3), backgroundColor: statusCfg.bg, gap: s(3) }]}>
             <Ionicons name={statusCfg.icon} size={s(10)} color={statusCfg.color} />
@@ -218,7 +223,7 @@ function LabResultCard({ item, s }: { item: LabResult; s: (n: number) => number 
           <View style={[styles.metaItem, { gap: s(3) }]}>
             <Ionicons name="calendar-outline" size={s(11)} color={GRAY} />
             <Text style={[styles.metaLabel, { fontSize: s(10) }]}>Test date</Text>
-            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDate(item.test_date)}</Text>
+            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDateOnly(item.test_date)}</Text>
           </View>
           {item.reviewed_at && (
             <View style={[styles.metaItem, { gap: s(3) }]}>
@@ -258,6 +263,8 @@ function LabResultCard({ item, s }: { item: LabResult; s: (n: number) => number 
             style={[styles.expandToggle, { paddingTop: s(8), gap: s(4) }]}
             onPress={() => setExpanded(e => !e)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
           >
             <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>
               {expanded ? 'Hide results ▲' : 'View full results ▼'}
@@ -287,6 +294,7 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -296,7 +304,7 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -304,7 +312,7 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Lab Results</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Lab Results</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Your laboratory test history</Text>
         </View>
         <TouchableOpacity
@@ -353,6 +361,8 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -371,12 +381,12 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
         contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {loading && results.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading lab results…</Text>
           </View>
-        ) : error ? (
+        ) : error && results.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -384,6 +394,7 @@ export function PatientMobileLabResults({ onBack }: { onBack?: () => void }) {
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>

@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, useW
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
 import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
+import { doctorDisplayName } from '@/hooks/use-doctors';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -101,18 +102,18 @@ function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: bo
       <View style={[styles.avatar, { width: s(36), height: s(36), borderRadius: s(18), backgroundColor: avatarColor(entry.patient_name) }]}>
         <Text style={[styles.avatarText, { fontSize: s(12) }]}>{initials(entry.patient_name)}</Text>
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={[styles.apptName, { fontSize: s(13) }]} numberOfLines={1}>{entry.patient_name}</Text>
         <Text style={[styles.apptType, { fontSize: s(11) }]} numberOfLines={1}>
           {TYPE_LABEL[entry.type] ?? entry.type}{entry.reason_for_visit ? ` · ${entry.reason_for_visit}` : ''}
         </Text>
+        {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+          <Text style={{ fontSize: s(10), color: GRAY, marginTop: s(2) }} numberOfLines={2}>Join video consultations from the CareNexus web app.</Text>
+        )}
       </View>
       <View style={[styles.badge, { backgroundColor: badge.bg, borderRadius: s(20), paddingHorizontal: s(7), paddingVertical: s(2) }]}>
-        <Text style={[styles.badgeText, { fontSize: s(10), color: badge.color }]}>{badge.label}</Text>
+        <Text style={[styles.badgeText, { fontSize: s(10), color: badge.color }]} numberOfLines={1}>{badge.label}</Text>
       </View>
-      {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
-        <Text style={{ fontSize: s(10), color: GRAY, maxWidth: s(120) }} numberOfLines={3}>Join video consultations from the CareNexus web app.</Text>
-      )}
     </View>
   );
 }
@@ -137,6 +138,38 @@ function Card({ title, action, onAction, s, children }: {
   );
 }
 
+// ─── Clinical records shortcuts ───────────────────────────────────────────────
+
+const CLINICAL_SHORTCUTS: { key: string; label: string; hint: string; icon: IoniconsName; color: string; bg: string }[] = [
+  { key: 'prescriptions',   label: 'Prescriptions',   hint: 'Prescriptions you have issued', icon: 'medkit-outline',        color: BLUE,      bg: '#EEF2FF' },
+  { key: 'medical-records', label: 'Medical Records', hint: 'Patient records and notes',     icon: 'folder-open-outline',   color: '#0D9488', bg: '#CCFBF1' },
+  { key: 'labs',            label: 'Lab Results',     hint: 'Lab test results',              icon: 'flask-outline',         color: PURPLE,    bg: '#F5F3FF' },
+];
+
+function ShortcutCard({ label, hint, icon, color, bg, onPress, s }: {
+  label: string; hint: string; icon: IoniconsName; color: string; bg: string; onPress: () => void; s: (n: number) => number;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.shortcut, { gap: s(10), paddingVertical: s(10) }]}
+      activeOpacity={0.7}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${label}`}
+      accessibilityHint={hint}
+    >
+      <View style={[styles.statIconBg, { backgroundColor: bg, width: s(36), height: s(36), borderRadius: s(10) }]}>
+        <Ionicons name={icon} size={s(18)} color={color} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.apptName, { fontSize: s(13) }]} numberOfLines={1}>{label}</Text>
+        <Text style={[styles.apptType, { fontSize: s(11) }]} numberOfLines={1}>{hint}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={s(16)} color={GRAY} />
+    </TouchableOpacity>
+  );
+}
+
 function EmptyLine({ icon, text, s }: { icon: IoniconsName; text: string; s: (n: number) => number }) {
   return (
     <View style={[styles.emptyLine, { gap: s(6), paddingVertical: s(16) }]}>
@@ -155,7 +188,7 @@ export function DoctorMainDashboardAreaMobile({ onNavigate }: { onNavigate?: (ke
 
   const first = dashboard?.first_name || user?.first_name || '';
   const last  = dashboard?.last_name  || user?.last_name  || '';
-  const name  = first ? `Dr. ${first} ${last}`.trim() : 'Doctor';
+  const name  = doctorDisplayName(first, last) || 'Doctor';
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
   const todayEntries = dashboard?.today ?? [];
@@ -170,9 +203,9 @@ export function DoctorMainDashboardAreaMobile({ onNavigate }: { onNavigate?: (ke
     <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }} showsVerticalScrollIndicator={false}>
 
       {/* Header */}
-      <View style={[styles.header, { marginBottom: s(20) }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.greeting, { fontSize: s(18) }]}>{greetingForHour()}, {name}</Text>
+      <View style={[styles.header, { marginBottom: s(20), gap: s(8) }]}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.greeting, { fontSize: s(18) }]} accessibilityRole="header">{greetingForHour()}, {name}</Text>
           <Text style={[styles.greetingSub, { fontSize: s(12), marginTop: s(2) }]}>Here's your practice at a glance.</Text>
         </View>
         <View style={[styles.dateBtn, { gap: s(5), borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6) }]}>
@@ -192,6 +225,7 @@ export function DoctorMainDashboardAreaMobile({ onNavigate }: { onNavigate?: (ke
             onPress={refetch}
             activeOpacity={0.8}
             accessibilityRole="button"
+            accessibilityLabel="Retry loading dashboard"
           >
             <Text style={[styles.retryText, { fontSize: s(13) }]}>Retry</Text>
           </TouchableOpacity>
@@ -233,6 +267,18 @@ export function DoctorMainDashboardAreaMobile({ onNavigate }: { onNavigate?: (ke
         </>
       )}
 
+      {/* Clinical records — always reachable, even when the dashboard summary fails to load */}
+      {!!onNavigate && (
+        <Card title="Clinical records" s={s}>
+          {CLINICAL_SHORTCUTS.map((c, i) => (
+            <View key={c.key}>
+              {i > 0 && <View style={styles.sep} />}
+              <ShortcutCard label={c.label} hint={c.hint} icon={c.icon} color={c.color} bg={c.bg} onPress={() => onNavigate(c.key)} s={s} />
+            </View>
+          ))}
+        </Card>
+      )}
+
     </ScrollView>
   );
 }
@@ -266,7 +312,7 @@ const styles = StyleSheet.create({
   apptDur:     { color: GRAY, marginTop: 1 },
   apptName:    { fontWeight: '600', color: TEXT },
   apptType:    { color: GRAY, marginTop: 1 },
-  badge:       {},
+  badge:       { flexShrink: 0 },
   badgeText:   { fontWeight: '600' },
   actionBtn:   { flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
   actionBtnText: { fontWeight: '500' },
@@ -278,6 +324,7 @@ const styles = StyleSheet.create({
   retryBtn:    { backgroundColor: BLUE },
   retryText:   { color: WHITE, fontWeight: '600' },
   emptyLine:   { alignItems: 'center' },
+  shortcut:    { flexDirection: 'row', alignItems: 'center' },
   emptyText:   { color: GRAY },
 
 });

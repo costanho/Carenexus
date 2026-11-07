@@ -6,6 +6,10 @@ import {
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 import { useImagingResults, type ImagingResult } from '@/hooks/use-imaging-results';
 
 const TEAL   = '#0D9488';
@@ -98,7 +102,7 @@ function ImagingCard({ item, s }: { item: ImagingResult; s: (n: number) => numbe
             {subtitle && (
               <Text style={[styles.cardSubtitle, { fontSize: s(10) }]} numberOfLines={1}>{subtitle}</Text>
             )}
-            <Text style={[styles.cardDoctor, { fontSize: s(11) }]}>{item.doctor_name}</Text>
+            <Text style={[styles.cardDoctor, { fontSize: s(11) }]}>{tidyDoctorName(item.doctor_name)}</Text>
           </View>
           <View style={[styles.statusBadge, { borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3), backgroundColor: statusCfg.bg, gap: s(3) }]}>
             <Ionicons name={statusCfg.icon} size={s(10)} color={statusCfg.color} />
@@ -125,7 +129,7 @@ function ImagingCard({ item, s }: { item: ImagingResult; s: (n: number) => numbe
           <View style={[styles.metaItem, { gap: s(3) }]}>
             <Ionicons name="calendar-outline" size={s(11)} color={GRAY} />
             <Text style={[styles.metaLabel, { fontSize: s(10) }]}>Image date</Text>
-            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDate(item.image_date)}</Text>
+            <Text style={[styles.metaValue, { fontSize: s(11) }]}>{formatDateOnly(item.image_date)}</Text>
           </View>
           {item.reviewed_at && (
             <View style={[styles.metaItem, { gap: s(3) }]}>
@@ -174,6 +178,9 @@ function ImagingCard({ item, s }: { item: ImagingResult; s: (n: number) => numbe
               style={[styles.reportHeader, { gap: s(5), marginBottom: reportOpen ? s(6) : 0 }]}
               onPress={() => setReportOpen(o => !o)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Radiologist report"
+              accessibilityState={{ expanded: reportOpen }}
             >
               <Ionicons name="document-outline" size={s(12)} color={GRAY} />
               <Text style={[styles.reportLabel, { fontSize: s(10), color: GRAY, flex: 1 }]}>Radiologist Report</Text>
@@ -191,6 +198,8 @@ function ImagingCard({ item, s }: { item: ImagingResult; s: (n: number) => numbe
             style={[styles.expandToggle, { paddingTop: s(10), gap: s(4) }]}
             onPress={() => { setExpanded(e => !e); if (expanded) setReportOpen(false); }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
           >
             <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>
               {expanded ? 'Collapse report ▲' : 'View full report ▼'}
@@ -220,6 +229,7 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -229,7 +239,7 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -237,7 +247,7 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Imaging Results</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Imaging Results</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Your radiology and imaging history</Text>
         </View>
         <TouchableOpacity
@@ -286,6 +296,8 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -304,12 +316,12 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
         contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {loading && results.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading imaging results…</Text>
           </View>
-        ) : error ? (
+        ) : error && results.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -317,6 +329,7 @@ export function PatientMobileImagingResults({ onBack }: { onBack?: () => void })
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>
