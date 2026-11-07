@@ -1,5 +1,5 @@
-import { Suspense, lazy, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DoctorBottomNavbar } from './doctor/doctor-bottom-navbar';
 import { DoctorMainDashboardAreaMobile } from './doctor/doctor-main-dashboard-area';
@@ -27,6 +27,13 @@ const loader = (
 
 export function DoctorDashboardMobile() {
   const [activeKey, setActiveKey] = useState('dashboard');
+
+  // Android back from a sub-screen returns to the dashboard instead of leaving the app.
+  useEffect(() => {
+    if (activeKey === 'dashboard') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setActiveKey('dashboard'); return true; });
+    return () => sub.remove();
+  }, [activeKey]);
 
   function renderContent() {
     if (activeKey === 'schedule') {

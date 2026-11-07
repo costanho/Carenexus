@@ -1,5 +1,5 @@
-import React, { lazy, Suspense, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 import { PatientProxyBottomNavbar } from './patient/patient-bottom-navbar';
@@ -20,6 +20,13 @@ function Loader() {
 export function PatientProxyDashboardMobile() {
   const [activeKey, setActiveKey]               = useState('dashboard');
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
+
+  // Android back on a sub-screen returns to the dashboard instead of leaving it
+  useEffect(() => {
+    if (activeKey === 'dashboard') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setActiveKey('dashboard'); return true; });
+    return () => sub.remove();
+  }, [activeKey]);
 
   function selectPatient(dep: CaregiverDependent) {
     setSelectedDependent(dep);

@@ -18,7 +18,7 @@ export interface DoctorConsultation {
   follow_up_required:         number;
   follow_up_date:             string | null;
   duration_minutes:           number | null;
-  status:                     'DRAFT' | 'IN_PROGRESS' | 'COMPLETED';
+  status:                     'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   started_at:                 string | null;
   completed_at:               string | null;
   created_at:                 string;

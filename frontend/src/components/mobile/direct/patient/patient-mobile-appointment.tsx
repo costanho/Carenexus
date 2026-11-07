@@ -8,10 +8,12 @@ import {
   Text, TextInput, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
 import { z } from 'zod';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { useDoctors } from '@/hooks/use-doctors';
-import { apiErrorMessage, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
+import { doctorInitial, tidyDoctorName, useDoctors } from '@/hooks/use-doctors';
+import { apiErrorMessage, invalidateAppointments, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
 import { api } from '@/lib/auth/auth.interceptor';
 
 const TEAL   = '#0D9488';
@@ -254,6 +256,9 @@ export function TimePicker({
   function pickMinute(m: number) { setMinute(m); emit(hour, m, ampm); }
   function pickAmpm(ap: 'AM'|'PM') { setAmpm(ap); emit(hour, minute, ap); }
 
+  // Nothing is highlighted until a time is actually chosen: the defaults (9, AM, :00) are not a selection,
+  // and showing them as selected made "Please select a time" look wrong.
+  const chosen = !!value;
   const displayHour   = String(hour).padStart(2, '0');
   const displayMinute = String(minute).padStart(2, '0');
 
@@ -262,19 +267,22 @@ export function TimePicker({
       {/* AM / PM */}
       <View>
         <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>AM / PM</Text>
-        <View style={{ flexDirection: 'row', gap: s(8) }}>
+        <View style={{ flexDirection: 'row', gap: s(8) }} accessibilityRole="radiogroup" accessibilityLabel="AM or PM">
           {(['AM', 'PM'] as const).map(ap => (
             <TouchableOpacity
               key={ap}
               onPress={() => pickAmpm(ap)}
               activeOpacity={0.8}
+              accessibilityRole="radio"
+              accessibilityLabel={ap}
+              accessibilityState={{ checked: chosen && ampm === ap }}
               style={[
                 styles.ampmBtn,
                 { flex: 1, borderRadius: s(10), paddingVertical: s(12) },
-                ampm === ap && styles.ampmBtnActive,
+                chosen && ampm === ap && styles.ampmBtnActive,
               ]}
             >
-              <Text style={[styles.ampmText, { fontSize: s(14) }, ampm === ap && styles.ampmTextActive]}>
+              <Text style={[styles.ampmText, { fontSize: s(14) }, chosen && ampm === ap && styles.ampmTextActive]}>
                 {ap}
               </Text>
             </TouchableOpacity>
@@ -285,19 +293,22 @@ export function TimePicker({
       {/* Hour */}
       <View>
         <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>Hour</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(8) }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(8) }} accessibilityRole="radiogroup" accessibilityLabel="Hour">
           {HOURS.map(h => (
             <TouchableOpacity
               key={h}
               onPress={() => pickHour(h)}
               activeOpacity={0.75}
+              accessibilityRole="radio"
+              accessibilityLabel={`${h} o'clock`}
+              accessibilityState={{ checked: chosen && hour === h }}
               style={[
                 styles.hourBtn,
                 { width: s(44), height: s(44), borderRadius: s(22) },
-                hour === h && styles.hourBtnActive,
+                chosen && hour === h && styles.hourBtnActive,
               ]}
             >
-              <Text style={[styles.hourText, { fontSize: s(13) }, hour === h && styles.hourTextActive]}>
+              <Text style={[styles.hourText, { fontSize: s(13) }, chosen && hour === h && styles.hourTextActive]}>
                 {h}
               </Text>
             </TouchableOpacity>
@@ -308,19 +319,22 @@ export function TimePicker({
       {/* Minute */}
       <View>
         <Text style={[styles.timeSubLabel, { fontSize: s(11), marginBottom: s(6) }]}>Minute</Text>
-        <View style={{ flexDirection: 'row', gap: s(8) }}>
+        <View style={{ flexDirection: 'row', gap: s(8) }} accessibilityRole="radiogroup" accessibilityLabel="Minute">
           {MINUTES.map(m => (
             <TouchableOpacity
               key={m}
               onPress={() => pickMinute(m)}
               activeOpacity={0.75}
+              accessibilityRole="radio"
+              accessibilityLabel={`${String(m).padStart(2, '0')} minutes`}
+              accessibilityState={{ checked: chosen && minute === m }}
               style={[
                 styles.minuteBtn,
                 { flex: 1, borderRadius: s(8), paddingVertical: s(10) },
-                minute === m && styles.minuteBtnActive,
+                chosen && minute === m && styles.minuteBtnActive,
               ]}
             >
-              <Text style={[styles.minuteText, { fontSize: s(12) }, minute === m && styles.minuteTextActive]}>
+              <Text style={[styles.minuteText, { fontSize: s(12) }, chosen && minute === m && styles.minuteTextActive]}>
                 :{String(m).padStart(2, '0')}
               </Text>
             </TouchableOpacity>
@@ -348,7 +362,7 @@ export function TimePicker({
 export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const goBack  = onBack ?? (() => router.back());
+  const goBack  = onBack ?? (() => goBackOr(router, '/dashboard/patient/appointments/status'));
   const { width, height } = useWindowDimensions();
   const { user } = useCurrentUser();
   const { doctors, loading: doctorsLoading, error: doctorsError, refetch: refetchDoctors } = useDoctors();
@@ -410,6 +424,8 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
         notes:            data.notes ?? null,
       });
       setSuccess(true);
+      // Refresh the shared list so the dashboard and My Appointments show the new booking straight away.
+      invalidateAppointments().catch(() => { /* each screen refetches on its own failure path */ });
     } catch (e: any) {
       setAuthError(apiErrorMessage(e, 'Failed to book appointment. Please try again.'));
     } finally {
@@ -442,6 +458,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <StatusBar style="light" />
       {/* Header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -459,7 +476,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Book Appointment</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Book Appointment</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Schedule with your healthcare provider</Text>
         </View>
         <View style={[styles.headerIcon, { width: s(36), height: s(36), borderRadius: s(18) }]} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
@@ -547,7 +564,7 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
             <View style={[styles.errorBanner, { borderRadius: s(8), padding: s(10), gap: s(8) }]}>
               <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
               <Text style={[styles.errorText, { fontSize: s(12), flex: 1 }]}>Could not load doctors.</Text>
-              <TouchableOpacity onPress={refetchDoctors} activeOpacity={0.7} accessibilityRole="button">
+              <TouchableOpacity onPress={refetchDoctors} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading doctors" hitSlop={8}>
                 <Text style={[styles.errorText, { fontSize: s(12), fontWeight: '700', textDecorationLine: 'underline' }]}>Retry</Text>
               </TouchableOpacity>
             </View>
@@ -573,14 +590,15 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                           ]}
                           onPress={() => onChange(id)}
                           activeOpacity={0.8}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: on }}
+                          accessibilityRole="radio"
+                          accessibilityLabel={`${tidyDoctorName(d.full_name)}${d.specialization ? `, ${d.specialization}` : ''}`}
+                          accessibilityState={{ selected: on, checked: on }}
                         >
                           <View style={[styles.doctorAvatar, { width: s(40), height: s(40), borderRadius: s(20) }]}>
-                            <Text style={[styles.doctorAvatarText, { fontSize: s(16) }]}>{d.first_name[0]}</Text>
+                            <Text style={[styles.doctorAvatarText, { fontSize: s(16) }]}>{doctorInitial(d.full_name)}</Text>
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.doctorName, { fontSize: s(13) }, on && { color: TEAL }]}>{d.full_name}</Text>
+                            <Text style={[styles.doctorName, { fontSize: s(13) }, on && { color: TEAL }]} numberOfLines={2}>{tidyDoctorName(d.full_name)}</Text>
                             <Text style={[styles.doctorSpec, { fontSize: s(11) }]}>{d.specialization ?? ''}</Text>
                           </View>
                           {on && <Ionicons name="checkmark-circle" size={s(20)} color={TEAL} />}
@@ -595,6 +613,8 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                   style={[styles.expandBtn, { borderRadius: s(10), paddingVertical: s(10), marginTop: s(8), gap: s(6) }]}
                   onPress={() => setDoctorsExpanded(e => !e)}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: doctorsExpanded }}
                 >
                   <Text style={[styles.expandBtnText, { fontSize: s(13) }]}>
                     {doctorsExpanded
@@ -663,6 +683,9 @@ export function PatientMobileAppointment({ onBack }: { onBack?: () => void }) {
                       ]}
                       onPress={() => onChange(d.value)}
                       activeOpacity={0.8}
+                      accessibilityRole="radio"
+                      accessibilityLabel={d.label}
+                      accessibilityState={{ checked: on }}
                     >
                       <Text style={[styles.durationLabel, { fontSize: s(12) }, on && styles.durationLabelActive]}>{d.label}</Text>
                     </TouchableOpacity>

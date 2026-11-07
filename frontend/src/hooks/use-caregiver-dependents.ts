@@ -101,14 +101,18 @@ interface State {
 }
 
 export function useCaregiverDependents(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [dependents, setDependents] = useState<CaregiverDependent[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [tick,       setTick]       = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // The signed-in user could not be loaded: stop loading and say so instead of spinning forever
+      if (!userLoading) { setLoading(false); setError(userError ?? 'Failed to load your account.'); }
+      return;
+    }
     setLoading(true);
 
     api.get<CaregiverDependent[]>('/api/caregiver/dependents')
@@ -118,7 +122,7 @@ export function useCaregiverDependents(): State {
       })
       .catch((err) => setError(caregiverErrorMessage(err, 'Failed to load loved ones.')))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, userError, tick]);
 
   return { dependents, loading, error, refetch: () => setTick(t => t + 1) };
 }
@@ -167,7 +171,7 @@ interface ActivityState {
 }
 
 export function useCaregiverActivity(): ActivityState {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [appointments,  setAppointments]  = useState<CaregiverAppointment[]>([]);
   const [consultations, setConsultations] = useState<CaregiverConsultation[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -175,7 +179,10 @@ export function useCaregiverActivity(): ActivityState {
   const [tick,          setTick]          = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) { setLoading(false); setError(userError ?? 'Failed to load your account.'); }
+      return;
+    }
     setLoading(true);
 
     api.get<{ appointments?: CaregiverAppointment[]; consultations?: CaregiverConsultation[] }>(
@@ -188,7 +195,7 @@ export function useCaregiverActivity(): ActivityState {
       })
       .catch((err) => setError(caregiverErrorMessage(err, 'Failed to load appointments and activity.')))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, userError, tick]);
 
   return { appointments, consultations, loading, error, refetch: () => setTick(t => t + 1) };
 }

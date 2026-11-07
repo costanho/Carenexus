@@ -4,8 +4,8 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text,
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type DoctorConsultation, useDoctorConsultations } from '@/hooks/use-doctor-consultations';
+import { formatDateOnly } from '@/lib/ui/date-only';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -40,7 +40,15 @@ function statusConfig(st: ConsultStatus) {
     case 'DRAFT':       return { bg: '#FEF3C7', color: AMBER,  icon: 'document-outline'          as IoniconsName, label: 'Draft'       };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  icon: 'sync-outline'               as IoniconsName, label: 'In Progress' };
     case 'COMPLETED':   return { bg: '#D1FAE5', color: GREEN,  icon: 'checkmark-circle-outline'  as IoniconsName, label: 'Completed'   };
+    case 'CANCELLED':   return { bg: '#FEE2E2', color: RED,    icon: 'close-circle-outline'      as IoniconsName, label: 'Cancelled'   };
+    // Never crash on a status the app does not know yet: show it readably in a neutral badge.
+    default:            return { bg: BG2,       color: GRAY,   icon: 'document-text-outline'     as IoniconsName, label: readableStatus(st) };
   }
+}
+
+function readableStatus(st: string | null | undefined) {
+  const t = String(st ?? '').replace(/_/g, ' ').toLowerCase().trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : 'Unknown';
 }
 
 function apptTypeConfig(t: DoctorConsultation['appointment_type']) {
@@ -48,7 +56,7 @@ function apptTypeConfig(t: DoctorConsultation['appointment_type']) {
     case 'IN_PERSON': return { icon: 'location-outline'  as IoniconsName, label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
     case 'VIDEO':     return { icon: 'videocam-outline'   as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
     case 'PHONE':     return { icon: 'call-outline'       as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
-    default:          return { icon: 'calendar-outline'   as IoniconsName, label: 'Unknown',   color: GRAY,   bg: BG2       };
+    default:          return { icon: 'calendar-outline'   as IoniconsName, label: 'Appointment', color: GRAY, bg: BG2     };
   }
 }
 
@@ -129,17 +137,17 @@ function ConsultCard({ c, s }: { c: DoctorConsultation; s: (n: number) => number
     c.diagnosis || c.treatment_plan || c.clinical_notes || c.follow_up_instructions;
 
   return (
-    <View style={[styles.card, { borderRadius: s(14), marginBottom: s(12), borderLeftWidth: s(4), borderLeftColor: statusConfig(c.status).color }]}>
+    <View style={[styles.card, { borderRadius: s(14), marginBottom: s(12), borderLeftWidth: s(4), borderLeftColor: sc.color }]}>
       {/* Header */}
       <View style={[styles.cardHeader, { padding: s(14), gap: s(10) }]}>
         <View style={[styles.avatar, { width: s(42), height: s(42), borderRadius: s(21), backgroundColor: ac }]}>
           <Text style={[styles.avatarText, { fontSize: s(14) }]}>{initials(c.patient_name)}</Text>
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[styles.patientName, { fontSize: s(14) }]} numberOfLines={1}>{c.patient_name}</Text>
-          <Text style={[styles.metaDate, { fontSize: s(11), marginTop: s(2) }]}>{dateLabel}</Text>
+          <Text style={[styles.metaDate, { fontSize: s(11), marginTop: s(2) }]} numberOfLines={1}>{dateLabel}</Text>
         </View>
-        <View style={[styles.badge, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
+        <View style={[styles.badge, styles.noShrink, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
           <Ionicons name={sc.icon} size={s(10)} color={sc.color} />
           <Text style={[styles.badgeText, { fontSize: s(10), color: sc.color, marginLeft: s(3) }]}>{sc.label}</Text>
         </View>
@@ -213,7 +221,7 @@ function ConsultCard({ c, s }: { c: DoctorConsultation; s: (n: number) => number
             <View style={[styles.followUpRow, { borderRadius: s(8), padding: s(10), marginBottom: s(10), gap: s(5) }]}>
               <Ionicons name="calendar-outline" size={s(13)} color={RED} />
               <Text style={[styles.followUpText, { fontSize: s(11) }]}>
-                Follow-up due: <Text style={{ fontWeight: '600' }}>{formatDateShort(c.follow_up_date)}</Text>
+                Follow-up due: <Text style={{ fontWeight: '600' }}>{formatDateOnly(c.follow_up_date)}</Text>
               </Text>
             </View>
           )}
@@ -235,6 +243,9 @@ function ConsultCard({ c, s }: { c: DoctorConsultation; s: (n: number) => number
           style={[styles.expandBtn, { paddingVertical: s(11) }]}
           onPress={() => setExpanded(e => !e)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${expanded ? 'Hide' : 'Show'} consultation details for ${c.patient_name}`}
+          accessibilityState={{ expanded }}
         >
           <Text style={[styles.expandBtnText, { fontSize: s(12) }]}>{expanded ? 'Show less' : 'View full details'}</Text>
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={BLUE} />
@@ -248,7 +259,6 @@ function ConsultCard({ c, s }: { c: DoctorConsultation; s: (n: number) => number
 
 export default function DoctorMobileConsultation() {
   const { s, sh } = useScale();
-  const insets = useSafeAreaInsets();
   const { consultations, loading, error, refetch } = useDoctorConsultations();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
@@ -271,14 +281,15 @@ export default function DoctorMobileConsultation() {
     { key: 'COMPLETED',   label: 'Completed'   },
     { key: 'IN_PROGRESS', label: 'In Progress' },
     { key: 'DRAFT',       label: 'Draft'       },
+    { key: 'CANCELLED',   label: 'Cancelled'   },
   ];
 
   return (
     <View style={styles.container}>
       {/* Navy Header */}
-      <View style={[styles.header, { paddingTop: insets.top + s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
+      <View style={[styles.header, { paddingTop: s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(20) }]}>Consultations</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(20) }]} accessibilityRole="header">Consultations</Text>
           <Text style={[styles.headerSub, { fontSize: s(12), marginTop: s(2) }]}>Your consultation history</Text>
         </View>
         <TouchableOpacity
@@ -294,11 +305,12 @@ export default function DoctorMobileConsultation() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }} showsVerticalScrollIndicator={false}>
 
-        {loading ? (
+        {/* Full-screen states only before the first load; a refetch keeps the cards (and their expanded state). */}
+        {loading && consultations.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60) }]}>
             <ActivityIndicator size="large" color={BLUE} />
           </View>
-        ) : error ? (
+        ) : error && consultations.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60), gap: s(10) }]}>
             <Ionicons name="alert-circle-outline" size={s(48)} color={RED} />
             <Text style={[styles.errorText, { fontSize: s(14) }]}>{error}</Text>
@@ -306,12 +318,18 @@ export default function DoctorMobileConsultation() {
               style={[styles.retryBtn, { borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: s(10) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading consultations"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(14) }]}>Retry</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
+            {!!error && (
+              <Text style={[styles.inlineError, { fontSize: s(12), marginBottom: s(8) }]} accessibilityRole="alert">{error}</Text>
+            )}
+
             {/* Stats */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(16) }} contentContainerStyle={{ gap: s(10) }}>
               <StatCard icon="document-text-outline"        iconBg="#EEF2FF" iconColor={BLUE}  label="Total"       value={stats.total}      s={s} />
@@ -333,6 +351,9 @@ export default function DoctorMobileConsultation() {
                   ]}
                   onPress={() => setStatusFilter(f.key)}
                   activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityLabel={`Status: ${f.label}`}
+                  accessibilityState={{ selected: statusFilter === f.key }}
                 >
                   <Text style={[styles.pillText, { fontSize: s(12) }, statusFilter === f.key && styles.pillTextActive]}>
                     {f.label}
@@ -394,6 +415,7 @@ const styles = StyleSheet.create({
   patientName:{ fontWeight: '700', color: TEXT },
   metaDate:   { color: GRAY },
   badge:      { flexDirection: 'row', alignItems: 'center' },
+  noShrink:   { flexShrink: 0 },
   badgeText:  { fontWeight: '600' },
   chipsRow:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   chip:       { flexDirection: 'row', alignItems: 'center' },
@@ -420,6 +442,7 @@ const styles = StyleSheet.create({
   expandBtnText: { color: BLUE, fontWeight: '500' },
 
   errorText:    { color: GRAY, textAlign: 'center' },
+  inlineError:  { color: RED },
   retryBtn:     { backgroundColor: BLUE },
   retryBtnText: { color: WHITE, fontWeight: '600' },
   emptyTitle:   { fontWeight: '600', color: TEXT },

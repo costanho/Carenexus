@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { login, logout } from '@/lib/auth/auth.service';
 import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
 import { showMessage } from '@/lib/ui/dialogs';
@@ -59,6 +60,7 @@ export default function LoginMobile() {
   });
 
   async function onSubmit(data: LoginFormData) {
+    if (loading) return; // Return on the password field and the button share this handler
     setAuthError('');
     setLoading(true);
     try {
@@ -91,6 +93,7 @@ export default function LoginMobile() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <StatusBar style="light" />
       {/* Branded header strip */}
       <View style={[styles.header, {
         backgroundColor: active.color,
@@ -108,7 +111,7 @@ export default function LoginMobile() {
             <Text style={{ color: 'rgba(255,255,255,0.75)' }}>Nexus</Text>
           </Text>
         </View>
-        <Text style={[styles.headerTitle, { fontSize: s(26) }]}>Welcome back</Text>
+        <Text style={[styles.headerTitle, { fontSize: s(26) }]} accessibilityRole="header">Welcome back</Text>
         <Text style={[styles.headerSub, { fontSize: s(13) }]}>Sign in to continue to your dashboard</Text>
       </View>
 
@@ -125,7 +128,7 @@ export default function LoginMobile() {
         {/* Role selector */}
         <View style={{ gap: s(8) }}>
           <Text style={[styles.label, { fontSize: s(13) }]}>I am a</Text>
-          <View style={[styles.roleRow, { gap: s(10) }]}>
+          <View style={[styles.roleRow, { gap: s(10) }]} accessibilityRole="radiogroup" accessibilityLabel="I am a">
             {roles.map(r => {
               const on = role === r.key;
               return (
@@ -140,7 +143,7 @@ export default function LoginMobile() {
                   activeOpacity={0.8}
                   accessibilityRole="radio"
                   accessibilityLabel={r.label}
-                  accessibilityState={{ selected: on }}
+                  accessibilityState={{ selected: on, checked: on }}
                 >
                   <Ionicons name={r.icon} size={s(22)} color={on ? r.color : GRAY} />
                   <Text style={[styles.roleLabel, { fontSize: s(11) }, on && { color: r.color, fontWeight: '700' }]}>
@@ -183,6 +186,9 @@ export default function LoginMobile() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  textContentType="username"
+                  autoComplete="email"
+                  returnKeyType="next"
                 />
               </View>
             )}
@@ -230,6 +236,11 @@ export default function LoginMobile() {
                   onChangeText={onChange}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  autoComplete="current-password"
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit(onSubmit)}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPass(v => !v)}
@@ -253,7 +264,11 @@ export default function LoginMobile() {
 
         {/* Auth error */}
         {!!authError && (
-          <View style={[styles.errorBox, { borderRadius: s(10), padding: s(12), gap: s(6), marginBottom: s(4) }]}>
+          <View
+            style={[styles.errorBox, { borderRadius: s(10), padding: s(12), gap: s(6), marginBottom: s(4) }]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
             <Ionicons name="alert-circle-outline" size={s(15)} color={RED} />
             <Text style={[styles.errorText, { fontSize: s(12) }]}>{authError}</Text>
           </View>
@@ -296,6 +311,8 @@ export default function LoginMobile() {
           style={[styles.createBtn, { borderRadius: s(12), paddingVertical: s(14), gap: s(8) }]}
           activeOpacity={0.8}
           onPress={() => router.push('/auth/register/mobile/register-mobile')}
+          accessibilityRole="link"
+          accessibilityLabel="Create a new account"
         >
           <Ionicons name="person-add-outline" size={s(16)} color={active.color} />
           <Text style={[styles.createText, { fontSize: s(13), color: active.color }]}>Create a new account</Text>

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { doctorDisplayName } from '@/hooks/use-doctors';
 import { useLogout } from '@/hooks/use-logout';
 
 const WHITE  = '#FFFFFF';
@@ -22,13 +23,16 @@ export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress }: DoctorTop
   const { handleLogout, loading } = useLogout();
 
   const avatarUri = user?.avatar_url ?? null;
-  const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
+  const named     = doctorDisplayName(user?.first_name, user?.last_name);
+  const fullName  = named || 'Doctor';
+  // Initials from the name without the "Dr." title ("Dr. Michael Kariuki" -> "MK"); null-safe.
+  const initials  = named.replace(/^\s*(dr(\.\s*|\s+))+/i, '').split(' ').filter(Boolean)
+    .map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'DR';
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
 
   const avatarSize = s(32);
-  const fullName   = user ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Doctor';
 
   return (
     <View style={[styles.navbar, {

@@ -4,8 +4,8 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
+import { ageFromDateOnly } from '@/lib/ui/date-only';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -34,9 +34,8 @@ function healthConfig(h: DoctorPatient['health_status']) {
 }
 
 function calcAge(dob: string | null): string {
-  if (!dob) return '—';
-  const years = Math.floor((Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-  return `${years} yrs`;
+  const years = ageFromDateOnly(dob);
+  return years == null ? '—' : `${years} yrs`;
 }
 
 function formatDate(iso: string | null): string {
@@ -58,11 +57,173 @@ function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+// ─── Stat Card ─────────────────────────────────────────────────────────────
+type Scale = (n: number) => number;
+
+function StatChip({ icon, iconBg, iconColor, label, value, s, sh }: {
+  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number; s: Scale; sh: Scale;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${value}`}
+      style={{
+      backgroundColor: WHITE, borderRadius: s(12), borderWidth: 1, borderColor: BORDER,
+      paddingHorizontal: s(14), paddingVertical: sh(6), alignItems: 'center', gap: sh(3),
+      minWidth: s(78), alignSelf: 'flex-start',
+    }}>
+      <View style={{ width: s(26), height: s(26), borderRadius: s(7), backgroundColor: iconBg, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={s(15)} color={iconColor} />
+      </View>
+      <Text style={{ fontSize: s(20), fontWeight: '700', color: TEXT }}>{value}</Text>
+      <Text style={{ fontSize: s(10), color: GRAY }}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Patient Card ──────────────────────────────────────────────────────────
+function PatientCard({ patient, s, sh }: { patient: DoctorPatient; s: Scale; sh: Scale }) {
+  const hc = healthConfig(patient.health_status);
+  const ac = avatarColor(patient.full_name);
+  const age = calcAge(patient.date_of_birth);
+
+  return (
+    <View style={{
+      backgroundColor: WHITE, borderRadius: s(16), borderWidth: 1,
+      borderColor: BORDER, overflow: 'hidden', marginBottom: sh(12),
+    }}>
+      {/* Health status left border accent */}
+      <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: s(4), backgroundColor: hc.color }} />
+
+      {/* Top section */}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: s(12), padding: s(16), paddingLeft: s(20) }}>
+        {/* Avatar */}
+        <View style={{ width: s(48), height: s(48), borderRadius: s(24), backgroundColor: ac, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Text style={{ color: WHITE, fontSize: s(16), fontWeight: '700' }}>{initials(patient.full_name)}</Text>
+        </View>
+
+        {/* Name + meta */}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontSize: s(15), fontWeight: '700', color: TEXT, marginBottom: sh(2) }} numberOfLines={1}>
+            {patient.full_name}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: s(4) }}>
+            <Text style={{ fontSize: s(11), color: GRAY }}>{age}</Text>
+            {!!patient.gender && (
+              <>
+                <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: LGRAY }} />
+                <Text style={{ fontSize: s(11), color: GRAY }}>
+                  {patient.gender.charAt(0) + patient.gender.slice(1).toLowerCase()}
+                </Text>
+              </>
+            )}
+            {!!patient.patient_created_at && (
+              <>
+                <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: LGRAY }} />
+                <Text style={{ fontSize: s(11), color: GRAY }}>Since {formatMemberSince(patient.patient_created_at)}</Text>
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* Badges */}
+        <View style={{ gap: sh(4), alignItems: 'flex-end', flexShrink: 0 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(3), backgroundColor: hc.bg, paddingHorizontal: s(7), paddingVertical: sh(3), borderRadius: 20 }}>
+            <Ionicons name={hc.icon} size={s(10)} color={hc.color} />
+            <Text style={{ fontSize: s(10), fontWeight: '600', color: hc.color }}>{hc.label}</Text>
+          </View>
+          {!!patient.blood_type && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(3), backgroundColor: '#EEF2FF', paddingHorizontal: s(7), paddingVertical: sh(3), borderRadius: 20 }}>
+              <Ionicons name="water-outline" size={s(10)} color={BLUE} />
+              <Text style={{ fontSize: s(10), fontWeight: '600', color: BLUE }}>{patient.blood_type}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Contact row */}
+      {(!!patient.email || !!patient.phone) && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(12), paddingHorizontal: s(20), paddingBottom: sh(10) }}>
+          {!!patient.email && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), maxWidth: '100%' }}>
+              <Ionicons name="mail-outline" size={s(12)} color={LGRAY} />
+              <Text style={{ fontSize: s(11), color: GRAY, flexShrink: 1 }} numberOfLines={1}>{patient.email}</Text>
+            </View>
+          )}
+          {!!patient.phone && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
+              <Ionicons name="call-outline" size={s(12)} color={LGRAY} />
+              <Text style={{ fontSize: s(11), color: GRAY }}>{patient.phone}</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Divider */}
+      <View style={{ height: 1, backgroundColor: BORDER, marginHorizontal: s(16) }} />
+
+      {/* Allergies */}
+      {patient.allergies.length > 0 && (
+        <View style={{ paddingHorizontal: s(16), paddingTop: sh(10), paddingBottom: sh(6) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), marginBottom: sh(5) }}>
+            <Ionicons name="warning-outline" size={s(11)} color={RED} />
+            <Text style={{ fontSize: s(10), fontWeight: '700', color: RED, textTransform: 'uppercase', letterSpacing: 0.4 }}>Allergies</Text>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(5) }}>
+            {patient.allergies.map(a => (
+              <View key={a} style={{ backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 20, paddingHorizontal: s(8), paddingVertical: sh(3) }}>
+                <Text style={{ fontSize: s(10), fontWeight: '600', color: RED }}>{a}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Chronic conditions */}
+      {patient.chronic_conditions.length > 0 && (
+        <View style={{ paddingHorizontal: s(16), paddingTop: sh(6), paddingBottom: sh(8) }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), marginBottom: sh(5) }}>
+            <Ionicons name="heart-outline" size={s(11)} color={ORANGE} />
+            <Text style={{ fontSize: s(10), fontWeight: '700', color: ORANGE, textTransform: 'uppercase', letterSpacing: 0.4 }}>Conditions</Text>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(5) }}>
+            {patient.chronic_conditions.map(c => (
+              <View key={c} style={{ backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 20, paddingHorizontal: s(8), paddingVertical: sh(3) }}>
+                <Text style={{ fontSize: s(10), fontWeight: '600', color: ORANGE }}>{c}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Footer */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(10), paddingHorizontal: s(16), paddingVertical: sh(12), borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: BG }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
+          <Ionicons name="calendar-number-outline" size={s(13)} color={BLUE} />
+          <Text style={{ fontSize: s(12), fontWeight: '700', color: TEXT }}>{patient.appointment_count}</Text>
+          <Text style={{ fontSize: s(11), color: GRAY }}>visit{patient.appointment_count !== 1 ? 's' : ''}</Text>
+        </View>
+        <View style={{ width: 1, height: s(14), backgroundColor: BORDER }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), flex: 1, minWidth: 0 }}>
+          <Ionicons name="time-outline" size={s(13)} color={LGRAY} />
+          <Text style={{ fontSize: s(11), color: GRAY, flexShrink: 1 }} numberOfLines={1}>
+            Last: <Text style={{ fontWeight: '600', color: TEXT }}>{formatDate(patient.last_appointment_at)}</Text>
+          </Text>
+        </View>
+        {!!patient.patient_system_id && (
+          <Text style={{ fontSize: s(10), color: GRAY, fontWeight: '600', flexShrink: 1 }} numberOfLines={1} selectable>
+            {patient.patient_system_id}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function DoctorMobilePatients() {
   const { patients, loading, error, refetch } = useDoctorPatients();
-  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
   const s  = (n: number) => Math.round(n * (width  / 390));
@@ -94,12 +255,12 @@ export default function DoctorMobilePatients() {
 
   // ─── Header ────────────────────────────────────────────────────────────────
   const header = (
-    <View style={[{ backgroundColor: NAVY, paddingTop: insets.top + sh(12), paddingBottom: sh(16), paddingHorizontal: s(20) }]}>
+    <View style={[{ backgroundColor: NAVY, paddingTop: sh(12), paddingBottom: sh(16), paddingHorizontal: s(20) }]}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <View>
-          <Text style={{ color: WHITE, fontSize: s(20), fontWeight: '700' }}>My Patients</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: WHITE, fontSize: s(20), fontWeight: '700' }} accessibilityRole="header">My Patients</Text>
           <Text style={{ color: '#94A3B8', fontSize: s(12), marginTop: sh(2) }}>
-            {loading ? 'Loading…' : `${patients.length} patient${patients.length !== 1 ? 's' : ''}`}
+            {loading && patients.length === 0 ? 'Loading…' : `${patients.length} patient${patients.length !== 1 ? 's' : ''}`}
           </Text>
         </View>
         <TouchableOpacity
@@ -115,166 +276,9 @@ export default function DoctorMobilePatients() {
     </View>
   );
 
-  // ─── Stat Card ─────────────────────────────────────────────────────────────
-  function StatChip({ icon, iconBg, iconColor, label, value }: {
-    icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-  }) {
-    return (
-      <View style={{
-        backgroundColor: WHITE, borderRadius: s(12), borderWidth: 1, borderColor: BORDER,
-        paddingHorizontal: s(14), paddingVertical: sh(6), alignItems: 'center', gap: sh(3),
-        minWidth: s(78), alignSelf: 'flex-start',
-      }}>
-        <View style={{ width: s(26), height: s(26), borderRadius: s(7), backgroundColor: iconBg, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name={icon} size={s(15)} color={iconColor} />
-        </View>
-        <Text style={{ fontSize: s(20), fontWeight: '700', color: TEXT }}>{value}</Text>
-        <Text style={{ fontSize: s(10), color: GRAY }}>{label}</Text>
-      </View>
-    );
-  }
-
-  // ─── Patient Card ──────────────────────────────────────────────────────────
-  function PatientCard({ patient }: { patient: DoctorPatient }) {
-    const hc = healthConfig(patient.health_status);
-    const ac = avatarColor(patient.full_name);
-    const age = calcAge(patient.date_of_birth);
-
-    return (
-      <View style={{
-        backgroundColor: WHITE, borderRadius: s(16), borderWidth: 1,
-        borderColor: BORDER, overflow: 'hidden', marginBottom: sh(12),
-      }}>
-        {/* Health status left border accent */}
-        <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: s(4), backgroundColor: hc.color }} />
-
-        {/* Top section */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: s(12), padding: s(16), paddingLeft: s(20) }}>
-          {/* Avatar */}
-          <View style={{ width: s(48), height: s(48), borderRadius: s(24), backgroundColor: ac, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Text style={{ color: WHITE, fontSize: s(16), fontWeight: '700' }}>{initials(patient.full_name)}</Text>
-          </View>
-
-          {/* Name + meta */}
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: s(15), fontWeight: '700', color: TEXT, marginBottom: sh(2) }} numberOfLines={1}>
-              {patient.full_name}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: s(4) }}>
-              <Text style={{ fontSize: s(11), color: GRAY }}>{age}</Text>
-              {!!patient.gender && (
-                <>
-                  <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: LGRAY }} />
-                  <Text style={{ fontSize: s(11), color: GRAY }}>
-                    {patient.gender.charAt(0) + patient.gender.slice(1).toLowerCase()}
-                  </Text>
-                </>
-              )}
-              {!!patient.patient_created_at && (
-                <>
-                  <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: LGRAY }} />
-                  <Text style={{ fontSize: s(11), color: GRAY }}>Since {formatMemberSince(patient.patient_created_at)}</Text>
-                </>
-              )}
-            </View>
-          </View>
-
-          {/* Badges */}
-          <View style={{ gap: sh(4), alignItems: 'flex-end' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(3), backgroundColor: hc.bg, paddingHorizontal: s(7), paddingVertical: sh(3), borderRadius: 20 }}>
-              <Ionicons name={hc.icon} size={s(10)} color={hc.color} />
-              <Text style={{ fontSize: s(10), fontWeight: '600', color: hc.color }}>{hc.label}</Text>
-            </View>
-            {!!patient.blood_type && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(3), backgroundColor: '#EEF2FF', paddingHorizontal: s(7), paddingVertical: sh(3), borderRadius: 20 }}>
-                <Ionicons name="water-outline" size={s(10)} color={BLUE} />
-                <Text style={{ fontSize: s(10), fontWeight: '600', color: BLUE }}>{patient.blood_type}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Contact row */}
-        {(!!patient.email || !!patient.phone) && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(12), paddingHorizontal: s(20), paddingBottom: sh(10) }}>
-            {!!patient.email && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
-                <Ionicons name="mail-outline" size={s(12)} color={LGRAY} />
-                <Text style={{ fontSize: s(11), color: GRAY }} numberOfLines={1}>{patient.email}</Text>
-              </View>
-            )}
-            {!!patient.phone && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
-                <Ionicons name="call-outline" size={s(12)} color={LGRAY} />
-                <Text style={{ fontSize: s(11), color: GRAY }}>{patient.phone}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Divider */}
-        <View style={{ height: 1, backgroundColor: BORDER, marginHorizontal: s(16) }} />
-
-        {/* Allergies */}
-        {patient.allergies.length > 0 && (
-          <View style={{ paddingHorizontal: s(16), paddingTop: sh(10), paddingBottom: sh(6) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), marginBottom: sh(5) }}>
-              <Ionicons name="warning-outline" size={s(11)} color={RED} />
-              <Text style={{ fontSize: s(10), fontWeight: '700', color: RED, textTransform: 'uppercase', letterSpacing: 0.4 }}>Allergies</Text>
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(5) }}>
-              {patient.allergies.map(a => (
-                <View key={a} style={{ backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 20, paddingHorizontal: s(8), paddingVertical: sh(3) }}>
-                  <Text style={{ fontSize: s(10), fontWeight: '600', color: RED }}>{a}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Chronic conditions */}
-        {patient.chronic_conditions.length > 0 && (
-          <View style={{ paddingHorizontal: s(16), paddingTop: sh(6), paddingBottom: sh(8) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), marginBottom: sh(5) }}>
-              <Ionicons name="heart-outline" size={s(11)} color={ORANGE} />
-              <Text style={{ fontSize: s(10), fontWeight: '700', color: ORANGE, textTransform: 'uppercase', letterSpacing: 0.4 }}>Conditions</Text>
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: s(5) }}>
-              {patient.chronic_conditions.map(c => (
-                <View key={c} style={{ backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 20, paddingHorizontal: s(8), paddingVertical: sh(3) }}>
-                  <Text style={{ fontSize: s(10), fontWeight: '600', color: ORANGE }}>{c}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Footer */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(10), paddingHorizontal: s(16), paddingVertical: sh(12), borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: BG }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4) }}>
-            <Ionicons name="calendar-number-outline" size={s(13)} color={BLUE} />
-            <Text style={{ fontSize: s(12), fontWeight: '700', color: TEXT }}>{patient.appointment_count}</Text>
-            <Text style={{ fontSize: s(11), color: GRAY }}>visit{patient.appointment_count !== 1 ? 's' : ''}</Text>
-          </View>
-          <View style={{ width: 1, height: s(14), backgroundColor: BORDER }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), flex: 1 }}>
-            <Ionicons name="time-outline" size={s(13)} color={LGRAY} />
-            <Text style={{ fontSize: s(11), color: GRAY }} numberOfLines={1}>
-              Last: <Text style={{ fontWeight: '600', color: TEXT }}>{formatDate(patient.last_appointment_at)}</Text>
-            </Text>
-          </View>
-          {!!patient.patient_system_id && (
-            <Text style={{ fontSize: s(10), color: GRAY, fontWeight: '600' }} selectable>
-              {patient.patient_system_id}
-            </Text>
-          )}
-        </View>
-      </View>
-    );
-  }
-
   // ─── Loading / Error ────────────────────────────────────────────────────────
-  if (loading) {
+  // Full-screen states only before the first load; a refetch keeps the list and scroll position.
+  if (loading && patients.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: BG }}>
         {header}
@@ -285,7 +289,7 @@ export default function DoctorMobilePatients() {
     );
   }
 
-  if (error) {
+  if (error && patients.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: BG }}>
         {header}
@@ -295,6 +299,8 @@ export default function DoctorMobilePatients() {
           <TouchableOpacity
             style={{ backgroundColor: BLUE, borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: sh(10) }}
             onPress={refetch} activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading patients"
           >
             <Text style={{ color: WHITE, fontWeight: '600', fontSize: s(14) }}>Retry</Text>
           </TouchableOpacity>
@@ -310,6 +316,8 @@ export default function DoctorMobilePatients() {
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingBottom: sh(32) }}
       >
         {/* Stats scroll */}
@@ -318,10 +326,10 @@ export default function DoctorMobilePatients() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: s(16), paddingTop: sh(10), paddingBottom: sh(4), gap: s(8), alignItems: 'flex-start' }}
         >
-          <StatChip icon="people-outline"           iconBg="#EEF2FF" iconColor={BLUE}   label="Total"    value={stats.total}    />
-          <StatChip icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN}  label="Stable"   value={stats.stable}   />
-          <StatChip icon="alert-circle-outline"     iconBg="#FEF3C7" iconColor={ORANGE} label="Monitor"  value={stats.monitor}  />
-          <StatChip icon="close-circle-outline"     iconBg="#FEE2E2" iconColor={RED}    label="Critical" value={stats.critical} />
+          <StatChip icon="people-outline"           iconBg="#EEF2FF" iconColor={BLUE}   label="Total"    value={stats.total}    s={s} sh={sh} />
+          <StatChip icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN}  label="Stable"   value={stats.stable}   s={s} sh={sh} />
+          <StatChip icon="alert-circle-outline"     iconBg="#FEF3C7" iconColor={ORANGE} label="Monitor"  value={stats.monitor}  s={s} sh={sh} />
+          <StatChip icon="close-circle-outline"     iconBg="#FEE2E2" iconColor={RED}    label="Critical" value={stats.critical} s={s} sh={sh} />
         </ScrollView>
 
         {/* Health filter pills */}
@@ -344,6 +352,9 @@ export default function DoctorMobilePatients() {
                 }}
                 onPress={() => setHealthFilter(f.key)}
                 activeOpacity={0.7}
+                accessibilityRole="tab"
+                accessibilityLabel={`Health status: ${f.label}`}
+                accessibilityState={{ selected: active }}
               >
                 <Text style={{ fontSize: s(14), color: active ? f.color : GRAY, fontWeight: active ? '700' : '500' }}>
                   {f.label}
@@ -369,7 +380,7 @@ export default function DoctorMobilePatients() {
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
-            clearButtonMode="while-editing"
+            accessibilityLabel="Search patients by name or email"
           />
           {!!search && (
             <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
@@ -377,6 +388,10 @@ export default function DoctorMobilePatients() {
             </TouchableOpacity>
           )}
         </View>
+
+        {!!error && (
+          <Text style={{ fontSize: s(12), color: RED, paddingHorizontal: s(16), marginTop: sh(4) }} accessibilityRole="alert">{error}</Text>
+        )}
 
         {/* Result count */}
         <Text style={{ fontSize: s(12), color: GRAY, fontWeight: '500', paddingHorizontal: s(16), marginBottom: sh(2), marginTop: sh(2) }}>
@@ -392,7 +407,7 @@ export default function DoctorMobilePatients() {
               <Text style={{ fontSize: s(13), color: GRAY }}>Try adjusting your filter</Text>
             </View>
           ) : (
-            filtered.map(p => <PatientCard key={p.patient_system_id} patient={p} />)
+            filtered.map(p => <PatientCard key={p.patient_system_id} patient={p} s={s} sh={sh} />)
           )}
         </View>
       </ScrollView>

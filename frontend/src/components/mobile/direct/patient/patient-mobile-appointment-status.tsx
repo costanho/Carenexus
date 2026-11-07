@@ -1,15 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Image, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
 import {
   apiErrorMessage, cancelAppointment, isFutureSlot, isUpcomingAppointment,
   rescheduleAppointment, useAppointments, type Appointment,
 } from '@/hooks/use-appointments';
+import { doctorInitial, tidyDoctorName } from '@/hooks/use-doctors';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import { CalendarPicker, TimePicker } from './patient-mobile-appointment';
 
@@ -26,7 +29,7 @@ const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type FilterKey = 'ALL' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED';
+type FilterKey = 'ALL' | 'UPCOMING' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName }> = {
   SCHEDULED:   { label: 'Upcoming',    color: TEAL,   bg: '#E6F4F1', icon: 'time-outline'           },
@@ -36,6 +39,24 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   RESCHEDULED: { label: 'Rescheduled', color: PURPLE, bg: '#F5F3FF', icon: 'refresh-outline'         },
 };
 
+/** A SCHEDULED/RESCHEDULED appointment whose time has passed and that the clinic has not closed yet. */
+const AWAITING_UPDATE = { label: 'Awaiting update', color: GRAY, bg: '#F3F4F6', icon: 'hourglass-outline' as IoniconsName };
+
+function statusFor(appt: Appointment) {
+  const open = appt.status === 'SCHEDULED' || appt.status === 'RESCHEDULED';
+  if (open && !isUpcomingAppointment(appt)) return AWAITING_UPDATE;
+  return STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
+}
+
+function matchesFilter(appt: Appointment, filter: FilterKey): boolean {
+  if (filter === 'ALL') return true;
+  // Upcoming = still ahead of us, whether booked or moved (same rule as the Upcoming stat and the dashboard).
+  if (filter === 'UPCOMING') return isUpcomingAppointment(appt);
+  return appt.status === filter;
+}
+
+const RESCHEDULED_NOTICE = 'Your appointment has been moved to the new time.';
+
 const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName }> = {
   IN_PERSON: { label: 'In Person',  color: TEAL,   bg: '#E6F4F1', icon: 'business-outline' },
   VIDEO:     { label: 'Video Call', color: INDIGO, bg: '#EEF2FF', icon: 'videocam-outline'  },
@@ -44,7 +65,7 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; ic
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'ALL',         label: 'All'         },
-  { key: 'SCHEDULED',   label: 'Upcoming'    },
+  { key: 'UPCOMING',    label: 'Upcoming'    },
   { key: 'COMPLETED',   label: 'Completed'   },
   { key: 'RESCHEDULED', label: 'Rescheduled' },
   { key: 'CANCELLED',   label: 'Cancelled'   },
@@ -53,7 +74,7 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -85,11 +106,11 @@ function ReschedulePanel({
 
   return (
     <View style={[styles.reschedulePanel, { borderRadius: s(12), padding: s(12), gap: s(12), marginBottom: s(8) }]}>
-      <Text style={[styles.rescheduleTitle, { fontSize: s(13) }]}>Choose a new date and time</Text>
+      <Text style={[styles.rescheduleTitle, { fontSize: s(13) }]} accessibilityRole="header">Choose a new date and time</Text>
       <CalendarPicker value={date} onChange={setDate} s={s} />
       <TimePicker value={time} onChange={setTime} s={s} />
       {(!!error || slotInPast) && (
-        <View style={[styles.inlineError, { borderRadius: s(8), padding: s(10), gap: s(6) }]}>
+        <View style={[styles.inlineError, { borderRadius: s(8), padding: s(10), gap: s(6) }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
           <Text style={[styles.inlineErrorText, { fontSize: s(12) }]}>
             {error || 'This time has already passed. Please choose a later time.'}
@@ -121,12 +142,19 @@ function ReschedulePanel({
   );
 }
 
-function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: number) => number; onRefetch: () => void }) {
+function AppointmentCard({
+  appt, s, onRefetch, notice, onRescheduled,
+}: {
+  appt: Appointment; s: (n: number) => number; onRefetch: () => void;
+  /** Set by the list after this appointment was moved, so the notice survives the card re-mounting. */
+  notice: string;
+  onRescheduled: (appointmentId: number) => void;
+}) {
   const [expanded, setExpanded]         = useState(false);
   const [cancelling, setCancelling]     = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
-  const [notice, setNotice]             = useState('');
-  const status    = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
+  const status    = statusFor(appt);
+  const doctor    = tidyDoctorName(appt.doctor_name);
   const type      = TYPE_CONFIG[appt.type]     ?? TYPE_CONFIG.IN_PERSON;
   // Only appointments that are still ahead of us can be changed.
   const canChange = isUpcomingAppointment(appt);
@@ -134,7 +162,7 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
   async function handleCancel() {
     const ok = await confirmAction(
       'Cancel appointment',
-      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)} at ${formatTime(appt.scheduled_at)}?`,
+      `Cancel your appointment with ${doctor} on ${formatDate(appt.scheduled_at)} at ${formatTime(appt.scheduled_at)}?`,
       'Cancel appointment',
       true,
     );
@@ -152,8 +180,8 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
 
   function handleRescheduled() {
     setRescheduling(false);
-    setNotice('Your appointment has been moved to the new time.');
-    onRefetch();
+    // The list owns the notice: after the refetch this card may be filtered out, re-sorted or re-mounted.
+    onRescheduled(appt.appointment_id);
   }
 
   return (
@@ -169,7 +197,7 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           </View>
 
           <View style={{ flex: 1 }}>
-            <Text style={[styles.doctorName, { fontSize: s(14) }]}>{appt.doctor_name}</Text>
+            <Text style={[styles.doctorName, { fontSize: s(14) }]} numberOfLines={2}>{doctor}</Text>
             {appt.doctor_specialization && (
               <Text style={[styles.doctorSpec, { fontSize: s(11) }]}>{appt.doctor_specialization}</Text>
             )}
@@ -183,7 +211,7 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
-              <Text style={[styles.avatarInitial, { fontSize: s(14) }]}>{appt.doctor_name[4] ?? 'D'}</Text>
+              <Text style={[styles.avatarInitial, { fontSize: s(14) }]}>{doctorInitial(appt.doctor_name)}</Text>
             </View>
           )}
         </View>
@@ -247,7 +275,11 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
         )}
 
         {!!notice && (
-          <View style={[styles.noticeBox, { borderRadius: s(8), padding: s(10), gap: s(6), marginBottom: s(8) }]}>
+          <View
+            style={[styles.noticeBox, { borderRadius: s(8), padding: s(10), gap: s(6), marginBottom: s(8) }]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
             <Ionicons name="checkmark-circle-outline" size={s(14)} color={GREEN} />
             <Text style={[styles.noticeText, { fontSize: s(12) }]}>{notice}</Text>
           </View>
@@ -261,10 +293,11 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
           <View style={{ flexDirection: 'row', gap: s(8), marginBottom: s(8) }}>
             <TouchableOpacity
               style={[styles.rescheduleBtn, { borderRadius: s(10), paddingVertical: s(10), gap: s(6) }, cancelling && { opacity: 0.6 }]}
-              onPress={() => { setNotice(''); setRescheduling(true); }}
+              onPress={() => setRescheduling(true)}
               disabled={cancelling}
               activeOpacity={0.8}
               accessibilityRole="button"
+              accessibilityLabel={`Reschedule appointment with ${doctor}`}
             >
               <Ionicons name="calendar-outline" size={s(15)} color={TEAL} />
               <Text style={[styles.rescheduleBtnText, { fontSize: s(13) }]}>Reschedule</Text>
@@ -275,6 +308,7 @@ function AppointmentCard({ appt, s, onRefetch }: { appt: Appointment; s: (n: num
               disabled={cancelling}
               activeOpacity={0.8}
               accessibilityRole="button"
+              accessibilityLabel={`Cancel appointment with ${doctor}`}
               accessibilityState={{ disabled: cancelling }}
             >
               <Ionicons name="close-circle-outline" size={s(15)} color={RED} />
@@ -312,6 +346,8 @@ export function PatientMobileAppointmentStatus({
   const { appointments, loading, error, refetch } = useAppointments();
   const [filter, setFilter]           = useState<FilterKey>('ALL');
   const [visibleCount, setVisibleCount] = useState(5);
+  const [rescheduledId, setRescheduledId] = useState<number | null>(null);
+  const listRef = useRef<ScrollView>(null);
 
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
@@ -319,7 +355,7 @@ export function PatientMobileAppointmentStatus({
   useEffect(() => { setVisibleCount(5); }, [filter]);
 
   const now = Date.now();
-  const sorted    = [...(filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter))]
+  const sorted    = [...appointments.filter(a => matchesFilter(a, filter))]
     .sort((a, b) => {
       const ta = new Date(a.scheduled_at).getTime();
       const tb = new Date(b.scheduled_at).getTime();
@@ -333,12 +369,26 @@ export function PatientMobileAppointmentStatus({
   const visible   = sorted.slice(0, visibleCount);
   const hasMore   = visibleCount < sorted.length;
   const remaining = sorted.length - visibleCount;
+  // Shown on the moved card when it is on screen, otherwise above the list.
+  const noticeOnCard = rescheduledId != null && visible.some(a => a.appointment_id === rescheduledId);
+
+  // When the moved card is no longer on screen the notice shows above the list: bring it into view.
+  const showListNotice = rescheduledId != null && !noticeOnCard && !loading;
+  useEffect(() => {
+    if (showListNotice) listRef.current?.scrollTo({ y: 0, animated: true });
+  }, [showListNotice]);
+
+  function handleRescheduled(appointmentId: number) {
+    setRescheduledId(appointmentId);
+    refetch();
+  }
   const upcoming  = appointments.filter(isUpcomingAppointment).length;
   const completed = appointments.filter(a => a.status === 'COMPLETED').length;
   const cancelled = appointments.filter(a => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -348,7 +398,7 @@ export function PatientMobileAppointmentStatus({
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -356,7 +406,7 @@ export function PatientMobileAppointmentStatus({
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>My Appointments</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>My Appointments</Text>
           <Text style={[styles.headerSub,   { fontSize: s(11) }]}>Your healthcare visit history</Text>
         </View>
         <TouchableOpacity
@@ -388,9 +438,9 @@ export function PatientMobileAppointmentStatus({
           { value: completed,           label: 'Completed', color: GREEN  },
           { value: cancelled,           label: 'Cancelled', color: RED    },
         ].map(stat => (
-          <View key={stat.label} style={[styles.statItem, { borderRadius: s(12), padding: s(10) }]}>
+          <View key={stat.label} style={[styles.statItem, { borderRadius: s(12), padding: s(10) }]} accessible accessibilityLabel={`${stat.label}: ${stat.value}`}>
             <Text style={[styles.statValue, { fontSize: s(20), color: stat.color }]}>{stat.value}</Text>
-            <Text style={[styles.statLabel, { fontSize: s(10) }]}>{stat.label}</Text>
+            <Text style={[styles.statLabel, { fontSize: s(10) }]} numberOfLines={1}>{stat.label}</Text>
           </View>
         ))}
       </View>
@@ -404,7 +454,7 @@ export function PatientMobileAppointmentStatus({
       >
         {FILTERS.map(f => {
           const on    = filter === f.key;
-          const count = f.key === 'ALL' ? appointments.length : appointments.filter(a => a.status === f.key).length;
+          const count = appointments.filter(a => matchesFilter(a, f.key)).length;
           return (
             <TouchableOpacity
               key={f.key}
@@ -416,6 +466,7 @@ export function PatientMobileAppointmentStatus({
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
               accessibilityRole="tab"
+              accessibilityLabel={`${f.label}, ${count}`}
               accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
@@ -431,16 +482,28 @@ export function PatientMobileAppointmentStatus({
 
       {/* Card list */}
       <ScrollView
+        ref={listRef}
         style={styles.scroll}
-        contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
+        // Leave room below the last card for the floating Book button, so it never covers Cancel / Show details.
+        contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + s(20) + s(56) + s(24) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {showListNotice && (
+          <View
+            style={[styles.noticeBox, { borderRadius: s(8), padding: s(10), gap: s(6), marginBottom: s(12) }]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            <Ionicons name="checkmark-circle-outline" size={s(14)} color={GREEN} />
+            <Text style={[styles.noticeText, { fontSize: s(12) }]}>{RESCHEDULED_NOTICE}</Text>
+          </View>
+        )}
+        {loading && appointments.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading appointments…</Text>
           </View>
-        ) : error ? (
+        ) : error && appointments.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -448,6 +511,7 @@ export function PatientMobileAppointmentStatus({
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>
@@ -463,12 +527,22 @@ export function PatientMobileAppointmentStatus({
           </View>
         ) : (
           <>
-            {visible.map(appt => <AppointmentCard key={appt.appointment_id} appt={appt} s={s} onRefetch={refetch} />)}
+            {visible.map(appt => (
+              <AppointmentCard
+                key={appt.appointment_id}
+                appt={appt}
+                s={s}
+                onRefetch={refetch}
+                notice={appt.appointment_id === rescheduledId ? RESCHEDULED_NOTICE : ''}
+                onRescheduled={handleRescheduled}
+              />
+            ))}
             {hasMore && (
               <TouchableOpacity
                 style={[styles.showMoreBtn, { borderRadius: s(12), paddingVertical: s(14), gap: s(8), marginBottom: s(4) }]}
                 onPress={() => setVisibleCount(c => c + 5)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
               >
                 <Ionicons name="chevron-down-circle-outline" size={s(18)} color={TEAL} />
                 <Text style={[styles.showMoreText, { fontSize: s(13) }]}>
