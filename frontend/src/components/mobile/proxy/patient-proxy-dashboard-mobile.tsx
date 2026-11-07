@@ -6,6 +6,7 @@ import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { PatientProxyBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientProxyMainDashboardMobile } from './patient/patient-proxy-main-dashboard';
 import { PatientProxyTopNavMobile } from './patient/patient-proxy-topnav';
+import { BarInsets } from '../layout/bar-insets';
 
 const MobileAddDependent  = lazy(() => import('./patient/patient-proxy-mobile-add-dependent'));
 const MobilePatientProfile = lazy(() => import('./patient/patient-proxy-mobile-profile'));
@@ -86,7 +87,7 @@ export function PatientProxyDashboardMobile() {
       <MobileMessagingProvider role="CAREGIVER" onOpenThread={openThread} onOpenMessages={openMessages}>
         <View style={styles.container}>
           {!FULL_SCREEN.has(activeKey) && <PatientProxyTopNavMobile onOpenNotifications={() => setActiveKey('notifications')} />}
-          {renderContent()}
+          <BarInsets topBar={!FULL_SCREEN.has(activeKey)}>{renderContent()}</BarInsets>
           <PatientProxyBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
         </View>
       </MobileMessagingProvider>

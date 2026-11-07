@@ -5,6 +5,7 @@ import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { DoctorBottomNavbar } from './doctor/doctor-bottom-navbar';
 import { DoctorMainDashboardAreaMobile } from './doctor/doctor-main-dashboard-area';
 import { DoctorTopNavbarMobile } from './doctor/doctor-topnavbar';
+import { BarInsets } from '../layout/bar-insets';
 
 const DoctorMobileSchedule     = lazy(() => import('./doctor/doctor-mobile-schedule'));
 const DoctorMobileConsultation = lazy(() => import('./doctor/doctor-mobile-consultation'));
@@ -126,7 +127,7 @@ export function DoctorDashboardMobile() {
           {!FULL_SCREEN.has(activeKey) && (
             <DoctorTopNavbarMobile onProfilePress={() => setActiveKey('profile')} onOpenNotifications={() => setActiveKey('notifications')} />
           )}
-          {renderContent()}
+          <BarInsets topBar={!FULL_SCREEN.has(activeKey)}>{renderContent()}</BarInsets>
           <DoctorBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
         </View>
       </MobileMessagingProvider>

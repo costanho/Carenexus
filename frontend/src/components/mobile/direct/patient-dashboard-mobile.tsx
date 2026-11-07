@@ -5,6 +5,7 @@ import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { PatientBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientMainDashboardAreaMobile } from './patient/patient-main-dashboard-area';
 import { PatientTopNavbar } from './patient/patient-topnavbar';
+import { BarInsets } from '../layout/bar-insets';
 
 type ActiveKey = 'dashboard' | 'appointments' | 'book-appointment' | 'consultation-history' | 'records' | 'prescriptions' | 'lab-results' | 'imaging-results' | 'profile'
   | 'messages' | 'notifications' | 'caregiver-access';
@@ -201,7 +202,10 @@ export function PatientDashboardMobile() {
     <SafeAreaProvider>
       <MobileMessagingProvider role="PATIENT" onOpenThread={openThread} onOpenMessages={openMessages} onOpenCaregiverAccess={openCaregiverAccess}>
         <View style={styles.container}>
-          <View style={styles.content}>{renderContent()}</View>
+          <View style={styles.content}>
+            {/* No top bar above sub-screens (they keep the status-bar inset); the tab bar owns the bottom one. */}
+            <BarInsets topBar={false}>{renderContent()}</BarInsets>
+          </View>
           <PatientBottomNavbar activeKey={activeKey} onNavigate={handleNavigate} />
         </View>
       </MobileMessagingProvider>
