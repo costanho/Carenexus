@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, useWindowDimensions, View,
@@ -313,6 +314,24 @@ export default function PatientProxyMobileAddDependent({
   const [submitErr,  setSubmitErr]  = useState('');
   const [success,    setSuccess]    = useState(false);
   const [pwVisible,  setPwVisible]  = useState(false);
+  const [pwCopied,   setPwCopied]   = useState(false);
+
+  // "Copied" reverts after a moment so the button can be used again.
+  useEffect(() => {
+    if (!pwCopied) return;
+    const t = setTimeout(() => setPwCopied(false), 2500);
+    return () => clearTimeout(t);
+  }, [pwCopied]);
+
+  async function copyPassword() {
+    try {
+      await Clipboard.setStringAsync(personal.password);
+      setPwCopied(true);
+    } catch {
+      // Clipboard unavailable: the password can still be revealed and long-pressed to copy.
+      setPwCopied(false);
+    }
+  }
 
   function setP(k: keyof PersonalForm, v: string) {
     setPersonal(p => ({ ...p, [k]: v }));
@@ -452,7 +471,6 @@ export default function PatientProxyMobileAddDependent({
             <View style={[styles.credRow, { gap: s(8) }]}>
               <Text style={[styles.cardSub, { fontSize: s(12) }]}>Password</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6), flexShrink: 1 }}>
-                {/* Selectable so it can be long-pressed and copied (no clipboard dependency in the app yet). */}
                 <Text style={[styles.credValue, { fontSize: s(13) }]} selectable={pwVisible}>
                   {pwVisible ? personal.password : '••••••••••••'}
                 </Text>
@@ -463,6 +481,14 @@ export default function PatientProxyMobileAddDependent({
                   accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
                 >
                   <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={s(16)} color={GRAY} importantForAccessibility="no" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={copyPassword}
+                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={pwCopied ? 'Password copied' : 'Copy password'}
+                >
+                  <Ionicons name={pwCopied ? 'checkmark-outline' : 'copy-outline'} size={s(16)} color={pwCopied ? '#10B981' : GRAY} importantForAccessibility="no" />
                 </TouchableOpacity>
               </View>
             </View>

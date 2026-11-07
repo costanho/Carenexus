@@ -108,6 +108,7 @@ function StatCard({ icon, iconBg, iconColor, label, value, s }: {
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
 function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number }) {
+  const [expanded, setExpanded] = useState(false);
   const sc    = statusConfig(entry.status);
   const tc    = typeConfig(entry.type);
   const today = isTodayDate(entry.scheduled_at);
@@ -169,6 +170,35 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
       </View>
       {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
         <Text style={{ fontSize: s(10), color: GRAY, marginTop: s(4) }}>Join video consultations from the CareNexus web app.</Text>
+      )}
+
+      {/* Details (same fields as web): identifiers a doctor needs to find the patient or appointment elsewhere */}
+      <TouchableOpacity
+        style={[styles.detailsToggle, { paddingTop: s(8), marginTop: s(8), gap: s(4) }]}
+        onPress={() => setExpanded(v => !v)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={expanded ? `Hide details for ${entry.patient_name}` : `Show details for ${entry.patient_name}`}
+        accessibilityState={{ expanded }}
+        hitSlop={6}
+      >
+        <Text style={[styles.detailsToggleText, { fontSize: s(12) }]}>{expanded ? 'Hide details' : 'View details'}</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={BLUE} />
+      </TouchableOpacity>
+      {expanded && (
+        <View style={{ gap: s(6), marginTop: s(8) }}>
+          {([
+            ['Patient ID',  entry.patient_system_id || '—'],
+            ['Appointment', `#${entry.appointment_id}`],
+            ['Reason',      entry.reason_for_visit ?? '—'],
+            ['Notes',       entry.notes ?? '—'],
+          ] as [string, string][]).map(([label, value]) => (
+            <View key={label} style={[styles.detailLine, { gap: s(10) }]}>
+              <Text style={[styles.detailLabel, { fontSize: s(11) }]}>{label}</Text>
+              <Text style={[styles.detailValue, { fontSize: s(12) }]} selectable>{value}</Text>
+            </View>
+          ))}
+        </View>
       )}
     </View>
   );
@@ -414,6 +444,11 @@ const styles = StyleSheet.create({
   apptReason:   { color: GRAY, lineHeight: 18 },
   consultRow:   { flexDirection: 'row', alignItems: 'center' },
   consultText:  { fontWeight: '500', flexShrink: 1 },
+  detailsToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
+  detailsToggleText: { fontWeight: '600', color: BLUE },
+  detailLine:        { flexDirection: 'row', alignItems: 'flex-start' },
+  detailLabel:       { width: 92, color: GRAY, fontWeight: '500' },
+  detailValue:       { flex: 1, color: TEXT },
   inlineError:  { color: RED },
 
   errorText:    { color: GRAY, textAlign: 'center' },

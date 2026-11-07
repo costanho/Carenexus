@@ -10,13 +10,13 @@ const BORDER = '#E5E7EB';
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type TabItem = { key: string; label: string; icon: IoniconsName; activeIcon: IoniconsName; comingSoon?: boolean };
 
-// Only Dashboard has a native screen today (loved-one profiles open from it).
-// The other tabs are shown disabled with a "Soon" label until their screens exist.
+// Dashboard, Schedule and Profile have native screens (loved-one profiles and records open from the dashboard).
+// A tab without a screen yet is shown disabled with a "Soon" label.
 const tabs: TabItem[] = [
   { key: 'dashboard',  label: 'Dashboard',  icon: 'home-outline',        activeIcon: 'home' },
-  { key: 'schedule',   label: 'Schedule',   icon: 'calendar-outline',    activeIcon: 'calendar',   comingSoon: true },
+  { key: 'schedule',   label: 'Schedule',   icon: 'calendar-outline',    activeIcon: 'calendar' },
   { key: 'messages',   label: 'Messages',   icon: 'chatbubble-outline',  activeIcon: 'chatbubble', comingSoon: true },
-  { key: 'profile',    label: 'Profile',    icon: 'person-outline',      activeIcon: 'person',     comingSoon: true },
+  { key: 'profile',    label: 'Profile',    icon: 'person-outline',      activeIcon: 'person' },
 ];
 
 export function PatientProxyBottomNavbar({ activeKey, onNavigate }: { activeKey: string; onNavigate: (key: string) => void }) {

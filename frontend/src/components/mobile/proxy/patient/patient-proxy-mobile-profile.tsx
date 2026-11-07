@@ -326,14 +326,27 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+export type ProxyRecordKey = 'schedule' | 'medications' | 'documents' | 'health-summary';
+
+// Record screens reachable from this profile; `flag` is the permission the loved one must share (none: always shown).
+const QUICK_ACTIONS: { key: ProxyRecordKey; label: string; icon: IoniconsName; flag?: keyof Perms }[] = [
+  { key: 'schedule',       label: 'View Appointments', icon: 'calendar-outline',   flag: 'canViewAppointments' },
+  { key: 'medications',    label: 'View Medications',  icon: 'medical-outline',    flag: 'canViewMedications' },
+  { key: 'documents',      label: 'View Lab Results',  icon: 'flask-outline',      flag: 'canViewLabResults' },
+  { key: 'health-summary', label: 'Health Summary',    icon: 'heart-outline' },
+];
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function PatientProxyMobileProfile({
   dependent: initialDependent,
   onBack,
+  onOpenRecord,
 }: {
   dependent: CaregiverDependent;
   onBack: () => void;
+  /** Opens one of this loved one's record screens (filtered to them). */
+  onOpenRecord?: (key: ProxyRecordKey) => void;
 }) {
   const { s }    = useScale();
   const { user } = useCurrentUser();
@@ -791,6 +804,28 @@ export default function PatientProxyMobileProfile({
         )}
       </Card>
 
+      {/* ── Quick Actions: only the records this loved one shares ── */}
+      {onOpenRecord && (
+        <Card title="Quick Actions">
+          <View style={{ gap: s(8) }}>
+            {QUICK_ACTIONS.filter(a => !a.flag || dependent.accessLevel === 'FULL_ACCESS' || !!dependent[a.flag]).map(a => (
+              <TouchableOpacity
+                key={a.key}
+                style={[styles.quickBtn, { borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(10), gap: s(10) }]}
+                onPress={() => onOpenRecord(a.key)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${a.label} for ${name}`}
+              >
+                <Ionicons name={a.icon} size={s(16)} color={PURPLE} importantForAccessibility="no" />
+                <Text style={[styles.quickBtnText, { fontSize: s(13) }]} numberOfLines={1}>{a.label}</Text>
+                <Ionicons name="chevron-forward" size={s(14)} color={GRAY2} importantForAccessibility="no" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Card>
+      )}
+
     </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -875,5 +910,8 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: GRAY, fontWeight: '500' },
   saveBtn:       { alignItems: 'center', justifyContent: 'center', backgroundColor: PURPLE },
   saveBtnText:   { color: WHITE, fontWeight: '700' },
+
+  quickBtn:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BORDER, backgroundColor: BG },
+  quickBtnText: { flex: 1, color: TEXT, fontWeight: '600' },
 
 });

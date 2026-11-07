@@ -184,6 +184,13 @@ const UPCOMING_LIMIT = 5;
 
 const CONSULTATIONS_LIMIT = 3;
 
+const RECORD_LINKS: { key: string; label: string; icon: IoniconsName }[] = [
+  { key: 'medications',    label: 'Medications',         icon: 'medical-outline' },
+  { key: 'documents',      label: 'Documents & Results', icon: 'flask-outline' },
+  { key: 'health-summary', label: 'Health Summary',      icon: 'heart-outline' },
+  { key: 'care-plans',     label: 'Care Plans',          icon: 'clipboard-outline' },
+];
+
 export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
   const { s, sh } = useScale();
   const { dependents, loading: depsLoading, error: depsError, refetch: refetchDeps } = useCaregiverDependents();
@@ -365,6 +372,18 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
             +{upcoming.length - UPCOMING_LIMIT} more upcoming
           </Text>
         )}
+        {onNavigate && (
+          <TouchableOpacity
+            style={[styles.linkRow, { gap: s(5), paddingTop: s(10), marginTop: s(8) }]}
+            activeOpacity={0.7}
+            onPress={() => onNavigate('schedule')}
+            accessibilityRole="button"
+            accessibilityLabel="View the full schedule"
+          >
+            <Text style={[styles.cardAction, { fontSize: s(12) }]}>View full schedule</Text>
+            <Ionicons name="chevron-forward" size={s(13)} color={PURPLE} importantForAccessibility="no" />
+          </TouchableOpacity>
+        )}
       </Card>
 
       {/* Recent consultations — from caregiver activity */}
@@ -384,6 +403,30 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
           ))
         )}
       </Card>
+
+      {/* Records: per-loved-one screens, each filtered by what that loved one shares */}
+      {onNavigate && (
+        <Card title="Records" s={s}>
+          {RECORD_LINKS.map((l, i) => (
+            <View key={l.key}>
+              {i > 0 && <View style={[styles.sep, { marginVertical: s(4) }]} />}
+              <TouchableOpacity
+                style={[styles.scheduleRow, { gap: s(10), paddingVertical: s(6) }]}
+                activeOpacity={0.7}
+                onPress={() => onNavigate(l.key)}
+                accessibilityRole="button"
+                accessibilityLabel={l.label}
+              >
+                <View style={[styles.statIconBg, { backgroundColor: PURPLE_BG, width: s(32), height: s(32), borderRadius: s(9) }]}>
+                  <Ionicons name={l.icon} size={s(15)} color={PURPLE} importantForAccessibility="no" />
+                </View>
+                <Text style={[styles.cardTitle, { fontSize: s(13), flex: 1 }]} numberOfLines={1}>{l.label}</Text>
+                <Ionicons name="chevron-forward" size={s(14)} color={GRAY} importantForAccessibility="no" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </Card>
+      )}
 
       {/* Proxy Access Banner */}
       {dependents.length > 0 && (
@@ -436,6 +479,7 @@ const styles = StyleSheet.create({
   healthPill:    {},
 
   scheduleRow: { flexDirection: 'row', alignItems: 'center' },
+  linkRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
   timePill:    { borderWidth: 1, alignItems: 'center' },
   videoBtn:    { borderWidth: 1, borderColor: GREEN + '50', backgroundColor: GREEN + '15', alignItems: 'center', justifyContent: 'center' },
 

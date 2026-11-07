@@ -47,7 +47,7 @@ Paths are relative to `frontend/src/`. `M/` means `components/mobile/`. Line num
 | P11 | all patient screens | Filter pills have no tab role or selected state. Expand toggles have no expanded state. Retry and "Show more" have no button role. Page and section titles are not headers. "View all" / "Manage" links are ambiguous. | Add roles, state, header roles and specific labels. | Fixed |
 | P12 | `patient-mobile-appointment-status.tsx:435,484` | The New-appointment FAB covers the last card's Cancel and Details controls. | Pad the list by the FAB footprint. | Fixed |
 | P13 | `patient-mobile-lab-results.tsx:87,163`; `patient-mobile-profile.tsx:97` | A non-string `result_data.comment` throws "Objects are not valid as a React child". Empty names render "UNDEFINEDUNDEFINED" initials. | Render the comment only when it is a string. Guard the initials. | Fixed |
-| P14 | `hooks/use-appointments.ts` `isFutureSlot` / `isUpcomingAppointment` | These compare clinic wall-clock times with the device clock, so they are off on devices that are not on CAT. | Shared with web, and correct for the clinic's own time zone. | Deferred: needs a clinic-time "now" helper shared with web; behaviour change on web. |
+| P14 | `hooks/use-appointments.ts` `isFutureSlot` / `isUpcomingAppointment` | These compare clinic wall-clock times with the device clock, so they are off on devices that are not on CAT. | New `clinicNowLocal()` in `hooks/use-appointments.ts`. `isFutureSlot` and `isUpcomingAppointment` compare the wall-clock value with the current time in the clinic. Shared with web: identical in CAT, and now also correct on devices or browsers outside CAT. | Fixed (follow-up) |
 | P15 | `patient-mobile-appointment-status.tsx:56` | The appointment date has no year, so an appointment a year out is ambiguous. | Include the year. | Fixed |
 
 ## Doctor
@@ -71,7 +71,7 @@ Paths are relative to `frontend/src/`. `M/` means `components/mobile/`. Line num
 | D15 | `doctor-mobile-appointment.tsx:294,328`, `doctor-mobile-schedule.tsx:194,220` | The "In Progress" appointment stat and filter can never be non-zero, because appointments have no IN_PROGRESS status. | Remove them. | Fixed |
 | D16 | `doctor-mobile-prescription.tsx:32-50,73-78`; `doctor-mobile-lab-results.tsx:42-48,84-90` | CANCELLED, ON_HOLD, PENDING and CRITICAL statuses, and some routes, render as raw enum text. | Add labels and a readable fallback. | Fixed |
 | D17 | `doctor-mobile-lab-results.tsx:233` | The search box relies on iOS-only `clearButtonMode`, so Android has no clear button. | Add a clear button. | Fixed |
-| D18 | `doctor-mobile-schedule.tsx:110-175` | Schedule cards have no details (Patient ID, appointment #, notes) the way web does. | Not a bug; the Appointments tab shows those details. | Deferred: feature parity, not a defect. |
+| D18 | `doctor-mobile-schedule.tsx:110-175` | Schedule cards have no details (Patient ID, appointment #, notes) the way web does. | View details panel on each Schedule card: Patient ID, appointment #, reason and notes, as on web. The video-call status line is left out because call UI is out of scope. | Fixed (follow-up) |
 | D19 | `doctor-dashboard-mobile.tsx` | Android back from a sub-screen leaves the dashboard. | `BackHandler` that returns to Dashboard. | Fixed |
 
 ## Caregiver (proxy)
@@ -85,7 +85,7 @@ Paths are relative to `frontend/src/`. `M/` means `components/mobile/`. Line num
 | C5 | `M/proxy/patient/patient-proxy-main-dashboard.tsx:148` | Upcoming keeps only SCHEDULED, so rescheduled visits drop out of the count and list. | SCHEDULED or RESCHEDULED, and in the future. | Fixed |
 | C6 | `M/proxy/patient/patient-proxy-topnav.tsx:117-136` | The Log Out dropdown is positioned outside the navbar's bounds. On Android those touches are not delivered, so sign-out can be untappable, and the menu never closes on an outside tap. | Inline Sign out button using `useLogout()`, as the patient top bar does. | Fixed |
 | C7 | `patient-proxy-main-dashboard.tsx:139` | The dashboard ignores the consultations that `useCaregiverActivity` already returns. | Add a "Recent consultations" card, using `doctorDisplayName` / `loadActiveDoctors` for doctor names. | Fixed |
-| C8 | `M/proxy/patient/patient-bottom-navbar.tsx:17,19`; the dependent's Schedule / Medications / Documents / Health summary screens | Mobile has no per-dependent appointments, medications, documents or health-summary screens; web has them. | New screens. | Deferred: new features rather than fixes. The navbar is also being changed by the messaging session. |
+| C8 | `M/proxy/patient/patient-bottom-navbar.tsx:17,19`; the dependent's Schedule / Medications / Documents / Health summary screens | Mobile has no per-dependent appointments, medications, documents or health-summary screens; web has them. | New native screens: Schedule tab (appointments, with Upcoming/Past/Cancelled/All and a loved-one picker), Medications, Documents & results (lab results), Health summary, Care plans and the Profile tab (account and linked loved ones). Reached from the bottom tabs, a new Records card on the dashboard, and Quick Actions on a loved one's profile. Each record is gated by the caregiver's permission (FULL_ACCESS or the flag, as the backend checks) and shows "not shared" instead of data. The Messages tab is left to the messaging work. | Fixed (follow-up) |
 | C9 | `M/proxy/patient-proxy-dashboard-mobile.tsx:20-62` | Android back from Profile or Add loved one leaves the dashboard and loses the half-filled form. | `BackHandler`. | Fixed |
 | C10 | `patient-proxy-main-dashboard.tsx:43-46,238-246` | Health status shows "Unknown" in warning colours when records are not shared with the caregiver. | Grey "Not shared" pill. | Fixed |
 | C11 | `patient-proxy-mobile-profile.tsx:149,176,599` | The expiry field is pre-filled with a full ISO date-time under a YYYY-MM-DD placeholder and is never validated. The "leave blank for no expiry" hint is wrong. | Pre-fill the date, validate it, check it is not later than the current expiry, and correct the hint. | Fixed |
@@ -96,7 +96,7 @@ Paths are relative to `frontend/src/`. `M/` means `components/mobile/`. Line num
 | C16 | add-dependent, profile, dashboard | Icon buttons have no labels. Switches have no switch role or checked state. Chips and level cards have no radio role or selected state. Card and page titles are not headers. Error banners have no alert role. | Add roles, state and labels. | Fixed |
 | C17 | `patient-proxy-topnav.tsx:109`, `patient-proxy-main-dashboard.tsx:118,221`, `patient-proxy-mobile-profile.tsx:444` | At 375 pt a long name wraps the navbar, and rows overflow. | `numberOfLines` and `flexShrink`. | Fixed |
 | C18 | `hooks/use-caregiver-dependents.ts:111,178` | If loading the current user fails, the hooks stay `loading` forever, and the dashboard spins with no retry. | Pass the user error through. | Fixed |
-| C19 | `patient-proxy-mobile-add-dependent.tsx:428-436` | The success screen has no way to copy the generated password; web has one. | Copy button. | Partly fixed: the password and email are now selectable text. A copy button is deferred, because it needs `expo-clipboard`, a new native dependency. |
+| C19 | `patient-proxy-mobile-add-dependent.tsx:428-436` | The success screen has no way to copy the generated password; web has one. | Copy button using `expo-clipboard` (~56.0.4, bundled in Expo Go). The password and email are also selectable text. | Fixed (follow-up) |
 | C20 | `patient-proxy-main-dashboard.tsx:270` | "Add Another Loved One" shows even when there are none. | "Add a Loved One" when the list is empty. | Fixed |
 
 ## Found while verifying on the simulator
@@ -162,6 +162,14 @@ Both ran against the local API on `http://localhost:9000`, with the device time 
 - `smoke-caregiver`
 
 Result: **40 passed**.
+
+**Follow-up (C8, D18, C19, P14):** the type check is clean.
+- **Caregiver, on the iPhone 16:**
+  - The Schedule and Profile tabs open, and Schedule shows real appointments with the Rescheduled label and single "Dr." names.
+  - From Agnes Zimba's profile, Quick Actions lists only the records she shares.
+  - View Medications opens focused on her, and Back returns to her profile.
+- **Web, after the clinic-time change in `use-appointments.ts`:** rebuilt and ran `fix-patient`, `smoke-appointments`, `fix-caregiver`, `smoke-caregiver` and `fix-doctor` in Chrome. **36 passed.**
+- **Not clicked through on the simulator:** Documents, Health summary, Care plans, the doctor Schedule details panel and the copy-password button.
 
 **Not verified here:**
 - Android, including the hardware-back `BackHandler`. Only iOS simulators were run.
