@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
+import { MessagePatientButton } from '../../messages/messaging-actions';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -268,6 +269,9 @@ export default function DoctorMobilePatients() {
               {patient.patient_system_id}
             </Text>
           )}
+        </View>
+        <View style={{ paddingHorizontal: s(14), paddingBottom: s(12) }}>
+          <MessagePatientButton patientSystemId={patient.patient_system_id} patientName={patient.full_name} compact />
         </View>
       </View>
     );

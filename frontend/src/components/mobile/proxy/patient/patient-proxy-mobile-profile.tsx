@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '@/lib/auth/auth.interceptor';
 import { caregiverErrorMessage, caregiverSaveErrorMessage, parseList, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { MobileMessageCareTeamButton } from '../../messages/messaging-actions';
 
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
@@ -419,6 +420,11 @@ export default function PatientProxyMobileProfile({
           <Text style={[styles.errBannerText, { fontSize: s(12) }]}>{saveError}</Text>
         </View>
       ) : null}
+
+      {/* Message the care team (or why not yet) */}
+      <View style={{ marginBottom: s(12) }}>
+        <MobileMessageCareTeamButton dependent={dependent} />
+      </View>
 
       {/* Hero */}
       <View style={[styles.card, { borderRadius: s(14), padding: s(14), marginBottom: s(12) }]}>

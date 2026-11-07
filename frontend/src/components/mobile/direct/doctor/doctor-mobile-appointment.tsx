@@ -10,6 +10,7 @@ import {
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { MessagePatientButton } from '../../messages/messaging-actions';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -213,6 +214,7 @@ function AppCard({ entry, s, busy, onAction }: {
         {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
           <Text style={{ fontSize: s(10), color: GRAY, flexShrink: 1 }}>Join video consultations from the CareNexus web app.</Text>
         )}
+        <MessagePatientButton patientSystemId={entry.patient_system_id} patientName={entry.patient_name} compact />
         <TouchableOpacity
           style={[styles.detailsToggle, { gap: s(3) }]}
           activeOpacity={0.8}

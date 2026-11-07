@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePatientProfile, type PatientProfile } from '@/hooks/use-patient-profile';
+import { CaregiverAccessLink } from '../../messages/messaging-actions';
 
 const TEAL   = '#0D9488';
 const TEAL_L = '#E6F4F1';
@@ -184,6 +185,8 @@ export function PatientMobileProfile() {
         contentContainerStyle={[styles.scrollContent, { padding: s(16), paddingBottom: sh(32) }]}
         showsVerticalScrollIndicator={false}
       >
+        <CaregiverAccessLink />
+
         {/* Personal Information */}
         <SectionCard title="Personal Information" icon="person-circle-outline" s={s} sh={sh}>
           <InfoRow label="First Name"    value={profile.first_name}                                             s={s} sh={sh} />
