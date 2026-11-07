@@ -1,9 +1,11 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { DoctorBottomNavbar } from './doctor/doctor-bottom-navbar';
 import { DoctorMainDashboardAreaMobile } from './doctor/doctor-main-dashboard-area';
 import { DoctorTopNavbarMobile } from './doctor/doctor-topnavbar';
+import { BarInsets } from '../layout/bar-insets';
 
 const DoctorMobileSchedule     = lazy(() => import('./doctor/doctor-mobile-schedule'));
 const DoctorMobileConsultation = lazy(() => import('./doctor/doctor-mobile-consultation'));
@@ -13,6 +15,14 @@ const DoctorMobileMedicalRecords  = lazy(() => import('./doctor/doctor-mobile-me
 const DoctorMobilePrescription    = lazy(() => import('./doctor/doctor-mobile-prescription'));
 const DoctorMobileLabResults      = lazy(() => import('./doctor/doctor-mobile-lab-results'));
 const DoctorMobileProfile         = lazy(() => import('./doctor/doctor-mobile-profile'));
+const MobileMessagesScreen = lazy(() =>
+  import('../messages/mobile-messages-screen').then(m => ({ default: m.MobileMessagesScreen })));
+const MobileNotificationsScreen = lazy(() =>
+  import('../notifications/mobile-notifications-screen').then(m => ({ default: m.MobileNotificationsScreen })));
+
+const DOCTOR_THEME = { accent: '#4F46E5', accentBg: '#EEF2FF' };
+/** Full-screen sections with their own header (no top navbar above them). */
+const FULL_SCREEN = new Set(['messages', 'notifications']);
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
@@ -27,6 +37,14 @@ const loader = (
 
 export function DoctorDashboardMobile() {
   const [activeKey, setActiveKey] = useState('dashboard');
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
+  const openMessages = useCallback(() => setActiveKey('messages'), []);
 
   // Android back from a sub-screen returns to the dashboard instead of leaving the app.
   useEffect(() => {
@@ -36,6 +54,20 @@ export function DoctorDashboardMobile() {
   }, [activeKey]);
 
   function renderContent() {
+    if (activeKey === 'messages') {
+      return (
+        <Suspense fallback={loader}>
+          <MobileMessagesScreen mode="DOCTOR" theme={DOCTOR_THEME} openThreadId={openThreadId} onOpenThreadHandled={clearOpenThread} />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'notifications') {
+      return (
+        <Suspense fallback={loader}>
+          <MobileNotificationsScreen theme={DOCTOR_THEME} onOpenThread={openThread} />
+        </Suspense>
+      );
+    }
     if (activeKey === 'schedule') {
       return (
         <Suspense fallback={loader}>
@@ -97,11 +129,15 @@ export function DoctorDashboardMobile() {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.container}>
-        <DoctorTopNavbarMobile onProfilePress={() => setActiveKey('profile')} />
-        {renderContent()}
-        <DoctorBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
-      </View>
+      <MobileMessagingProvider role="DOCTOR" onOpenThread={openThread} onOpenMessages={openMessages}>
+        <View style={styles.container}>
+          {!FULL_SCREEN.has(activeKey) && (
+            <DoctorTopNavbarMobile onProfilePress={() => setActiveKey('profile')} onOpenNotifications={() => setActiveKey('notifications')} />
+          )}
+          <BarInsets topBar={!FULL_SCREEN.has(activeKey)}>{renderContent()}</BarInsets>
+          <DoctorBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
+        </View>
+      </MobileMessagingProvider>
     </SafeAreaProvider>
   );
 }

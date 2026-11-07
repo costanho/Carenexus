@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ageFromDateOnly, formatDateOnly } from '@/lib/ui/date-only';
 import { usePatientProfile, type PatientProfile } from '@/hooks/use-patient-profile';
+import { CaregiverAccessLink } from '../../messages/messaging-actions';
 
 const TEAL   = '#0D9488';
 const TEAL_L = '#E6F4F1';
@@ -183,6 +184,8 @@ export function PatientMobileProfile() {
 
       {/* Sections */}
       <View style={[styles.scrollContent, { padding: s(16) }]}>
+        <CaregiverAccessLink />
+
         {/* Personal Information */}
         <SectionCard title="Personal Information" icon="person-circle-outline" s={s} sh={sh}>
           <InfoRow label="First Name"    value={profile.first_name}                                             s={s} sh={sh} />

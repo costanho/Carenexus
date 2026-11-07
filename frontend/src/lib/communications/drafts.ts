@@ -1,16 +1,15 @@
-// Per-thread message drafts, kept in sessionStorage on web (cleared when the tab closes).
+import { type MessagingStorage, messagingStorage } from './storage';
+
+// Per-thread message drafts, kept in sessionStorage on web (cleared when the tab closes) and in the
+// device's secure store on iOS / Android (kept across app restarts; see ./storage.native.ts).
 // Key: carenexus.draft.v1.{currentUserSystemId}.{threadId}  (new conversation: ...new.{patientSystemId})
 // Drafts are cleared on sign-out (see ./session.ts).
 
 const PREFIX = 'carenexus.draft.v1';
 
-/** The tab's sessionStorage, or null where it is missing or blocked. Shared with the outbox. */
-export function storage(): Storage | null {
-  try {
-    return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null;
-  } catch {
-    return null;
-  }
+/** Web: the tab's sessionStorage (null where missing or blocked). Native: the device store. Shared with the outbox. */
+export function storage(): MessagingStorage | null {
+  return messagingStorage();
 }
 
 export function threadDraftKey(userSystemId: string, threadId: number): string {

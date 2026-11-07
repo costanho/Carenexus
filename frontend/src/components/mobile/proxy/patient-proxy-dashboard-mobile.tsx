@@ -1,10 +1,12 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { PatientProxyBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientProxyMainDashboardMobile } from './patient/patient-proxy-main-dashboard';
 import { PatientProxyTopNavMobile } from './patient/patient-proxy-topnav';
+import { BarInsets } from '../layout/bar-insets';
 
 const MobileAddDependent  = lazy(() => import('./patient/patient-proxy-mobile-add-dependent'));
 const MobilePatientProfile = lazy(() => import('./patient/patient-proxy-mobile-profile'));
@@ -14,6 +16,14 @@ const MobileDocuments      = lazy(() => import('./patient/patient-proxy-mobile-d
 const MobileHealthSummary  = lazy(() => import('./patient/patient-proxy-mobile-health-summary'));
 const MobileCarePlans      = lazy(() => import('./patient/patient-proxy-mobile-care-plans'));
 const MobileSettings       = lazy(() => import('./patient/patient-proxy-mobile-settings'));
+const MobileMessagesScreen = lazy(() =>
+  import('../messages/mobile-messages-screen').then(m => ({ default: m.MobileMessagesScreen })));
+const MobileNotificationsScreen = lazy(() =>
+  import('../notifications/mobile-notifications-screen').then(m => ({ default: m.MobileNotificationsScreen })));
+
+const PROXY_THEME = { accent: '#7C3AED', accentBg: '#F5F3FF' };
+/** Full-screen sections with their own header (no top navbar above them). */
+const FULL_SCREEN = new Set(['messages', 'notifications']);
 
 function Loader() {
   return (
@@ -26,6 +36,14 @@ function Loader() {
 export function PatientProxyDashboardMobile() {
   const [activeKey, setActiveKey]               = useState('dashboard');
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
+  const [openThreadId, setOpenThreadId]         = useState<number | null>(null);
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
+  const openMessages = useCallback(() => setActiveKey('messages'), []);
 
   // Android back on a sub-screen returns to the dashboard instead of leaving it
   // A record screen opened from a loved one's profile starts on that loved one, and its Back returns to the profile.
@@ -58,6 +76,20 @@ export function PatientProxyDashboardMobile() {
   }
 
   function renderContent() {
+    if (activeKey === 'messages') {
+      return (
+        <Suspense fallback={<Loader />}>
+          <MobileMessagesScreen mode="CAREGIVER" theme={PROXY_THEME} openThreadId={openThreadId} onOpenThreadHandled={clearOpenThread} />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'notifications') {
+      return (
+        <Suspense fallback={<Loader />}>
+          <MobileNotificationsScreen theme={PROXY_THEME} onOpenThread={openThread} />
+        </Suspense>
+      );
+    }
     if (activeKey === 'add-dependent') {
       return (
         <Suspense fallback={<Loader />}>
@@ -106,11 +138,13 @@ export function PatientProxyDashboardMobile() {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.container}>
-        <PatientProxyTopNavMobile />
-        {renderContent()}
-        <PatientProxyBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
-      </View>
+      <MobileMessagingProvider role="CAREGIVER" onOpenThread={openThread} onOpenMessages={openMessages}>
+        <View style={styles.container}>
+          {!FULL_SCREEN.has(activeKey) && <PatientProxyTopNavMobile onOpenNotifications={() => setActiveKey('notifications')} />}
+          <BarInsets topBar={!FULL_SCREEN.has(activeKey)}>{renderContent()}</BarInsets>
+          <PatientProxyBottomNavbar activeKey={activeKey} onNavigate={setActiveKey} />
+        </View>
+      </MobileMessagingProvider>
     </SafeAreaProvider>
   );
 }

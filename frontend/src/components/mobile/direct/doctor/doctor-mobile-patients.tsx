@@ -5,6 +5,7 @@ import {
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
 import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
+import { MessagePatientButton } from '../../messages/messaging-actions';
 import { ageFromDateOnly } from '@/lib/ui/date-only';
 
 const NAVY   = '#0D1B2E';
@@ -215,6 +216,9 @@ function PatientCard({ patient, s, sh }: { patient: DoctorPatient; s: Scale; sh:
             {patient.patient_system_id}
           </Text>
         )}
+      </View>
+      <View style={{ paddingHorizontal: s(14), paddingBottom: s(12) }}>
+        <MessagePatientButton patientSystemId={patient.patient_system_id} patientName={patient.full_name} compact />
       </View>
     </View>
   );

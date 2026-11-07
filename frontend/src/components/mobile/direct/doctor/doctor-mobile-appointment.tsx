@@ -9,6 +9,7 @@ import {
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { MessagePatientButton } from '../../messages/messaging-actions';
 // Plain React Native (no DOM), shared with web: same clinic-hours slots, busy check and server validation.
 import {
   DoctorReschedulePanel, formatClinicDate, formatClinicTime,
@@ -216,6 +217,7 @@ function AppCard({ entry, s, busy, onAction, onRescheduled }: {
           <Ionicons name={cc.icon} size={s(11)} color={cc.color} />
           <Text style={[styles.chipText, { fontSize: s(10), color: cc.color, marginLeft: s(3) }]}>{cc.label}</Text>
         </View>
+        <MessagePatientButton patientSystemId={entry.patient_system_id} patientName={entry.patient_name} compact />
         <TouchableOpacity
           style={[styles.detailsToggle, { gap: s(3) }]}
           activeOpacity={0.8}

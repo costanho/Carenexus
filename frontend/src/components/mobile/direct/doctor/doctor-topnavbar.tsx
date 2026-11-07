@@ -4,6 +4,7 @@ import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } 
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { doctorDisplayName } from '@/hooks/use-doctors';
 import { useLogout } from '@/hooks/use-logout';
+import { MobileNotificationBell } from '../../notifications/mobile-notification-bell';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -14,9 +15,10 @@ const RED    = '#EF4444';
 export interface DoctorTopNavbarMobileProps {
   onMenuPress?:    () => void;
   onProfilePress?: () => void;
+  onOpenNotifications?: () => void;
 }
 
-export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress }: DoctorTopNavbarMobileProps) {
+export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress, onOpenNotifications }: DoctorTopNavbarMobileProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { user } = useCurrentUser();
@@ -62,6 +64,7 @@ export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress }: DoctorTop
 
       {/* Right icons */}
       <View style={[styles.rightSection, { gap: s(6) }]}>
+        {onOpenNotifications && <MobileNotificationBell onPress={onOpenNotifications} size={s(21)} />}
         {/* Avatar */}
         <TouchableOpacity
           style={[styles.profileRow, { gap: s(4) }]}

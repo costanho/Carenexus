@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
+
+const NATIVE = Platform.OS !== 'web';
 
 function isVisible(): boolean {
+  // iOS / Android: "visible" while the app is in the foreground.
+  if (NATIVE) return AppState.currentState == null || AppState.currentState === 'active';
   return typeof document === 'undefined' || document.visibilityState !== 'hidden';
 }
 
@@ -15,12 +20,17 @@ export interface PageActivity {
   online:  boolean;
 }
 
-/** Tracks document visibility and navigator.onLine (web). Always "active" where those APIs are missing. */
+/** Tracks document visibility and navigator.onLine (web), or the app being in the foreground (native). */
 export function usePageActive(): PageActivity {
   const [visible, setVisible] = useState(isVisible);
   const [online,  setOnline]  = useState(isOnline);
 
   useEffect(() => {
+    if (NATIVE) {
+      // No navigator.onLine on native: "online" stays true and failed polls show as "not up to date".
+      const sub = AppState.addEventListener('change', state => setVisible(state === 'active'));
+      return () => sub.remove();
+    }
     if (typeof document === 'undefined' || typeof window === 'undefined') return;
     const onVisibility = () => setVisible(isVisible());
     const onOnline     = () => setOnline(true);

@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { MobileNotificationBell } from '../../notifications/mobile-notification-bell';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -23,7 +24,7 @@ function greeting() {
   return 'Good evening';
 }
 
-export function PatientProxyTopNavMobile() {
+export function PatientProxyTopNavMobile({ onOpenNotifications }: { onOpenNotifications?: () => void } = {}) {
   const { user }   = useCurrentUser();
   const insets     = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -61,6 +62,7 @@ export function PatientProxyTopNavMobile() {
 
       {/* Right: avatar + sign out */}
       <View style={[styles.right, { gap: s(10) }]}>
+        {onOpenNotifications && <MobileNotificationBell onPress={onOpenNotifications} size={s(22)} />}
         <View
           style={[styles.profileRow, { gap: s(6) }]}
           accessible

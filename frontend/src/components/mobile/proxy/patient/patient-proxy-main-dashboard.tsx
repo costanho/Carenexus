@@ -11,6 +11,7 @@ import {
 import { tidyDoctorName, useDoctors } from '@/hooks/use-doctors';
 import { ageFromDateOnly } from '@/lib/ui/date-only';
 import { EmptyState, ErrorState } from '@/components/web/proxy/patient/proxy-states';
+import { MobileMessageCareTeamButton } from '../../messages/messaging-actions';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -318,6 +319,9 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
                     </View>
                     <Ionicons name="chevron-forward" size={s(14)} color={GRAY} importantForAccessibility="no" />
                   </TouchableOpacity>
+                  <View style={{ paddingHorizontal: s(10), paddingTop: s(6) }}>
+                    <MobileMessageCareTeamButton dependent={dep} compact />
+                  </View>
                 </View>
               );
             })}

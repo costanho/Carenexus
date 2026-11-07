@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MessagesTabIcon, useTabLabel } from '../../messages/messages-tab-icon';
 
 const TEAL  = '#0D9488';
 const GRAY  = '#9CA3AF';
@@ -16,6 +17,7 @@ type TabItem = { key: string; label: string; icon: IoniconsName; activeIcon: Ion
 const tabs: TabItem[] = [
   { key: 'dashboard',    label: 'Dashboard',    icon: 'home-outline',         activeIcon: 'home' },
   { key: 'appointments', label: 'Appointments', icon: 'calendar-outline',     activeIcon: 'calendar' },
+  { key: 'messages',     label: 'Messages',     icon: 'chatbubbles-outline',  activeIcon: 'chatbubbles' },
   { key: 'records',      label: 'Records',      icon: 'folder-open-outline',  activeIcon: 'folder-open' },
   { key: 'prescriptions', label: 'Prescriptions', icon: 'medkit-outline',      activeIcon: 'medkit' },
   { key: 'profile',      label: 'Profile',      icon: 'person-outline',       activeIcon: 'person' },
@@ -37,6 +39,7 @@ export function PatientBottomNavbar({
   const { width, height } = useWindowDimensions();
   const [localActive, setLocalActive] = useState('dashboard');
   const active = activeKey ?? localActive;
+  const tabLabel = useTabLabel();
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
@@ -67,18 +70,20 @@ export function PatientBottomNavbar({
             activeOpacity={0.7}
             onPress={() => handlePress(tab)}
             accessibilityRole="tab"
-            accessibilityLabel={tab.label}
+            accessibilityLabel={tabLabel(tab.key, tab.label)}
             accessibilityState={{ selected: isActive }}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />
             )}
-            <Ionicons
-              name={isActive ? tab.activeIcon : tab.icon}
-              size={iconSize}
-              color={isActive ? TEAL : GRAY}
-            />
-            <Text style={[styles.label, { fontSize }, isActive && styles.labelActive]}>
+            <MessagesTabIcon show={tab.key === 'messages'}>
+              <Ionicons
+                name={isActive ? tab.activeIcon : tab.icon}
+                size={iconSize}
+                color={isActive ? TEAL : GRAY}
+              />
+            </MessagesTabIcon>
+            <Text style={[styles.label, { fontSize }, isActive && styles.labelActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
               {tab.label}
             </Text>
           </TouchableOpacity>

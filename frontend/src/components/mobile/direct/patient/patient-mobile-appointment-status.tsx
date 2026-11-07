@@ -15,6 +15,7 @@ import {
 import { doctorInitial, tidyDoctorName } from '@/hooks/use-doctors';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import { CalendarPicker, TimePicker } from './patient-mobile-appointment';
+import { MessageDoctorButton } from '../../messages/messaging-actions';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -316,6 +317,8 @@ function AppointmentCard({
             </TouchableOpacity>
           </View>
         )}
+
+        <MessageDoctorButton doctorSystemId={appt.doctor_system_id} doctorName={appt.doctor_name} compact />
 
         {/* Expand toggle */}
         <TouchableOpacity
