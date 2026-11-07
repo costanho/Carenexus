@@ -6,7 +6,11 @@ import {
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useConsultations, type Consultation } from '@/hooks/use-consultations';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
+import { isPatientVisibleConsultation, useConsultations, type Consultation } from '@/hooks/use-consultations';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 
 const TEAL   = '#0D9488';
 const INDIGO = '#4F46E5';
@@ -22,7 +26,7 @@ const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type FilterKey = 'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'DRAFT' | 'CANCELLED';
+type FilterKey = 'ALL' | 'FOLLOW_UP';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName }> = {
   COMPLETED:   { label: 'Completed',   color: GREEN,  bg: '#ECFDF5', icon: 'checkmark-circle-outline' },
@@ -37,24 +41,30 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; ic
   PHONE:     { label: 'Phone Call', color: GREEN,  bg: '#F0FDF4', icon: 'call-outline'      },
 };
 
+// The backend only returns finalised (COMPLETED) consultations to patients, so there are no draft or
+// in-progress filters; patients filter by whether a follow-up is needed instead (same as web).
 const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'ALL',         label: 'All'         },
-  { key: 'COMPLETED',   label: 'Completed'   },
-  { key: 'IN_PROGRESS', label: 'In Progress' },
-  { key: 'DRAFT',       label: 'Draft'       },
-  { key: 'CANCELLED',   label: 'Cancelled'   },
+  { key: 'ALL',       label: 'All'       },
+  { key: 'FOLLOW_UP', label: 'Follow-up' },
 ];
+
+function matchesFilter(c: Consultation, filter: FilterKey): boolean {
+  return filter === 'ALL' || (filter === 'FOLLOW_UP' && c.follow_up_required === 1);
+}
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Initials of a doctor's name, skipping a leading "Dr." title ("Dr. James Banda" -> "JB"). */
 function getInitials(name: string) {
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? 'D';
-  return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase();
+  const parts = name.trim().replace(/^dr(\.\s*|\s+)/i, '').split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'D';
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function ConsultationCard({ item, s }: { item: Consultation; s: (n: number) => number }) {
@@ -72,7 +82,7 @@ function ConsultationCard({ item, s }: { item: Consultation; s: (n: number) => n
             <Ionicons name={type?.icon ?? 'document-text-outline'} size={s(18)} color={type?.color ?? TEAL} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.doctorName, { fontSize: s(14) }]}>{item.doctor_name}</Text>
+            <Text style={[styles.doctorName, { fontSize: s(14) }]} numberOfLines={2}>{tidyDoctorName(item.doctor_name)}</Text>
             {item.doctor_specialization && (
               <Text style={[styles.doctorSpec, { fontSize: s(11) }]}>{item.doctor_specialization}</Text>
             )}
@@ -129,7 +139,7 @@ function ConsultationCard({ item, s }: { item: Consultation; s: (n: number) => n
           <View style={[styles.followUpChip, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(6), marginBottom: s(8) }]}>
             <Ionicons name="calendar-outline" size={s(12)} color={AMBER} />
             <Text style={[styles.followUpText, { fontSize: s(11) }]}>
-              Follow-up{item.follow_up_date ? `: ${formatDate(item.follow_up_date)}` : ' required'}
+              Follow-up{item.follow_up_date ? `: ${formatDateOnly(item.follow_up_date)}` : ' required'}
             </Text>
           </View>
         )}
@@ -181,6 +191,9 @@ function ConsultationCard({ item, s }: { item: Consultation; s: (n: number) => n
           style={[styles.expandToggle, { paddingTop: s(8), gap: s(4) }]}
           onPress={() => setExpanded(e => !e)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Hide full record' : 'Show full record'}
+          accessibilityState={{ expanded }}
         >
           <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>{expanded ? 'Hide ▲' : 'Show full record ▼'}</Text>
         </TouchableOpacity>
@@ -193,20 +206,21 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { consultations, loading, error, refetch } = useConsultations();
+  const { consultations: all, loading, error, refetch } = useConsultations();
   const [filter, setFilter] = useState<FilterKey>('ALL');
 
   const s  = (n: number) => Math.round(n * (width  / 390));
   const sh = (n: number) => Math.round(n * (height / 844));
 
-  const filtered   = filter === 'ALL' ? consultations : consultations.filter(c => c.status === filter);
-  const total      = consultations.length;
-  const completed  = consultations.filter(c => c.status === 'COMPLETED').length;
-  const inProgress = consultations.filter(c => c.status === 'IN_PROGRESS').length;
-  const drafts     = consultations.filter(c => c.status === 'DRAFT').length;
+  const consultations = all.filter(isPatientVisibleConsultation);
+  const filtered      = consultations.filter(c => matchesFilter(c, filter));
+  const total         = consultations.length;
+  const followUps     = consultations.filter(c => matchesFilter(c, 'FOLLOW_UP')).length;
+  const withDiagnosis = consultations.filter(c => !!c.diagnosis).length;
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -216,7 +230,7 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -224,7 +238,7 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Consultation History</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Consultation History</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Your complete clinical record</Text>
         </View>
         <TouchableOpacity
@@ -241,14 +255,13 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
       {/* Stats strip */}
       <View style={[styles.statsStrip, { paddingHorizontal: s(16), paddingVertical: s(14), gap: s(10) }]}>
         {[
-          { value: total,      label: 'Total',       color: INDIGO },
-          { value: completed,  label: 'Completed',   color: GREEN  },
-          { value: inProgress, label: 'In Progress', color: INDIGO },
-          { value: drafts,     label: 'Drafts',      color: AMBER  },
+          { value: total,         label: 'Total',          color: INDIGO },
+          { value: withDiagnosis, label: 'With diagnosis', color: GREEN  },
+          { value: followUps,     label: 'Follow-ups',     color: AMBER  },
         ].map(stat => (
-          <View key={stat.label} style={[styles.statItem, { borderRadius: s(12), padding: s(10) }]}>
+          <View key={stat.label} style={[styles.statItem, { borderRadius: s(12), padding: s(10) }]} accessible accessibilityLabel={`${stat.label}: ${stat.value}`}>
             <Text style={[styles.statValue, { fontSize: s(20), color: stat.color }]}>{stat.value}</Text>
-            <Text style={[styles.statLabel, { fontSize: s(10) }]}>{stat.label}</Text>
+            <Text style={[styles.statLabel, { fontSize: s(10) }]} numberOfLines={1}>{stat.label}</Text>
           </View>
         ))}
       </View>
@@ -262,7 +275,7 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
       >
         {FILTERS.map(f => {
           const on    = filter === f.key;
-          const count = f.key === 'ALL' ? total : consultations.filter(c => c.status === f.key).length;
+          const count = f.key === 'ALL' ? total : followUps;
           return (
             <TouchableOpacity
               key={f.key}
@@ -273,6 +286,9 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityLabel={`${f.label}, ${count}`}
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -291,12 +307,12 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
         contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {loading && consultations.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading consultations…</Text>
           </View>
-        ) : error ? (
+        ) : error && consultations.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -304,6 +320,7 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>
@@ -313,8 +330,8 @@ export function PatientMobileConsultationHistory({ onBack }: { onBack?: () => vo
             <Ionicons name="calendar-outline" size={s(48)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>
               {filter === 'ALL'
-                ? 'No consultations found.'
-                : `No ${FILTERS.find(f => f.key === filter)?.label.toLowerCase()} consultations.`}
+                ? 'No consultation records yet. They appear here once your doctor completes a consultation.'
+                : 'No consultations need a follow-up.'}
             </Text>
           </View>
         ) : (

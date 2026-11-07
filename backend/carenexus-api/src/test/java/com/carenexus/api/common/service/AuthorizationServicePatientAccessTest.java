@@ -106,13 +106,18 @@ public class AuthorizationServicePatientAccessTest {
     }
 
     @Test
-    public void caregiver_fullAccess_allowsEverything() {
+    public void caregiver_fullAccess_allowsEveryDataPermission_butNoCommunication() {
         as(CAREGIVER, "CAREGIVER");
-        DependentAccess access = DependentAccess.builder().accessLevel("FULL_ACCESS").build(); // all flags false
+        DependentAccess access = DependentAccess.builder().patientSystemId(PATIENT).accessLevel("FULL_ACCESS").build(); // all flags false
         when(relationshipService.getActiveDependentAccess(CAREGIVER, PATIENT)).thenReturn(Optional.of(access));
 
         for (PatientPermission p : PatientPermission.values()) {
-            assertDoesNotThrow(() -> authorizationService.requirePatientAccess(PATIENT, p), p.name());
+            if (p.isCommunication()) {
+                assertThrows(AuthorizationException.class,
+                        () -> authorizationService.requirePatientAccess(PATIENT, p), p.name());
+            } else {
+                assertDoesNotThrow(() -> authorizationService.requirePatientAccess(PATIENT, p), p.name());
+            }
         }
     }
 

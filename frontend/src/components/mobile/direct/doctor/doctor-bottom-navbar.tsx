@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MessagesTabIcon, useTabLabel } from '../../messages/messages-tab-icon';
 
 const BLUE   = '#4F46E5';
 const GRAY   = '#9CA3AF';
@@ -12,6 +13,7 @@ type TabItem = { key: string; label: string; icon: IoniconsName; activeIcon: Ion
 
 const tabs: TabItem[] = [
   { key: 'dashboard',     label: 'Home',     icon: 'home-outline',            activeIcon: 'home'            },
+  { key: 'messages',      label: 'Messages', icon: 'chatbubbles-outline',     activeIcon: 'chatbubbles'     },
   { key: 'schedule',      label: 'Schedule', icon: 'calendar-outline',        activeIcon: 'calendar'        },
   { key: 'appointments',  label: 'Appts',    icon: 'calendar-number-outline', activeIcon: 'calendar-number' },
   { key: 'patients',      label: 'Patients', icon: 'people-outline',          activeIcon: 'people'          },
@@ -27,6 +29,7 @@ export interface DoctorBottomNavbarProps {
 export function DoctorBottomNavbar({ activeKey = 'dashboard', onNavigate }: DoctorBottomNavbarProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const tabLabel = useTabLabel();
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
@@ -46,16 +49,21 @@ export function DoctorBottomNavbar({ activeKey = 'dashboard', onNavigate }: Doct
             style={[styles.tab, { gap: s(4) }]}
             activeOpacity={0.7}
             onPress={() => onNavigate?.(tab.key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={tabLabel(tab.key, ({ appointments: 'Appointments', consultations: 'Consultations' } as Record<string, string>)[tab.key] ?? tab.label)}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />
             )}
-            <Ionicons
-              name={isActive ? tab.activeIcon : tab.icon}
-              size={iconSize}
-              color={isActive ? BLUE : GRAY}
-            />
-            <Text style={[styles.label, { fontSize }, isActive && styles.labelActive]}>
+            <MessagesTabIcon show={tab.key === 'messages'}>
+              <Ionicons
+                name={isActive ? tab.activeIcon : tab.icon}
+                size={iconSize}
+                color={isActive ? BLUE : GRAY}
+              />
+            </MessagesTabIcon>
+            <Text style={[styles.label, { fontSize }, isActive && styles.labelActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
               {tab.label}
             </Text>
           </TouchableOpacity>

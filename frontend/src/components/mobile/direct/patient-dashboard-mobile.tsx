@@ -1,11 +1,26 @@
-import { lazy, Suspense, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { PatientBottomNavbar } from './patient/patient-bottom-navbar';
 import { PatientMainDashboardAreaMobile } from './patient/patient-main-dashboard-area';
 import { PatientTopNavbar } from './patient/patient-topnavbar';
+import { BarInsets } from '../layout/bar-insets';
 
-type ActiveKey = 'dashboard' | 'appointments' | 'book-appointment' | 'consultation-history' | 'records' | 'prescriptions' | 'lab-results' | 'imaging-results' | 'profile';
+type ActiveKey = 'dashboard' | 'appointments' | 'book-appointment' | 'consultation-history' | 'records' | 'prescriptions' | 'lab-results' | 'imaging-results' | 'profile'
+  | 'messages' | 'notifications' | 'caregiver-access';
+
+const PATIENT_THEME = { accent: '#0F766E', accentBg: '#E8F5F4' };
+
+const MobileMessagesScreen = lazy(
+  () => import('../messages/mobile-messages-screen').then(m => ({ default: m.MobileMessagesScreen })),
+);
+const MobileNotificationsScreen = lazy(
+  () => import('../notifications/mobile-notifications-screen').then(m => ({ default: m.MobileNotificationsScreen })),
+);
+const PatientMobileCaregiverAccess = lazy(
+  () => import('../caregiver-access/patient-mobile-caregiver-access'),
+);
 
 const PatientMobileAppointmentStatus = lazy(
   () => import('./patient/patient-mobile-appointment-status'),
@@ -42,6 +57,25 @@ function LoadingFallback() {
 
 export function PatientDashboardMobile() {
   const [activeKey, setActiveKey] = useState<ActiveKey>('dashboard');
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
+  const openMessages = useCallback(() => setActiveKey('messages'), []);
+  const openCaregiverAccess = useCallback(() => setActiveKey('caregiver-access'), []);
+
+  // Android back: leave a sub-screen for the dashboard instead of leaving the app's dashboard route.
+  useEffect(() => {
+    if (activeKey === 'dashboard') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setActiveKey(activeKey === 'book-appointment' ? 'appointments' : 'dashboard');
+      return true;
+    });
+    return () => sub.remove();
+  }, [activeKey]);
 
   function handleNavigate(key: string) {
     if (
@@ -52,7 +86,10 @@ export function PatientDashboardMobile() {
       key === 'prescriptions' ||
       key === 'lab-results' ||
       key === 'imaging-results' ||
-      key === 'profile'
+      key === 'profile' ||
+      key === 'messages' ||
+      key === 'notifications' ||
+      key === 'caregiver-access'
     ) {
       setActiveKey(key as ActiveKey);
     }
@@ -123,6 +160,31 @@ export function PatientDashboardMobile() {
         </Suspense>
       );
     }
+    if (activeKey === 'messages') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <MobileMessagesScreen mode="PATIENT" theme={PATIENT_THEME} openThreadId={openThreadId} onOpenThreadHandled={clearOpenThread} />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'notifications') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <MobileNotificationsScreen
+            theme={PATIENT_THEME}
+            onOpenThread={openThread}
+            onOpenCaregiverAccess={openCaregiverAccess}
+          />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'caregiver-access') {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <PatientMobileCaregiverAccess onBack={() => setActiveKey('dashboard')} />
+        </Suspense>
+      );
+    }
     if (activeKey === 'profile') {
       return (
         <Suspense fallback={<LoadingFallback />}>
@@ -132,7 +194,7 @@ export function PatientDashboardMobile() {
     }
     return (
       <>
-        <PatientTopNavbar onProfilePress={() => setActiveKey('profile')} />
+        <PatientTopNavbar onProfilePress={() => setActiveKey('profile')} onOpenNotifications={() => setActiveKey('notifications')} />
         <PatientMainDashboardAreaMobile
           onBookAppointment={() => setActiveKey('book-appointment')}
           onViewAppointments={() => setActiveKey('appointments')}
@@ -148,10 +210,15 @@ export function PatientDashboardMobile() {
 
   return (
     <SafeAreaProvider>
-      <View style={styles.container}>
-        <View style={styles.content}>{renderContent()}</View>
-        <PatientBottomNavbar activeKey={activeKey} onNavigate={handleNavigate} />
-      </View>
+      <MobileMessagingProvider role="PATIENT" onOpenThread={openThread} onOpenMessages={openMessages} onOpenCaregiverAccess={openCaregiverAccess}>
+        <View style={styles.container}>
+          <View style={styles.content}>
+            {/* No top bar above sub-screens (they keep the status-bar inset); the tab bar owns the bottom one. */}
+            <BarInsets topBar={false}>{renderContent()}</BarInsets>
+          </View>
+          <PatientBottomNavbar activeKey={activeKey} onNavigate={handleNavigate} />
+        </View>
+      </MobileMessagingProvider>
     </SafeAreaProvider>
   );
 }

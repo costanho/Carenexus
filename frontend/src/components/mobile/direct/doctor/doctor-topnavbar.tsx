@@ -2,7 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { doctorDisplayName } from '@/hooks/use-doctors';
 import { useLogout } from '@/hooks/use-logout';
+import { MobileNotificationBell } from '../../notifications/mobile-notification-bell';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -13,22 +15,26 @@ const RED    = '#EF4444';
 export interface DoctorTopNavbarMobileProps {
   onMenuPress?:    () => void;
   onProfilePress?: () => void;
+  onOpenNotifications?: () => void;
 }
 
-export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress }: DoctorTopNavbarMobileProps) {
+export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress, onOpenNotifications }: DoctorTopNavbarMobileProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { user } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
 
   const avatarUri = user?.avatar_url ?? null;
-  const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
+  const named     = doctorDisplayName(user?.first_name, user?.last_name);
+  const fullName  = named || 'Doctor';
+  // Initials from the name without the "Dr." title ("Dr. Michael Kariuki" -> "MK"); null-safe.
+  const initials  = named.replace(/^\s*(dr(\.\s*|\s+))+/i, '').split(' ').filter(Boolean)
+    .map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'DR';
 
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
 
   const avatarSize = s(32);
-  const fullName   = user ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Doctor';
 
   return (
     <View style={[styles.navbar, {
@@ -58,6 +64,7 @@ export function DoctorTopNavbarMobile({ onMenuPress, onProfilePress }: DoctorTop
 
       {/* Right icons */}
       <View style={[styles.rightSection, { gap: s(6) }]}>
+        {onOpenNotifications && <MobileNotificationBell onPress={onOpenNotifications} size={s(21)} />}
         {/* Avatar */}
         <TouchableOpacity
           style={[styles.profileRow, { gap: s(4) }]}

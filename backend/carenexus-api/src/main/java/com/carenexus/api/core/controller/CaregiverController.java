@@ -22,10 +22,15 @@ import java.util.List;
  * - POST  /api/caregiver/dependents              create a dependent patient account + grant (atomic, 201)
  * - PATCH /api/caregiver/dependents/{accessId}   narrow own grant only (403 on any widening)
  *
- * Patient side (role PATIENT for their own grants, or ADMIN):
+ * Patient side, legacy (role PATIENT for their own grants, or ADMIN). The new patient screen uses
+ * /api/patients/me/caregiver-access (PatientCaregiverAccessController); both share CaregiverService rules:
  * - GET    /api/patients/me/caregivers             caregivers with active access to me
- * - PATCH  /api/patients/me/caregivers/{accessId}  change permissions / level / expiry
+ * - PATCH  /api/patients/me/caregivers/{accessId}  change permissions / level / expiry (only the patient's own
+ *                                                  change approves messaging / joining calls; admin never does)
  * - DELETE /api/patients/me/caregivers/{accessId}  revoke (204)
+ *
+ * Communication permissions (canMessageCareTeam, canJoinCalls) are never raised by a caregiver: createDependent
+ * stores them as unapproved requests and the caregiver PATCH rejects turning them on.
  */
 @RestController
 @RequiredArgsConstructor

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Linking } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
+import { describeCallJoin, type CallJoinInfo } from '@/lib/calls/join';
 import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import type { ScheduleEntry } from './use-doctor-schedule';
 
@@ -25,19 +25,36 @@ export function availableActions(entry: ScheduleEntry, now = new Date()): Doctor
   return started ? ['complete', 'no-show', 'cancel'] : ['cancel'];
 }
 
-/** True when the appointment has a video link the doctor can open. */
-export function canJoinCall(entry: ScheduleEntry): boolean {
-  return entry.type === 'VIDEO' && !!entry.video_consultation_link;
+/**
+ * Whether the doctor can move this appointment to a new time: still active (SCHEDULED/RESCHEDULED)
+ * and not started yet. Kept apart from availableActions because it opens a picker instead of a
+ * one-step status PATCH.
+ */
+export function canReschedule(entry: ScheduleEntry, now = new Date()): boolean {
+  if (entry.status !== 'SCHEDULED' && entry.status !== 'RESCHEDULED') return false;
+  const start = new Date(entry.scheduled_at).getTime();
+  return !Number.isNaN(start) && start > now.getTime();
 }
 
-export async function openVideoLink(entry: ScheduleEntry): Promise<void> {
-  const link = entry.video_consultation_link;
-  if (!link) return;
-  try {
-    await Linking.openURL(link);
-  } catch {
-    showMessage('Unable to open link', `The video consultation link could not be opened:\n${link}`);
-  }
+/**
+ * Moves an appointment to a new clinic wall-clock time (Africa/Harare, no offset) via
+ * PATCH /api/appointments/{id}/reschedule. The duration is kept. The backend sets the status to
+ * RESCHEDULED, re-checks availability and moves the video call session. Throws the axios error.
+ */
+export async function rescheduleDoctorAppointment(appointmentId: number, date: string, time: string): Promise<void> {
+  await api.patch(`/api/appointments/${appointmentId}/reschedule`, { scheduledAt: `${date}T${time}:00` });
+}
+
+/** The doctor's Join control for a schedule entry (internal call route), or null for none. */
+export function doctorCallJoin(entry: ScheduleEntry, now = Date.now()): CallJoinInfo | null {
+  return describeCallJoin({
+    type:               entry.type,
+    status:             entry.status,
+    callStatus:         entry.call_status,
+    callJoinRoute:      entry.call_join_route,
+    joinWindowOpensAt:  entry.join_window_opens_at,
+    joinWindowClosesAt: entry.join_window_closes_at,
+  }, true, now);
 }
 
 /**

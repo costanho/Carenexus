@@ -6,6 +6,10 @@ import {
   StyleSheet, Text, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { goBackOr } from '../../shared/navigation';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 import { useMedicalRecords, type MedicalRecord } from '@/hooks/use-medical-records';
 
 const TEAL   = '#0D9488';
@@ -68,7 +72,7 @@ function RecordCard({ item, s }: { item: MedicalRecord; s: (n: number) => number
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { fontSize: s(14) }]}>{item.title}</Text>
-            <Text style={[styles.cardDoctorName, { fontSize: s(11) }]}>{item.doctor_name}</Text>
+            <Text style={[styles.cardDoctorName, { fontSize: s(11) }]}>{tidyDoctorName(item.doctor_name)}</Text>
             {item.doctor_specialization && (
               <Text style={[styles.cardDoctorSpec, { fontSize: s(10) }]}>{item.doctor_specialization}</Text>
             )}
@@ -146,6 +150,8 @@ function RecordCard({ item, s }: { item: MedicalRecord; s: (n: number) => number
           style={[styles.expandToggle, { paddingTop: s(8), gap: s(4) }]}
           onPress={() => setExpanded(e => !e)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
         >
           <Text style={[styles.expandToggleText, { fontSize: s(12) }]}>{expanded ? 'Hide ▲' : 'Show details ▼'}</Text>
         </TouchableOpacity>
@@ -177,6 +183,7 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar style="light" />
       {/* Teal header */}
       <View style={[styles.header, {
         paddingTop:        insets.top + sh(12),
@@ -186,7 +193,7 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
       }]}>
         <TouchableOpacity
           style={[styles.headerBack, { width: s(34), height: s(34), borderRadius: s(17) }]}
-          onPress={() => onBack ? onBack() : router.back()}
+          onPress={() => onBack ? onBack() : goBackOr(router, '/dashboard/patient')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -194,7 +201,7 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
           <Ionicons name="arrow-back-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Medical Records</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header" numberOfLines={1}>Medical Records</Text>
           <Text style={[styles.headerSub, { fontSize: s(11) }]}>Your complete health record</Text>
         </View>
         <TouchableOpacity
@@ -243,6 +250,8 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
               ]}
               onPress={() => setFilter(f.key)}
               activeOpacity={0.7}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.filterPillText, { fontSize: s(12) }, on && styles.filterPillTextActive]}>
                 {f.label}
@@ -261,12 +270,12 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
         contentContainerStyle={{ padding: s(16), paddingBottom: insets.bottom + sh(32) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {loading && records.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="hourglass-outline" size={s(40)} color={BORDER} />
             <Text style={[styles.centerText, { fontSize: s(14) }]}>Loading records…</Text>
           </View>
-        ) : error ? (
+        ) : error && records.length === 0 ? (
           <View style={styles.centerState}>
             <Ionicons name="alert-circle-outline" size={s(40)} color={RED} />
             <Text style={[styles.centerText, { fontSize: s(13), color: RED }]}>{error}</Text>
@@ -274,6 +283,7 @@ export function PatientMobileMedicalRecords({ onBack }: { onBack?: () => void })
               style={[styles.retryBtn, { borderRadius: s(10), paddingHorizontal: s(20), paddingVertical: s(10), marginTop: s(8) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(13) }]}>Try Again</Text>
             </TouchableOpacity>

@@ -2,19 +2,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { NotificationBell } from '../../notifications/notification-bell';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
-const RED   = '#EF4444';
+const RED   = '#B91C1C';
 
 interface Props {
   showMenuButton?: boolean;
   onMenuPress?: () => void;
   onProfilePress?: () => void;
+  /** Open the messages section on a thread (from a notification). */
+  onOpenThread?: (threadId: number) => void;
+  /** Opens the caregiver access screen (from a caregiver approval notification). */
+  onOpenCaregiverAccess?: () => void;
 }
 
-export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }: Props) {
+export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, onOpenThread, onOpenCaregiverAccess }: Props) {
   const { width } = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
@@ -22,6 +27,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }
 
   const firstName = user?.first_name ?? (userLoading ? '...' : 'there');
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '';
+  const showName  = !isSmall && !!fullName;
   const avatarUri = user?.avatar_url ?? null;
 
   return (
@@ -47,6 +53,10 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }
       </View>
 
       <View style={styles.right}>
+        {onOpenThread && (
+          <NotificationBell theme={{ accent: '#0F766E', accentBg: '#E8F5F4' }} onOpenThread={onOpenThread} onOpenCaregiverAccess={onOpenCaregiverAccess} />
+        )}
+
         {/* Profile */}
         <TouchableOpacity
           style={styles.userRow}
@@ -54,16 +64,19 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }
           onPress={onProfilePress}
           disabled={!onProfilePress}
           accessibilityRole="button"
-          accessibilityLabel="Open profile and settings"
+          // The visible name must be part of the accessible name (WCAG 2.5.3 Label in Name).
+          accessibilityLabel={showName ? `${fullName}, open profile and settings` : 'Open profile and settings'}
         >
           {avatarUri ? (
             <Image source={{ uri: avatarUri }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, styles.avatarFallback]}>
-              <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>
+              {showName
+                ? <Ionicons name="person" size={16} color={WHITE} importantForAccessibility="no" />
+                : <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>}
             </View>
           )}
-          {!isSmall && !!fullName && <Text style={styles.userName}>{fullName}</Text>}
+          {showName && <Text style={styles.userName}>{fullName}</Text>}
         </TouchableOpacity>
 
         <View style={styles.divider} />
@@ -94,6 +107,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress }
 
 const styles = StyleSheet.create({
   navbar: {
+    zIndex: 20,
     height: 96,
     backgroundColor: WHITE,
     borderBottomWidth: 1,
@@ -150,7 +164,7 @@ const styles = StyleSheet.create({
     color: TEXT,
   },
   avatarFallback: {
-    backgroundColor: '#0D9488',
+    backgroundColor: '#0F766E',
     alignItems: 'center',
     justifyContent: 'center',
   },

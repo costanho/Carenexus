@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
+import { doctorDisplayName } from './use-doctors';
 
 export interface DoctorProfile {
   doctor_system_id: string;
@@ -54,7 +55,7 @@ export function useDoctorProfile(): State {
           user_id:          d.userId            ?? user.user_id,
           first_name:       d.firstName         ?? user.first_name,
           last_name:        d.lastName          ?? user.last_name,
-          full_name:        `Dr. ${d.firstName ?? ''} ${d.lastName ?? ''}`.trim(),
+          full_name:        doctorDisplayName(d.firstName, d.lastName),
           email:            d.email             ?? user.email,
           phone:            d.phone             ?? null,
           avatar_url:       null,

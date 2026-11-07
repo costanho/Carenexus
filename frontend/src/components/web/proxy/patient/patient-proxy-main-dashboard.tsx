@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import {
   useCaregiverActivity,
   useCaregiverDependents,
@@ -8,7 +8,10 @@ import {
   type CaregiverConsultation,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
-import { showMessage } from '@/lib/ui/dialogs';
+import { useCareTeamConversation } from '@/hooks/use-caregiver-messaging';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { describeCallJoin } from '@/lib/calls/join';
+import { MessageCareTeamButton } from './message-care-team-button';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
@@ -51,7 +54,7 @@ function Card({ title, action, onAction, children, style }: {
   return (
     <View style={[styles.card, style]}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
         {action && (
           <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button">
             <Text style={styles.cardAction}>{action}</Text>
@@ -66,19 +69,9 @@ function Card({ title, action, onAction, children, style }: {
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-async function openVideoLink(url: string) {
-  try {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) throw new Error('unsupported');
-    await Linking.openURL(url);
-  } catch {
-    showMessage('Could not open video link', 'The video link for this appointment could not be opened. Please contact the clinic.');
-  }
-}
-
-function ScheduleRow({ appt, person }: { appt: CaregiverAppointment; person: string }) {
+function ScheduleRow({ appt, person, canJoinCalls }: { appt: CaregiverAppointment; person: string; canJoinCalls: boolean }) {
   const time    = new Date(appt.scheduledAt).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
-  const isVideo = appt.type === 'VIDEO' && !!appt.videoConsultationLink;
+  const join    = canJoinCalls ? describeCallJoin(appt, false) : null;
   return (
     <View style={styles.scheduleRow}>
       <View style={[styles.scheduleAvatar, { backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }]}>
@@ -91,17 +84,14 @@ function ScheduleRow({ appt, person }: { appt: CaregiverAppointment; person: str
         <Text style={styles.scheduleTitle}>{appt.reasonForVisit ?? 'Appointment'}</Text>
         <Text style={styles.schedulePerson}>{person}</Text>
       </View>
-      {isVideo && (
-        <TouchableOpacity
-          style={styles.videoBtn}
-          activeOpacity={0.8}
-          onPress={() => openVideoLink(appt.videoConsultationLink!)}
-          accessibilityRole="link"
-          accessibilityLabel={`Open video link for ${person}'s appointment`}
-        >
-          <Ionicons name="videocam-outline" size={18} color={GREEN} importantForAccessibility="no" />
-        </TouchableOpacity>
-      )}
+      <CallJoinButton
+        info={join}
+        withName={person}
+        style={styles.videoBtn}
+        textStyle={styles.videoBtnText}
+        iconSize={16}
+        iconColor={GREEN}
+      />
     </View>
   );
 }
@@ -167,7 +157,14 @@ function accessLabel(level: string) {
 
 // ─── Live Loved One Row ───────────────────────────────────────────────────────
 
-function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?: (dep: CaregiverDependent) => void }) {
+function LiveLovedOneRow({ dep, onSelect, compact, message }: {
+  dep: CaregiverDependent;
+  onSelect?: (dep: CaregiverDependent) => void;
+  /** Narrow layout (phones): the stats wrap under the name and the dividers/chevron are hidden. */
+  compact?: boolean;
+  /** "Message Care Team" for this row; omitted when the dashboard cannot open Messages. */
+  message?: { onPress: (dep: CaregiverDependent) => void; busy: boolean; error: string | null };
+}) {
   const name     = dep.patientName ?? 'Unknown';
   const dotColor = healthDotColor(dep.patientHealthStatus);
   const access   = accessLabel(dep.accessLevel);
@@ -177,64 +174,72 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
     ? dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()
     : '';
 
+  // The profile link and "Message Care Team" are sibling buttons (a button inside a button is not operable).
   return (
-    <TouchableOpacity
-      style={styles.lovedOneRow}
-      activeOpacity={0.8}
-      onPress={() => onSelect?.(dep)}
-      accessibilityRole="button"
-      accessibilityLabel={`Open profile for ${name}`}
-    >
-      <View style={styles.lovedOneLeft}>
-        <View style={styles.lovedOneAvatarWrapper}>
-          <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+    <View style={styles.lovedOneCard}>
+      <TouchableOpacity
+        style={styles.lovedOneRow}
+        activeOpacity={0.8}
+        onPress={() => onSelect?.(dep)}
+        accessibilityRole="button"
+        accessibilityLabel={`Open profile for ${name}`}
+      >
+        <View style={styles.lovedOneLeft}>
+          <View style={styles.lovedOneAvatarWrapper}>
+            <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+            </View>
+            <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
           </View>
-          <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
-        </View>
-        <View>
-          <Text style={styles.lovedOneName}>{name}</Text>
-          <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
-            <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
-          </View>
-          {(age || gender) && <Text style={styles.lovedOneMeta}>{[age, gender].filter(Boolean).join(' • ')}</Text>}
-        </View>
-      </View>
-      <View style={styles.lovedOneStats}>
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Health Status</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="heart-outline" size={14} color={dotColor} />
-            <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
-              {dep.patientHealthStatus
-                ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
-                : 'Unknown'}
-            </Text>
+          <View style={{ minWidth: 0 }}>
+            <Text style={styles.lovedOneName}>{name}</Text>
+            <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
+              <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
+            </View>
+            {(age || gender) && <Text style={styles.lovedOneMeta}>{[age, gender].filter(Boolean).join(' • ')}</Text>}
           </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="water-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
+        <View style={styles.lovedOneStats}>
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Health Status</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="heart-outline" size={14} color={dotColor} />
+              <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
+                {dep.patientHealthStatus
+                  ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
+                  : 'Unknown'}
+              </Text>
+            </View>
+          </View>
+          {!compact && <View style={styles.statDivider} />}
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="water-outline" size={14} color={GRAY} />
+              <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
+            </View>
+          </View>
+          {!compact && <View style={styles.statDivider} />}
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Relationship</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="people-outline" size={14} color={GRAY} />
+              <Text style={styles.lovedOneStatText}>
+                {dep.relationship
+                  ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                  : '—'}
+              </Text>
+            </View>
           </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Relationship</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="people-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>
-              {dep.relationship
-                ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
-                : '—'}
-            </Text>
-          </View>
+        {!compact && <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />}
+      </TouchableOpacity>
+      {message && (
+        <View style={styles.lovedOneActions}>
+          <MessageCareTeamButton compact dependent={dep} onPress={message.onPress} busy={message.busy} error={message.error} />
         </View>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />
-    </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -243,10 +248,18 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
 const SHOW_LIMIT = 3;
 const UPDATES_LIMIT = 4;
 
-export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
+export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenThread }: {
+  onNavigate?:      (key: string) => void;
+  onSelectPatient?: (dep: CaregiverDependent) => void;
+  /** Switches the dashboard to Messages on this thread (used by "Message Care Team"). */
+  onOpenThread?:    (threadId: number) => void;
+}) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const isMedium = width >= 768;
+  const careTeam = useCareTeamConversation(onOpenThread);
+  const [errorFor, setErrorFor] = useState<number | null>(null);
+  const messageCareTeam = (dep: CaregiverDependent) => { setErrorFor(dep.accessId); careTeam.open(dep); };
   const { dependents, loading: lovedLoading, error: lovedError, refetch: refetchLoved } = useCaregiverDependents();
   const { appointments, consultations, loading: actLoading, error: actError, refetch: refetchActivity } = useCaregiverActivity();
   const [lovedExpanded, setLovedExpanded] = useState(false);
@@ -314,7 +327,16 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
               {(lovedExpanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => (
                 <View key={dep.accessId}>
                   {i > 0 && <View style={styles.sep} />}
-                  <LiveLovedOneRow dep={dep} onSelect={onSelectPatient} />
+                  <LiveLovedOneRow
+                    dep={dep}
+                    onSelect={onSelectPatient}
+                    compact={!isMedium}
+                    message={onOpenThread ? {
+                      onPress: messageCareTeam,
+                      busy:    careTeam.openingFor === dep.accessId,
+                      error:   errorFor === dep.accessId ? careTeam.error : null,
+                    } : undefined}
+                  />
                 </View>
               ))}
               {dependents.length > SHOW_LIMIT && (
@@ -350,7 +372,11 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
             todays.map((a, i) => (
               <View key={a.appointmentId}>
                 {i > 0 && <View style={styles.sep} />}
-                <ScheduleRow appt={a} person={nameFor(a.patientSystemId, a.patientName)} />
+                <ScheduleRow
+                  appt={a}
+                  person={nameFor(a.patientSystemId, a.patientName)}
+                  canJoinCalls={dependents.some(d => d.patientSystemId === a.patientSystemId && d.joinCallsAllowed)}
+                />
               </View>
             ))
           )}
@@ -454,7 +480,9 @@ const styles = StyleSheet.create({
   colWide:       { flex: 1.4 },
   colNarrow:     { flex: 1 },
   colThird:      { flex: 1 },
-  colFull:       { flex: undefined },
+  // Stacked columns size to their content. `flex: undefined` did not reset flex: 1.4 on web, so the
+  // cards shrank to a share of the column and the next card sat on top of their overflowing rows.
+  colFull:       { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
 
   // Card
   card: {
@@ -471,11 +499,13 @@ const styles = StyleSheet.create({
   viewAllText: { fontSize: 13, color: PURPLE, fontWeight: '500' },
 
   // Loved one
+  // The row wraps: on a phone the stats move under the name instead of running past the screen edge.
+  lovedOneCard: { backgroundColor: BG, borderRadius: 12, padding: 14, gap: 12 },
   lovedOneRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: BG, borderRadius: 12, padding: 14,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, minWidth: 0,
   },
-  lovedOneLeft:         { width: 180 },
+  lovedOneActions:      { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, minWidth: 0 },
+  lovedOneLeft:         { flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 },
   lovedOneAvatarWrapper:{ position: 'relative', marginBottom: 6 },
   lovedOneAvatar:       { width: 52, height: 52, borderRadius: 26, backgroundColor: BORDER },
   lovedOneDot: {
@@ -487,11 +517,11 @@ const styles = StyleSheet.create({
   accessText:      { fontSize: 11, fontWeight: '600' },
   lovedOneMeta:    { fontSize: 12, color: GRAY },
   lovedOneUpdated: { fontSize: 11, color: GRAY, marginTop: 2 },
-  lovedOneStats:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lovedOneStat:    { flex: 1 },
+  lovedOneStats:   { flexGrow: 2, flexShrink: 1, flexBasis: 240, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
+  lovedOneStat:    { flexGrow: 1, flexShrink: 1, flexBasis: 72, minWidth: 0 },
   lovedOneStatLabel: { fontSize: 11, color: GRAY, marginBottom: 4 },
-  lovedOneStatVal: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  lovedOneStatText:{ fontSize: 13, fontWeight: '600', color: TEXT },
+  lovedOneStatVal: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+  lovedOneStatText:{ fontSize: 13, fontWeight: '600', color: TEXT, flexShrink: 1 },
   lovedOneStatSub: { fontSize: 11, color: GRAY },
   statDivider:     { width: 1, height: 40, backgroundColor: BORDER },
 
@@ -506,10 +536,11 @@ const styles = StyleSheet.create({
   scheduleTitle:  { fontSize: 13, fontWeight: '700', color: TEXT },
   schedulePerson: { fontSize: 12, color: GRAY, marginTop: 1 },
   videoBtn: {
-    width: 36, height: 36, borderRadius: 8, borderWidth: 1,
+    flexDirection: 'row', gap: 4, minHeight: 36, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10,
     borderColor: GREEN + '50', backgroundColor: GREEN + '15',
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+  videoBtnText: { fontSize: 12, fontWeight: '600', color: GREEN },
 
   // Updates & Meds
   updateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

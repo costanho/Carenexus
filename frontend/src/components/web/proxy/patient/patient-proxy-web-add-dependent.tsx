@@ -49,7 +49,10 @@ interface AccessForm {
   can_view_medications:   boolean;
   can_view_lab_results:   boolean;
   can_view_imaging:       boolean;
+  /** Request only: the patient must approve before it takes effect. */
   can_message_care_team:  boolean;
+  /** Request only: the patient must approve before it takes effect. */
+  can_join_calls:         boolean;
   can_view_consultations: boolean;
   can_schedule_appointments: boolean;
   can_manage_care_plan:   boolean;
@@ -78,26 +81,32 @@ function generatePassword() {
 }
 
 // Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
+// The Y-M-D parts are checked directly: parsing as local midnight and reading back toISOString() shifts the
+// day in any timezone ahead of UTC (e.g. Africa/Harare) and rejected every valid date.
 function isValidDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
 }
 
+// Messaging and video calls are not part of an access level: they are separate requests the patient approves.
 function permissionsForLevel(level: AccessLevel): Partial<AccessForm> {
   if (level === 'FULL_ACCESS') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   };
   if (level === 'VIEW_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: false, can_message_care_team: false,
+    can_view_lab_results: true, can_view_imaging: false,
     can_view_consultations: true, can_schedule_appointments: false, can_manage_care_plan: false,
   };
   if (level === 'EDIT_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: false,
   };
   return {};
@@ -198,7 +207,14 @@ function TagInput({ tags, onAdd, onRemove, placeholder }: {
 
 function PermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <TouchableOpacity style={styles.permRow} activeOpacity={0.7} onPress={() => onChange(!value)}>
+    <TouchableOpacity
+      style={styles.permRow}
+      activeOpacity={0.7}
+      onPress={() => onChange(!value)}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+    >
       <Text style={styles.permLabel}>{label}</Text>
       <View style={[styles.toggle, value && styles.toggleOn]}>
         <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
@@ -257,7 +273,8 @@ export default function PatientProxyWebAddDependent({
   const [access, setAccess] = useState<AccessForm>({
     relationship: '', access_level: 'FULL_ACCESS', expires_at: '',
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: false,
+    can_join_calls: false,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   });
 
@@ -367,6 +384,7 @@ export default function PatientProxyWebAddDependent({
         canViewLabResults:       access.can_view_lab_results,
         canViewImaging:          access.can_view_imaging,
         canMessageCareTeam:      access.can_message_care_team,
+        canJoinCalls:            access.can_join_calls,
         canViewConsultations:    access.can_view_consultations,
         canScheduleAppointments: access.can_schedule_appointments,
         canManageCarePlan:       access.can_manage_care_plan,
@@ -436,7 +454,7 @@ export default function PatientProxyWebAddDependent({
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View>
-          <Text style={styles.pageTitle}>Add Loved One</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Add Loved One</Text>
           <Text style={styles.pageSub}>Register a new patient under your proxy care</Text>
         </View>
       </View>
@@ -571,7 +589,7 @@ export default function PatientProxyWebAddDependent({
             {([
               { value: 'FULL_ACCESS', label: 'Full Access',  sub: 'All permissions enabled',             color: GREEN  },
               { value: 'VIEW_ONLY',   label: 'View Only',    sub: 'Read records, no actions',            color: PURPLE },
-              { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + message + schedule',           color: ORANGE },
+              { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + schedule',                     color: ORANGE },
               { value: 'CUSTOM',      label: 'Custom',        sub: 'Set individual permissions below',   color: GRAY   },
             ] as { value: AccessLevel; label: string; sub: string; color: string }[]).map(opt => (
               <TouchableOpacity
@@ -601,7 +619,6 @@ export default function PatientProxyWebAddDependent({
                 { key: 'can_view_medications',      label: 'View Medications'         },
                 { key: 'can_view_lab_results',      label: 'View Lab Results'         },
                 { key: 'can_view_imaging',          label: 'View Imaging Results'     },
-                { key: 'can_message_care_team',     label: 'Message Care Team'        },
                 { key: 'can_view_consultations',    label: 'View Consultations'       },
                 { key: 'can_schedule_appointments', label: 'Schedule Appointments'    },
                 { key: 'can_manage_care_plan',      label: 'Manage Care Plan'         },
@@ -615,6 +632,22 @@ export default function PatientProxyWebAddDependent({
               ))}
             </View>
           )}
+
+          {/* Communication requests (any access level) */}
+          <View style={styles.permBox}>
+            <Text style={styles.permBoxTitle}>Messaging and video calls</Text>
+            <PermSwitch
+              label="Request messaging with the care team"
+              value={access.can_message_care_team}
+              onChange={v => setA('can_message_care_team', v)}
+            />
+            <PermSwitch
+              label="Request joining video calls"
+              value={access.can_join_calls}
+              onChange={v => setA('can_join_calls', v)}
+            />
+            <Text style={styles.commNote}>Messaging and video calls need the patient's approval.</Text>
+          </View>
 
           <Label text="Access Expiry Date (optional)" />
           <Input
@@ -710,6 +743,7 @@ const styles = StyleSheet.create({
   inputDisabled:{ backgroundColor: BG },
   errorText: { fontSize: 11, color: RED, marginTop: 4 },
   hint:      { fontSize: 11, color: GRAY2, marginTop: -8 },
+  commNote:  { fontSize: 12, color: GRAY, marginTop: 10 },
 
   pwRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pwIconBtn: { width: 38, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BORDER, borderRadius: 10 },

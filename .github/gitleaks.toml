@@ -1,0 +1,22 @@
+# gitleaks configuration used by .github/workflows/ci.yml.
+# Extends the default rule set and allow-lists only the committed, public,
+# DEV-ONLY placeholders. Never add a real secret pattern here.
+title = "CareNexus gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public local-development placeholders (rejected by the API outside local/docker profiles)"
+regexes = [
+  '''(docker|local)-dev-only-jwt-secret-NOT-FOR-PRODUCTION[0-9a-zA-Z]*''',
+  '''local_dev_password''',
+  # Published demo-account passwords of the dev seed (db/seed V2, V21), used by frontend/e2e.
+  '''patient@thomas''',
+  '''doctor@banda''',
+  '''proxy@sarah''',
+]
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)package-lock\.json$''',
+]

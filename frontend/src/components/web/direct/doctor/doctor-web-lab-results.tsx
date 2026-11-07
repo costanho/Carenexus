@@ -326,7 +326,7 @@ export default function DoctorWebLabResults() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Labs & Results</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Labs & Results</Text>
           <Text style={styles.pageSub}>Laboratory test results for all your patients</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>

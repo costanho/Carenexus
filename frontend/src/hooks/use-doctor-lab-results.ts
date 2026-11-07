@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
+import { doctorDisplayName } from './use-doctors';
 
 export type LabTestType   = 'BLOOD' | 'SWAB' | 'URINE' | 'CULTURE' | string;
 export type LabStatus     = 'COMPLETED' | 'REQUIRES_REVIEW';
@@ -99,7 +100,7 @@ export function useDoctorLabResults(): State {
           const name = `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim();
           if (name) nameMap.set(p.patientSystemId, name);
         });
-        const doctorName = user.first_name ? `Dr. ${user.first_name} ${user.last_name}`.trim() : 'Unknown Doctor';
+        const doctorName = user.first_name ? doctorDisplayName(user.first_name, user.last_name) : 'Unknown Doctor';
 
         const merged: DoctorLabResult[] = (labRes.data ?? [])
           .map((r: any) => ({

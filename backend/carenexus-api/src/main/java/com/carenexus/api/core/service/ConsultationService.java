@@ -22,7 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -34,6 +36,10 @@ import java.util.stream.Collectors;
  * This class also holds the shared clinical-write checks ({@link #requireTreatingDoctor},
  * {@link #requireAuthorDoctor}, {@link #requireRelatedDoctor}) used by the record, prescription, lab and
  * imaging services, so the "who may author/change clinical data" rule lives in one place.
+ *
+ * DRAFT and IN_PROGRESS consultations are the doctor's unfinished working notes: only doctors and admins see them.
+ * Patients and caregivers get finalised ones (COMPLETED, CANCELLED); an unfinished one looked up by id answers 404
+ * for them. The patient web screens apply the same rule.
  */
 @Service
 @RequiredArgsConstructor
@@ -42,6 +48,8 @@ import java.util.stream.Collectors;
 public class ConsultationService {
 
     private static final String RESOURCE = "CONSULTATION";
+    static final String DRAFT = "DRAFT";
+    static final String IN_PROGRESS = "IN_PROGRESS";
 
     private final ConsultationRepository consultationRepository;
     private final PatientRepository patientRepository;
@@ -190,24 +198,29 @@ public class ConsultationService {
     public ConsultationResponse getConsultationById(Integer consultationId) {
         Consultation consultation = load(consultationId);
         authorizationService.requirePatientAccess(consultation.getPatientSystemId(), PatientPermission.CONSULTATIONS, consultationId);
+        if (isUnfinished(consultation) && !callerSeesDrafts()) {
+            throw new ResourceNotFoundException("Consultation not found");
+        }
         auditService.logClinicalAccess("READ", RESOURCE, consultationId, consultation.getPatientSystemId());
         return mapToResponse(consultation);
     }
 
     public List<ConsultationResponse> getConsultationsByPatientSystemId(String patientSystemId) {
         authorizationService.requirePatientAccess(patientSystemId, PatientPermission.CONSULTATIONS);
-        List<Consultation> rows = consultationRepository.findByPatientSystemId(patientSystemId);
+        List<Consultation> rows = visibleToCaller(consultationRepository.findByPatientSystemId(patientSystemId));
         auditService.logClinicalAccess("READ", RESOURCE, null, patientSystemId);
         return toResponses(rows);
     }
 
     /**
      * Internal use only (CaregiverService builds the dependent activity feed after checking each
-     * dependent_access flag itself). Not exposed by any controller.
+     * dependent_access flag itself). Not exposed by any controller. Caregivers never see unfinished notes.
      */
     public List<ConsultationResponse> getConsultationsForPatients(List<String> patientSystemIds) {
         if (patientSystemIds == null || patientSystemIds.isEmpty()) return List.of();
-        List<Consultation> rows = consultationRepository.findByPatientSystemIdIn(patientSystemIds);
+        List<Consultation> rows = consultationRepository.findByPatientSystemIdIn(patientSystemIds).stream()
+                .filter(c -> !isUnfinished(c))
+                .toList();
         auditListRead(RESOURCE, rows, Consultation::getPatientSystemId);
         return toResponses(rows);
     }
@@ -234,9 +247,9 @@ public class ConsultationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Appointment not found"));
         String patientSystemId = appointment.getPatientSystemId();
         authorizationService.requirePatientAccess(patientSystemId, PatientPermission.CONSULTATIONS);
-        List<Consultation> rows = consultationRepository.findByAppointmentId(appointmentId).stream()
+        List<Consultation> rows = visibleToCaller(consultationRepository.findByAppointmentId(appointmentId).stream()
                 .filter(c -> patientSystemId.equals(c.getPatientSystemId()))
-                .toList();
+                .toList());
         auditService.logClinicalAccess("READ", RESOURCE, null, patientSystemId);
         return toResponses(rows);
     }
@@ -337,7 +350,8 @@ public class ConsultationService {
         List<Consultation> rows;
         if ("PATIENT".equals(userRole)) {
             authorizationService.requirePatientAccess(userSystemId, PatientPermission.CONSULTATIONS);
-            rows = consultationRepository.findByPatientSystemIdAndStatus(userSystemId, status);
+            rows = DRAFT.equals(status) || IN_PROGRESS.equals(status) ? List.of()
+                    : consultationRepository.findByPatientSystemIdAndStatus(userSystemId, status);
         } else if ("DOCTOR".equals(userRole)) {
             authorizationService.requireDoctorSelf(userSystemId);
             rows = consultationRepository.findByDoctorSystemIdAndStatus(userSystemId, status);
@@ -362,14 +376,44 @@ public class ConsultationService {
         }
     }
 
+    private static boolean isUnfinished(Consultation consultation) {
+        return DRAFT.equals(consultation.getStatus()) || IN_PROGRESS.equals(consultation.getStatus());
+    }
+
+    /** Doctors and admins see unfinished notes; patients and caregivers do not. */
+    private boolean callerSeesDrafts() {
+        String role = authorizationService.currentRole();
+        return AuthorizationService.DOCTOR.equals(role) || AuthorizationService.ADMIN.equals(role);
+    }
+
+    private List<Consultation> visibleToCaller(List<Consultation> rows) {
+        if (callerSeesDrafts()) {
+            return rows;
+        }
+        return rows.stream().filter(c -> !isUnfinished(c)).toList();
+    }
+
+    /** Batch: one appointment lookup for the whole list (appointmentType on each response). */
     private List<ConsultationResponse> toResponses(List<Consultation> rows) {
-        return rows.stream().map(this::mapToResponse).collect(Collectors.toList());
+        List<Integer> appointmentIds = rows.stream().map(Consultation::getAppointmentId).filter(Objects::nonNull).distinct().toList();
+        Map<Integer, String> types = new HashMap<>();
+        if (!appointmentIds.isEmpty()) {
+            appointmentRepository.findAllById(appointmentIds).forEach(a -> types.put(a.getAppointmentId(), a.getType()));
+        }
+        return rows.stream().map(c -> mapToResponse(c, types.get(c.getAppointmentId()))).collect(Collectors.toList());
     }
 
     private ConsultationResponse mapToResponse(Consultation consultation) {
+        String type = consultation.getAppointmentId() == null ? null
+                : appointmentRepository.findById(consultation.getAppointmentId()).map(Appointment::getType).orElse(null);
+        return mapToResponse(consultation, type);
+    }
+
+    private ConsultationResponse mapToResponse(Consultation consultation, String appointmentType) {
         return ConsultationResponse.builder()
                 .consultationId(consultation.getConsultationId())
                 .appointmentId(consultation.getAppointmentId())
+                .appointmentType(appointmentType)
                 .patientSystemId(consultation.getPatientSystemId())
                 .doctorSystemId(consultation.getDoctorSystemId())
                 .chiefComplaint(consultation.getChiefComplaint())

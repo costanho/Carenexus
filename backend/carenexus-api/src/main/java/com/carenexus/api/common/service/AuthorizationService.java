@@ -143,7 +143,9 @@ public class AuthorizationService {
      * - PATIENT: only their own data;
      * - DOCTOR: patient they have a care relationship with (care_team, non-cancelled appointment or consultation);
      * - CAREGIVER: active (not revoked, not expired) dependent_access whose flag for {@code permission} is TRUE
-     *   (FULL_ACCESS grants all; write permissions also require access_level other than VIEW_ONLY);
+     *   (FULL_ACCESS grants all data permissions; write permissions also require access_level other than VIEW_ONLY;
+     *   communication permissions MESSAGING / JOIN_CALLS additionally need the patient's approval stamp and
+     *   are never implied by FULL_ACCESS, see {@link PatientPermission#isGrantedBy});
      * - ADMIN: allowed.
      * Anything else is denied with 403 and an ACCESS_DENIED audit row.
      */
@@ -213,6 +215,20 @@ public class AuthorizationService {
             case ADMIN -> true;
             default -> false;
         };
+    }
+
+    /**
+     * Non-throwing, audit-free caregiver check for code that runs without a request context (event listeners,
+     * schedulers): the caregiver has an active (not revoked, not expired) grant for the patient that grants
+     * {@code permission} (communication permissions need the patient's approval stamp).
+     */
+    public boolean hasCaregiverPermission(String caregiverSystemId, String patientSystemId, PatientPermission permission) {
+        if (caregiverSystemId == null || patientSystemId == null || permission == null) {
+            return false;
+        }
+        return relationshipService.getActiveDependentAccess(caregiverSystemId, patientSystemId)
+                .map(permission::isGrantedBy)
+                .orElse(false);
     }
 
     // ==================== LEGACY API (kept so existing callers compile) ====================
@@ -292,7 +308,8 @@ public class AuthorizationService {
             case CONSULTATIONS -> "viewing consultations";
             case MANAGE_APPOINTMENTS -> "managing appointments";
             case MANAGE_CARE_PLAN -> "managing the care plan";
-            case MESSAGE_CARE_TEAM -> "messaging the care team";
+            case MESSAGING, MESSAGE_CARE_TEAM -> "messaging the care team";
+            case JOIN_CALLS -> "joining video calls";
         };
     }
 

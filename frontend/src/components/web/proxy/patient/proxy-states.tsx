@@ -79,7 +79,7 @@ export function ComingSoonState({ icon, title, sub }: { icon: IoniconsName; titl
 export function SoonPill() {
   return (
     <View style={styles.soonPill}>
-      <Text style={styles.soonPillText}>Soon</Text>
+      <Text style={styles.soonPillText}>Coming soon</Text>
     </View>
   );
 }

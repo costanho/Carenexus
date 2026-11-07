@@ -2,14 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { useUnreadCounts } from '@/hooks/use-notifications';
 
-const TEAL       = '#0D9488';
+const TEAL       = '#0F766E';
 const TEAL_BG    = '#E8F5F4';
-const GRAY_LABEL = '#9CA3AF';
+const GRAY_LABEL = '#636A75';
 const ICON_GRAY  = '#6B7280';
 const TEXT       = '#111827';
 const WHITE      = '#FFFFFF';
-const LOGOUT_RED = '#EF4444';
+const LOGOUT_RED = '#B91C1C';
 const DISABLED_GRAY = '#D1D5DB';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -28,7 +29,7 @@ const sections: NavSection[] = [
   {
     title: 'CONSULTATIONS',
     items: [
-      { key: 'join-consultation',    label: 'Join Consultation',    icon: 'videocam-outline', disabled: true },
+      { key: 'join-consultation',    label: 'Join Consultation',    icon: 'videocam-outline' },
       { key: 'consultation-history', label: 'Consultation History', icon: 'document-text-outline' },
     ],
   },
@@ -45,9 +46,9 @@ const sections: NavSection[] = [
   {
     title: 'CARE & SUPPORT',
     items: [
-      { key: 'my-proxies',    label: 'My Proxies (Caregivers)', icon: 'people-outline',        disabled: true },
-      { key: 'messages',      label: 'Messages',                icon: 'chatbubble-outline',    disabled: true },
-      { key: 'notifications', label: 'Notifications',           icon: 'notifications-outline', disabled: true },
+      { key: 'my-proxies',    label: 'My Proxies (Caregivers)', icon: 'people-outline' },
+      { key: 'messages',      label: 'Messages',                icon: 'chatbubble-outline' },
+      { key: 'notifications', label: 'Notifications',           icon: 'notifications-outline' },
     ],
   },
   {
@@ -59,9 +60,9 @@ const sections: NavSection[] = [
 ];
 
 function SidebarItem({
-  item, collapsed, isActive, onNavigate,
+  item, collapsed, isActive, onNavigate, badge = 0,
 }: {
-  item: NavItem; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void;
+  item: NavItem; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void; badge?: number;
 }) {
   const disabled = !!item.disabled;
   const color = disabled ? DISABLED_GRAY : isActive ? TEAL : ICON_GRAY;
@@ -72,15 +73,21 @@ function SidebarItem({
       onPress={disabled ? undefined : () => onNavigate(item.key)}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={disabled ? `${item.label} (coming soon)` : item.label}
+      accessibilityLabel={disabled ? `${item.label}, coming soon` : badge > 0 ? `${item.label}, ${badge} unread` : item.label}
       accessibilityState={{ selected: isActive, disabled }}
     >
-      <Ionicons name={item.icon} size={18} color={color} />
+      <View>
+        <Ionicons name={item.icon} size={18} color={color} />
+        {collapsed && badge > 0 && <View style={styles.badgeDot} />}
+      </View>
       {!collapsed && (
-        <Text style={[styles.navLabel, isActive && styles.navLabelActive, disabled && styles.navLabelDisabled]}>{item.label}</Text>
+        <Text style={[styles.navLabel, isActive && styles.navLabelActive, disabled && styles.navLabelDisabled]}>{item.label}{' '}</Text>
       )}
       {!collapsed && disabled && (
-        <View style={styles.soonPill}><Text style={styles.soonPillText}>Soon</Text></View>
+        <View style={styles.soonPill}><Text style={styles.soonPillText}>Coming soon</Text></View>
+      )}
+      {!collapsed && !disabled && badge > 0 && (
+        <View style={styles.badge}><Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text></View>
       )}
     </TouchableOpacity>
   );
@@ -96,6 +103,8 @@ export interface PatientSidebarProps {
 export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashboard', onNavigate }: PatientSidebarProps) {
   const { user } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
+  // The top navbar bell polls the counts; the sidebar only reads them.
+  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '...';
   const avatarUri = user?.avatar_url ?? null;
 
@@ -169,6 +178,7 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
                 item={item}
                 isActive={activeKey === item.key}
                 onNavigate={onNavigate ?? (() => {})}
+                badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
               />
             ))}
           </View>
@@ -263,6 +273,9 @@ const styles = StyleSheet.create({
   sectionDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 8, marginHorizontal: 8 },
 
   navLabelDisabled: { color: GRAY_LABEL },
+  badge:        { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
+  badgeText:    { color: WHITE, fontSize: 11, fontWeight: '700' },
+  badgeDot:     { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626', borderWidth: 1, borderColor: WHITE },
   soonPill:     { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   soonPillText: { fontSize: 10, fontWeight: '700', color: GRAY_LABEL, letterSpacing: 0.4 },
 

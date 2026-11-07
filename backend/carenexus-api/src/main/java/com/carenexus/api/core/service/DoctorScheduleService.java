@@ -2,6 +2,7 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.calls.service.CallInfoService;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.core.dto.response.DoctorDashboardResponse;
 import com.carenexus.api.core.dto.response.ScheduleEntryResponse;
@@ -28,6 +29,7 @@ public class DoctorScheduleService {
     private final ConsultationRepository consultationRepository;
     private final UserRepository userRepository;
     private final RelationshipService relationshipService;
+    private final CallInfoService callInfoService;
 
     /** Same clinic zone as AppointmentService: appointment times are local wall-clock times of this zone. */
     @Value("${carenexus.scheduling.time-zone:Africa/Harare}")
@@ -66,9 +68,13 @@ public class DoctorScheduleService {
         Map<Integer, Appointment> appointmentsById = new HashMap<>();
         appointments.forEach(a -> appointmentsById.put(a.getAppointmentId(), a));
 
+        // Call fields for every appointment in one batch query.
+        Map<Integer, CallInfoService.CallInfo> calls = callInfoService.describeAppointments(appointments);
+
         List<ScheduleEntryResponse> schedule = new ArrayList<>();
 
         for (Appointment appointment : appointments) {
+            CallInfoService.CallInfo call = calls.getOrDefault(appointment.getAppointmentId(), CallInfoService.CallInfo.NONE);
             ScheduleEntryResponse entry = ScheduleEntryResponse.builder()
                     .entryId("APT_" + appointment.getAppointmentId())
                     .type("APPOINTMENT")
@@ -81,11 +87,16 @@ public class DoctorScheduleService {
                     .appointmentStatus(appointment.getStatus())
                     .durationMinutes(appointment.getDurationMinutes())
                     .reasonForVisit(appointment.getReasonForVisit())
-                    .videoConsultationLink(appointment.getVideoConsultationLink())
+                    // Legacy meeting links are never returned; calls use callJoinRoute.
+                    .videoConsultationLink(null)
                     .reminderSent(appointment.getReminderSent())
                     .notes(appointment.getNotes())
                     .createdAt(appointment.getCreatedAt())
                     .updatedAt(appointment.getUpdatedAt())
+                    .callStatus(call.callStatus())
+                    .callJoinRoute(call.callJoinRoute())
+                    .joinWindowOpensAt(call.joinWindowOpensAt())
+                    .joinWindowClosesAt(call.joinWindowClosesAt())
                     .build();
             schedule.add(entry);
         }

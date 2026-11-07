@@ -3,6 +3,7 @@ package com.carenexus.api.core.dto.response;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -49,6 +50,7 @@ public class ScheduleEntryResponse {
     @JsonProperty("reasonForVisit")
     private String reasonForVisit;
 
+    /** Legacy field kept so clients do not break. Always null: calls are joined via callJoinRoute. */
     @JsonProperty("videoConsultationLink")
     private String videoConsultationLink;
 
@@ -87,4 +89,16 @@ public class ScheduleEntryResponse {
 
     @JsonProperty("updatedAt")
     private LocalDateTime updatedAt;
+
+    @JsonProperty("callStatus")
+    private String callStatus;
+
+    @JsonProperty("callJoinRoute")
+    private String callJoinRoute;
+
+    @JsonProperty("joinWindowOpensAt")
+    private Instant joinWindowOpensAt;
+
+    @JsonProperty("joinWindowClosesAt")
+    private Instant joinWindowClosesAt;
 }

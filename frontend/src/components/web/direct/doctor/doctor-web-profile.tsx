@@ -154,7 +154,7 @@ export default function DoctorWebProfile() {
                 <View style={[styles.cardIconWrap, { backgroundColor: '#EEF2FF' }]}>
                   <Ionicons name="person-outline" size={16} color={BLUE} />
                 </View>
-                <Text style={styles.cardTitle}>About</Text>
+                <Text style={styles.cardTitle} accessibilityRole="header">About</Text>
               </View>
               <Text style={styles.bioText}>{profile.bio}</Text>
             </View>
@@ -166,7 +166,7 @@ export default function DoctorWebProfile() {
               <View style={[styles.cardIconWrap, { backgroundColor: '#D1FAE5' }]}>
                 <Ionicons name="call-outline" size={16} color={GREEN} />
               </View>
-              <Text style={styles.cardTitle}>Contact Information</Text>
+              <Text style={styles.cardTitle} accessibilityRole="header">Contact Information</Text>
             </View>
             <View style={{ gap: 4 }}>
               <InfoRow icon="mail-outline"      label="Email Address" value={profile.email}            />
@@ -185,7 +185,7 @@ export default function DoctorWebProfile() {
               <View style={[styles.cardIconWrap, { backgroundColor: '#F5F3FF' }]}>
                 <Ionicons name="ribbon-outline" size={16} color={PURPLE} />
               </View>
-              <Text style={styles.cardTitle}>Professional Details</Text>
+              <Text style={styles.cardTitle} accessibilityRole="header">Professional Details</Text>
             </View>
             <View style={{ gap: 4 }}>
               <InfoRow icon="briefcase-outline"        label="Specialization"  value={profile.specialization}          />
@@ -201,7 +201,7 @@ export default function DoctorWebProfile() {
               <View style={[styles.cardIconWrap, { backgroundColor: '#FEF3C7' }]}>
                 <Ionicons name="information-circle-outline" size={16} color={AMBER} />
               </View>
-              <Text style={styles.cardTitle}>Account Details</Text>
+              <Text style={styles.cardTitle} accessibilityRole="header">Account Details</Text>
             </View>
             <View style={{ gap: 4 }}>
               <InfoRow icon="finger-print-outline" label="Doctor ID"  value={profile.doctor_system_id} mono />

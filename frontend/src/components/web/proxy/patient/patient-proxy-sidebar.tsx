@@ -2,14 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { useUnreadCounts } from '@/hooks/use-notifications';
 import { SoonPill } from './proxy-states';
 
 
 const PURPLE      = '#7C3AED';
 const PURPLE_BG   = '#F5F3FF';
 const TEXT        = '#111827';
-const GRAY        = '#6B7280';
-const GRAY_LABEL  = '#9CA3AF';
+const GRAY        = '#5B6472';
+const GRAY_LABEL  = '#636A75';
 const WHITE       = '#FFFFFF';
 const BORDER      = '#E5E7EB';
 
@@ -19,7 +20,8 @@ type NavItem      = { key: string; label: string; icon: IoniconsName; comingSoon
 const careItems: NavItem[] = [
   { key: 'appointments',       label: 'Appointments',        icon: 'calendar-outline' },
   { key: 'medications',        label: 'Medications',         icon: 'pencil-outline' },
-  { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline',       comingSoon: true },
+  { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline' },
+  { key: 'notifications',      label: 'Notifications',       icon: 'notifications-outline' },
   { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline', comingSoon: true },
   { key: 'documents-results',  label: 'Documents & Results', icon: 'document-outline' },
   { key: 'health-summary',     label: 'Health Summary',      icon: 'download-outline' },
@@ -27,10 +29,11 @@ const careItems: NavItem[] = [
 
 const accountItems: NavItem[] = [
   { key: 'profile-settings',      label: 'Profile & Settings',    icon: 'settings-outline' },
-  { key: 'notification-settings', label: 'Notification Settings', icon: 'notifications-outline' },
+  { key: 'notification-settings', label: 'Notification Settings', icon: 'options-outline' },
 ];
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+// White initials need 4.5:1 against every avatar colour.
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -57,7 +60,7 @@ function accessLabel(level: string) {
   }
 }
 
-function SidebarNavItem({ item, active, collapsed, onPress }: { item: NavItem; active?: boolean; collapsed?: boolean; onPress?: () => void }) {
+function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: { item: NavItem; active?: boolean; collapsed?: boolean; onPress?: () => void; badge?: number }) {
   const disabled = !!item.comingSoon;
   return (
     <TouchableOpacity
@@ -66,12 +69,21 @@ function SidebarNavItem({ item, active, collapsed, onPress }: { item: NavItem; a
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={disabled ? `${item.label}, coming soon` : item.label}
+      accessibilityLabel={disabled ? `${item.label}, coming soon` : badge > 0 ? `${item.label}, ${badge} unread` : item.label}
       accessibilityState={{ selected: !!active, disabled }}
     >
-      <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} importantForAccessibility="no" />
-      <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+      <View>
+        <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} importantForAccessibility="no" />
+        {collapsed && badge > 0 && <View style={styles.badgeDot} />}
+      </View>
+      {/* The collapsed rail shows icons only; the label stays the accessible name. */}
+      {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}{' '}</Text>}
       {!collapsed && disabled && <SoonPill />}
+      {!collapsed && !disabled && badge > 0 && (
+        <View style={[styles.badge, active && styles.badgeActive]}>
+          <Text style={[styles.badgeText, active && styles.badgeTextActive]}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -88,6 +100,8 @@ const SHOW_LIMIT = 3;
 export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard', onNavigate, onSelectPatient }: PatientProxySidebarProps) {
   const { dependents, loading, error } = useCaregiverDependents();
   const [expanded, setExpanded] = useState(false);
+  // The top navbar bell polls the counts; the sidebar only reads them.
+  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
 
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
@@ -143,17 +157,17 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
                       activeOpacity={0.7}
                       onPress={() => onSelectPatient?.(dep)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Open profile for ${name}`}
+                      // Named by its visible text (name, relationship, access); the initials are decorative.
                     >
-                      <View style={styles.avatarWrapper}>
+                      <View style={styles.avatarWrapper} importantForAccessibility="no-hide-descendants">
                         <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
                           <Text style={styles.avatarInitials}>{initials(name)}</Text>
                         </View>
                         <View style={[styles.dot, { backgroundColor: dotColor }]} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.lovedOneName} numberOfLines={1}>{name}</Text>
-                        <Text style={styles.lovedOneRel} numberOfLines={1}>{rel}</Text>
+                        <Text style={styles.lovedOneName} numberOfLines={1}>{name}{' '}</Text>
+                        <Text style={styles.lovedOneRel} numberOfLines={1}>{rel}{rel ? ' ' : ''}</Text>
                         <Text style={styles.lovedOneAccess}>{label}</Text>
                       </View>
                     </TouchableOpacity>
@@ -166,6 +180,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
                     onPress={() => setExpanded(e => !e)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded }}
+                    aria-expanded={expanded}
                   >
                     <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={PURPLE} />
                     <Text style={styles.expandText}>
@@ -201,7 +216,8 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
                   style={{ position: 'relative' }}
                   onPress={() => onSelectPatient?.(dep)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Open profile for ${name}`}
+                  // Starts with the visible initials (WCAG 2.5.3 Label in Name).
+                  accessibilityLabel={`${initials(name)}: open profile for ${name}`}
                 >
                   <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
                     <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
@@ -222,6 +238,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             active={activeKey === item.key}
             collapsed={collapsed}
             onPress={() => onNavigate?.(item.key)}
+            badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
           />
         ))}
 
@@ -308,6 +325,11 @@ const styles = StyleSheet.create({
   },
   navItemActive: { backgroundColor: PURPLE },
   navItemDisabled: { opacity: 0.55 },
+  badge:           { marginLeft: 'auto', minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: PURPLE, alignItems: 'center', justifyContent: 'center' },
+  badgeActive:     { backgroundColor: WHITE },
+  badgeText:       { color: WHITE, fontSize: 11, fontWeight: '700' },
+  badgeTextActive: { color: PURPLE },
+  badgeDot:        { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626' },
   navLabel:      { fontSize: 14, color: TEXT, fontWeight: '400' },
   navLabelActive:{ color: WHITE, fontWeight: '600' },
 

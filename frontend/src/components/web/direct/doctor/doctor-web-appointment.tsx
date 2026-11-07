@@ -5,10 +5,14 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import {
-  ACTION_LABELS, availableActions, canJoinCall, openVideoLink, useDoctorAppointmentActions,
+  ACTION_LABELS, availableActions, canReschedule, doctorCallJoin, useDoctorAppointmentActions,
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
+import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { callStatusLabel } from '@/lib/calls/join';
+import { DoctorReschedulePanel, formatClinicDate, formatClinicTime } from './doctor-reschedule-panel';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -116,13 +120,19 @@ const ACTION_STYLE: Record<DoctorAppointmentAction, { color: string; icon: Ionic
   'cancel':   { color: RED,    icon: 'close-circle-outline'     },
 };
 
-function AppCard({ entry, busy, onAction }: {
+function AppCard({ entry, busy, onAction, onRescheduled, onMessage, messaging }: {
   entry:    ScheduleEntry;
   busy:     boolean;
   onAction: (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
+  onRescheduled: (entry: ScheduleEntry, date: string, time: string) => void;
+  /** Opens the private conversation with this patient; omitted when Messages is not available. */
+  onMessage?: (entry: ScheduleEntry) => void;
+  messaging?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   const actions = availableActions(entry);
+  const reschedulable = canReschedule(entry);
   const sc  = statusConfig(entry.status);
   const tc  = typeConfig(entry.type);
   const cc  = consultConfig(entry.consultation);
@@ -209,19 +219,15 @@ function AppCard({ entry, busy, onAction }: {
             <Text style={[styles.consultText, { color: cc.color }]}>{cc.label}</Text>
           </View>
 
-          {/* Video link */}
-          {canJoinCall(entry) && (
-            <TouchableOpacity
-              style={styles.videoBtn}
-              activeOpacity={0.8}
-              onPress={() => openVideoLink(entry)}
-              accessibilityRole="link"
-              accessibilityLabel={`Join video call with ${entry.patient_name}`}
-            >
-              <Ionicons name="videocam-outline" size={13} color={BLUE} />
-              <Text style={styles.videoBtnText}>Join Call</Text>
-            </TouchableOpacity>
-          )}
+          {/* Video call */}
+          <CallJoinButton
+            info={doctorCallJoin(entry)}
+            withName={entry.patient_name}
+            style={styles.videoBtn}
+            textStyle={styles.videoBtnText}
+            iconColor={BLUE}
+            iconSize={13}
+          />
 
           <TouchableOpacity
             style={styles.viewBtn}
@@ -249,13 +255,49 @@ function AppCard({ entry, busy, onAction }: {
           <DetailLine label="Reason"       value={entry.reason_for_visit ?? '—'} />
           <DetailLine label="Notes"        value={entry.notes ?? '—'} />
           {entry.type === 'VIDEO' && (
-            <DetailLine label="Video link" value={entry.video_consultation_link ?? 'Not provided'} />
+            <DetailLine label="Video call" value={callStatusLabel(entry.call_status)} />
           )}
         </View>
       )}
 
-      {actions.length > 0 && (
+      {rescheduling && reschedulable && (
+        <DoctorReschedulePanel
+          entry={entry}
+          onClose={() => setRescheduling(false)}
+          onDone={(date, time) => { setRescheduling(false); onRescheduled(entry, date, time); }}
+        />
+      )}
+
+      {(actions.length > 0 || reschedulable || !!onMessage) && (
         <View style={styles.actionRow}>
+          {!!onMessage && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: BLUE }, messaging && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={messaging}
+              onPress={() => onMessage(entry)}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${entry.patient_name}`}
+              accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={13} color={BLUE} />
+              <Text style={[styles.actionBtnText, { color: BLUE }]}>Message patient</Text>
+            </TouchableOpacity>
+          )}
+          {reschedulable && !rescheduling && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: PURPLE }, busy && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => setRescheduling(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reschedule appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy }}
+            >
+              <Ionicons name="calendar-outline" size={13} color={PURPLE} />
+              <Text style={[styles.actionBtnText, { color: PURPLE }]}>Reschedule</Text>
+            </TouchableOpacity>
+          )}
           {actions.map(a => (
             <TouchableOpacity
               key={a}
@@ -288,9 +330,19 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DoctorWebAppointment() {
+export default function DoctorWebAppointment({ onOpenThread }: {
+  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { entries, loading, error, refetch } = useDoctorSchedule();
   const { run, pendingId } = useDoctorAppointmentActions(refetch);
+  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
+  const [notice, setNotice] = useState('');
+
+  function handleRescheduled(entry: ScheduleEntry, date: string, time: string) {
+    setNotice(`Appointment with ${entry.patient_name} moved to ${formatClinicDate(date)}, ${formatClinicTime(time)} CAT.`);
+    refetch();
+  }
 
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -354,11 +406,12 @@ export default function DoctorWebAppointment() {
     { key: 'PHONE',     label: 'Phone',     icon: 'call-outline'       },
   ];
 
-  if (loading) {
+  // Keep the list mounted while refreshing after an action, so the page does not jump back to the top.
+  if (loading && entries.length === 0) {
     return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
   }
 
-  if (error) {
+  if (error && entries.length === 0) {
     return (
       <View style={styles.center}>
         <Ionicons name="alert-circle-outline" size={52} color={RED} />
@@ -376,7 +429,7 @@ export default function DoctorWebAppointment() {
       {/* Page Header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Appointments</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Appointments</Text>
           <Text style={styles.pageSub}>Complete appointment history for your patients</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -460,6 +513,16 @@ export default function DoctorWebAppointment() {
         </View>
       </View>
 
+      {!!notice && (
+        <View style={styles.notice} accessibilityRole="alert">
+          <Ionicons name="checkmark-circle-outline" size={16} color={GREEN} />
+          <Text style={styles.noticeText}>{notice}</Text>
+          <TouchableOpacity onPress={() => setNotice('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Dismiss message">
+            <Ionicons name="close" size={16} color={GRAY} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Result count */}
       <Text style={styles.resultCount}>
         {filtered.length} appointment{filtered.length !== 1 ? 's' : ''}
@@ -475,7 +538,15 @@ export default function DoctorWebAppointment() {
       ) : (
         <View style={styles.list}>
           {filtered.map(e => (
-            <AppCard key={e.appointment_id} entry={e} busy={pendingId === e.appointment_id} onAction={run} />
+            <AppCard
+              key={e.appointment_id}
+              entry={e}
+              busy={pendingId === e.appointment_id}
+              onAction={run}
+              onRescheduled={handleRescheduled}
+              onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
+              messaging={pendingPatient === e.patient_system_id}
+            />
           ))}
         </View>
       )}
@@ -538,6 +609,12 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
 
   resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 12 },
+  notice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+    backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  noticeText: { flex: 1, fontSize: 13, color: '#065F46', fontWeight: '500' },
 
   list: { gap: 12 },
 

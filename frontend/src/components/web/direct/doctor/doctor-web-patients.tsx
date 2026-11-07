@@ -4,6 +4,7 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
+import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
 import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
 
 const WHITE  = '#FFFFFF';
@@ -76,7 +77,12 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
 
 // ─── Patient Card ─────────────────────────────────────────────────────────────
 
-function PatientCard({ patient }: { patient: DoctorPatient }) {
+function PatientCard({ patient, onMessage, messaging }: {
+  patient:    DoctorPatient;
+  /** Opens the private conversation with this patient; omitted when Messages is not available. */
+  onMessage?: (patient: DoctorPatient) => void;
+  messaging?: boolean;
+}) {
   const hc = healthConfig(patient.health_status);
   const ac = avatarColor(patient.full_name);
   const age = calcAge(patient.date_of_birth);
@@ -198,14 +204,35 @@ function PatientCard({ patient }: { patient: DoctorPatient }) {
           </Text>
         )}
       </View>
+
+      {!!onMessage && !!patient.patient_system_id && (
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={[styles.messageBtn, messaging && { opacity: 0.5 }]}
+            activeOpacity={0.8}
+            disabled={messaging}
+            onPress={() => onMessage(patient)}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${patient.full_name}`}
+            accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={14} color={BLUE} />
+            <Text style={styles.messageBtnText}>{messaging ? 'Opening…' : 'Message patient'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DoctorWebPatients() {
+export default function DoctorWebPatients({ onOpenThread }: {
+  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { patients, loading, error, refetch } = useDoctorPatients();
+  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
   const { width } = useWindowDimensions();
   const twoCol = width >= 1100;
 
@@ -264,7 +291,7 @@ export default function DoctorWebPatients() {
       {/* Page Header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>My Patients</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">My Patients</Text>
           <Text style={styles.pageSub}>Patients who have had appointments with you</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -323,6 +350,7 @@ export default function DoctorWebPatients() {
             <TextInput
               style={styles.searchInput}
               placeholder="Search by name or email…"
+              accessibilityLabel="Search patients by name or email"
               placeholderTextColor={LGRAY}
               value={search}
               onChangeText={setSearch}
@@ -350,7 +378,11 @@ export default function DoctorWebPatients() {
         <View style={[styles.grid, twoCol && styles.gridTwo]}>
           {filtered.map(p => (
             <View key={p.patient_system_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
-              <PatientCard patient={p} />
+              <PatientCard
+                patient={p}
+                onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
+                messaging={pendingPatient === p.patient_system_id}
+              />
             </View>
           ))}
         </View>
@@ -449,6 +481,13 @@ const styles = StyleSheet.create({
   footerStatLabel: { fontSize: 12, color: GRAY },
   footerDivider: { width: 1, height: 16, backgroundColor: BORDER },
   viewBtnText:   { fontSize: 12, color: GRAY, fontWeight: '500', marginLeft: 'auto' as any },
+  cardActions:   { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
+  messageBtn:    {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1, borderColor: BLUE, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: WHITE,
+  },
+  messageBtnText: { fontSize: 13, color: BLUE, fontWeight: '600' },
 
   emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },

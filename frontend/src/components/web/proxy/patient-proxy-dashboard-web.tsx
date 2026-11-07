@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 import { PatientProxySidebar }  from './patient/patient-proxy-sidebar';
@@ -15,6 +15,9 @@ const ProxyProfileSettings      = lazy(() => import('./patient/patient-proxy-pro
 const ProxyNotificationSettings = lazy(() => import('./patient/patient-proxy-notification-settings'));
 const ProxyAddDependent         = lazy(() => import('./patient/patient-proxy-web-add-dependent'));
 const ProxyPatientProfile       = lazy(() => import('./patient/patient-proxy-web-profile'));
+const NotificationList          = lazy(() => import('../notifications/notification-list').then(m => ({ default: m.NotificationList })));
+
+const PROXY_THEME = { accent: '#7C3AED', accentBg: '#F5F3FF' };
 
 function Loader() {
   return (
@@ -30,11 +33,18 @@ export function PatientProxyDashboardWeb() {
   const [activeKey, setActiveKey]               = useState('dashboard');
   const [navKey,    setNavKey]                  = useState(0);
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
 
   function navigate(key: string) {
     setNavKey(k => k + 1);
     setActiveKey(key);
   }
+
+  const openThread = useCallback((threadId: number) => {
+    setOpenThreadId(threadId);
+    setActiveKey('messages');
+  }, []);
+  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
 
   function selectPatient(dep: CaregiverDependent) {
     setSelectedDependent(dep);
@@ -48,7 +58,7 @@ export function PatientProxyDashboardWeb() {
       case 'medications':
         return <Suspense fallback={<Loader />}><ProxyMedications /></Suspense>;
       case 'messages':
-        return <Suspense fallback={<Loader />}><ProxyMessages /></Suspense>;
+        return <Suspense fallback={<Loader />}><ProxyMessages openThreadId={openThreadId} onOpenThreadHandled={clearOpenThread} /></Suspense>;
       case 'care-plans':
         return <Suspense fallback={<Loader />}><ProxyCarePlans /></Suspense>;
       case 'documents-results':
@@ -57,16 +67,18 @@ export function PatientProxyDashboardWeb() {
         return <Suspense fallback={<Loader />}><ProxyHealthSummary /></Suspense>;
       case 'profile-settings':
         return <Suspense fallback={<Loader />}><ProxyProfileSettings onNavigate={navigate} onSelectPatient={selectPatient} /></Suspense>;
+      case 'notifications':
+        return <Suspense fallback={<Loader />}><NotificationList theme={PROXY_THEME} onOpenThread={openThread} /></Suspense>;
       case 'notification-settings':
         return <Suspense fallback={<Loader />}><ProxyNotificationSettings /></Suspense>;
       case 'add-dependent':
         return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => navigate('dashboard')} onCancel={() => navigate('dashboard')} /></Suspense>;
       case 'patient-profile':
         return selectedDependent
-          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} /></Suspense>
-          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
+          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} onOpenThread={openThread} /></Suspense>
+          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
       default:
-        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} />;
+        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
     }
   }
 
@@ -79,7 +91,7 @@ export function PatientProxyDashboardWeb() {
         onSelectPatient={selectPatient}
       />
       <View style={styles.main}>
-        <PatientProxyTopNavbar onNavigate={navigate} />
+        <PatientProxyTopNavbar onNavigate={navigate} onOpenThread={openThread} />
         {renderContent()}
       </View>
     </View>
@@ -88,6 +100,6 @@ export function PatientProxyDashboardWeb() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#F9FAFB' },
-  main:      { flex: 1, flexDirection: 'column' },
+  main:      { flex: 1, flexDirection: 'column', minWidth: 0 },
   loader:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

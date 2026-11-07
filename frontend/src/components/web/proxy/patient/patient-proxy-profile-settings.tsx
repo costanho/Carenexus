@@ -85,7 +85,7 @@ export default function PatientProxyProfileSettings({
         {/* Personal info */}
         <View style={styles.card}>
           <View style={styles.cardHead}>
-            <Text style={styles.cardTitle}>Personal Information</Text>
+            <Text style={styles.cardTitle} accessibilityRole="header">Personal Information</Text>
           </View>
           <InfoRow label="First Name"    value={user?.first_name ?? '—'} />
           <View style={styles.sep} />
@@ -102,7 +102,7 @@ export default function PatientProxyProfileSettings({
 
         {/* Linked patients */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Linked Patients</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Linked Patients</Text>
           <Text style={styles.cardSub}>Patients you have been authorised to manage as proxy</Text>
 
           {loading ? (
@@ -176,7 +176,7 @@ export default function PatientProxyProfileSettings({
 
         {/* Security */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Security</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Security</Text>
           <View style={styles.secRow}>
             <Ionicons name="lock-closed-outline" size={16} color={GRAY} importantForAccessibility="no" />
             <Text style={[styles.secSub, { flex: 1, marginTop: 0, marginLeft: 8 }]}>

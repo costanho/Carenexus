@@ -1,8 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
+import { isPatientVisibleConsultation, useConsultations } from '@/hooks/use-consultations';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 import { usePatientProfile } from '@/hooks/use-patient-profile';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
+import { formatDateOnly } from '@/lib/ui/date-only';
 
 const TEAL       = '#0D9488';
 const NAVY       = '#1E3A5F';
@@ -35,7 +38,7 @@ function SectionError({ message, onRetry }: { message: string; onRetry: () => vo
     <View style={[styles.errorRow, { gap: s(8), padding: s(10), borderRadius: s(8) }]}>
       <Ionicons name="alert-circle-outline" size={s(15)} color={RED} />
       <Text style={[styles.errorText, { fontSize: s(12) }]}>{message}</Text>
-      <TouchableOpacity onPress={onRetry} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading">
+      <TouchableOpacity onPress={onRetry} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading" hitSlop={8}>
         <Text style={[styles.retryText, { fontSize: s(12) }]}>Retry</Text>
       </TouchableOpacity>
     </View>
@@ -101,7 +104,7 @@ function QuickActions(props: NavProps) {
           <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: iconBox / 2, backgroundColor: a.iconBg }]}>
             <Ionicons name={a.icon} size={s(20)} color={a.iconColor} />
           </View>
-          <Text style={[styles.quickLabel, { fontSize: s(12) }]}>{a.label}</Text>
+          <Text style={[styles.quickLabel, { fontSize: s(12), lineHeight: s(17) }]}>{a.label}</Text>
           <Ionicons name="arrow-forward" size={s(13)} color={GRAY} />
         </TouchableOpacity>
       ))}
@@ -125,7 +128,7 @@ function WelcomeBanner() {
         <Ionicons name="heart-outline" size={s(28)} color={TEAL} />
       </View>
       <View style={styles.flex1}>
-        <Text style={[styles.bannerTitle, { fontSize: s(14), marginBottom: s(4) }]}>
+        <Text style={[styles.bannerTitle, { fontSize: s(14), marginBottom: s(4) }]} accessibilityRole="header">
           Welcome to CareNexus Direct
         </Text>
         <Text style={[styles.bannerDesc, { fontSize: s(11), lineHeight: s(17) }]}>
@@ -180,7 +183,7 @@ function HealthOverview({
   return (
     <View style={[styles.section, { padding: s(14), borderRadius: s(14) }]}>
       <View style={[styles.row, { marginBottom: s(10) }]}>
-        <Text style={[styles.sectionTitle, { fontSize: s(14) }]}>Health Overview</Text>
+        <Text style={[styles.sectionTitle, { fontSize: s(14) }]} accessibilityRole="header">Health Overview</Text>
       </View>
       {loading ? (
         <SectionMessage text="Loading your health summary…" />
@@ -232,60 +235,67 @@ function formatApptDate(iso: string) {
     ' • ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-function formatDay(iso: string) {
+/** "15 Jun 2026" for a date-time (completion time); '' when missing or invalid. */
+function formatApptDay(iso: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function RecentConsultations({
-  appointments, loading, error, onRetry, onViewConsultations,
-}: {
-  appointments: Appointment[];
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-  onViewConsultations?: () => void;
-}) {
+/** A date-only value ("2026-06-15") formatted without a time-zone shift; '' when missing. */
+function formatDay(value: string) {
+  return formatDateOnly(value, undefined, '');
+}
+
+function RecentConsultations({ onViewConsultations }: { onViewConsultations?: () => void }) {
+  // Same source and rule as Consultation History (and web): only finalised (COMPLETED) consultations, never a
+  // completed appointment without a recorded consultation. The hook sorts newest first.
   const { s } = useScale();
   const iconBox = s(34);
-  const recent = appointments.filter(a => a.status === 'COMPLETED').slice(0, 3);
+  const { consultations, loading, error, refetch } = useConsultations();
+  const recent = consultations.filter(isPatientVisibleConsultation).slice(0, 3);
 
   return (
     <View style={[styles.section, { padding: s(14), borderRadius: s(14) }]}>
       <View style={[styles.row, { marginBottom: s(10) }]}>
-        <Text style={[styles.sectionTitle, { fontSize: s(14) }]}>Recent Consultations</Text>
-        <TouchableOpacity onPress={onViewConsultations} accessibilityRole="link"><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
+        <Text style={[styles.sectionTitle, { fontSize: s(14) }]} accessibilityRole="header">Recent Consultations</Text>
+        <TouchableOpacity onPress={onViewConsultations} accessibilityRole="link" accessibilityLabel="View all consultations" hitSlop={8}><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
       </View>
-      {loading ? (
+      {loading && consultations.length === 0 ? (
         <SectionMessage text="Loading…" />
-      ) : error ? (
-        <SectionError message={error} onRetry={onRetry} />
+      ) : error && consultations.length === 0 ? (
+        <SectionError message={error} onRetry={refetch} />
       ) : recent.length === 0 ? (
         <SectionMessage text="No completed consultations yet." />
-      ) : recent.map((a) => (
-        <TouchableOpacity
-          key={a.appointment_id}
-          style={[styles.listRow, { gap: s(10), paddingVertical: s(10) }]}
-          activeOpacity={0.7}
-          onPress={onViewConsultations}
-          accessibilityRole="button"
-        >
-          <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: s(8), backgroundColor: '#E6F4F1' }]}>
-            <Ionicons name={TYPE_ICON[a.type] ?? 'calendar-outline'} size={s(16)} color={TEAL} />
-          </View>
-          <View style={styles.flex1}>
-            <Text style={[styles.listDate,  { fontSize: s(10) }]}>{formatApptDate(a.scheduled_at)}</Text>
-            <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={1}>{a.reason_for_visit ?? 'Consultation'}</Text>
-            <Text style={[styles.listSub,   { fontSize: s(11) }]}>{a.doctor_name}{a.doctor_specialization ? ` (${a.doctor_specialization})` : ''}</Text>
-          </View>
-          <View style={[styles.badge, { paddingHorizontal: s(7), paddingVertical: s(3), borderRadius: s(6) }]}>
-            <Text style={[styles.badgeText, { fontSize: s(10) }]}>Completed</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={s(15)} color={GRAY} />
-        </TouchableOpacity>
-      ))}
+      ) : recent.map((c) => {
+        const date = formatApptDay(c.completed_at ?? c.created_at);
+        const title = c.chief_complaint ?? c.diagnosis ?? 'Consultation';
+        const doctor = tidyDoctorName(c.doctor_name);
+        return (
+          <TouchableOpacity
+            key={c.consultation_id}
+            style={[styles.listRow, { gap: s(10), paddingVertical: s(10) }]}
+            activeOpacity={0.7}
+            onPress={onViewConsultations}
+            accessibilityRole="button"
+            accessibilityLabel={`${title}, ${doctor}, ${date}. Completed. Open consultation history`}
+          >
+            <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: s(8), backgroundColor: '#E6F4F1' }]}>
+              <Ionicons name={(c.appointment_type && TYPE_ICON[c.appointment_type]) || 'document-text-outline'} size={s(16)} color={TEAL} />
+            </View>
+            <View style={styles.flex1}>
+              <Text style={[styles.listDate,  { fontSize: s(10) }]}>{date}</Text>
+              <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={2}>{title}</Text>
+              <Text style={[styles.listSub,   { fontSize: s(11) }]} numberOfLines={2}>{doctor}{c.doctor_specialization ? ` (${c.doctor_specialization})` : ''}</Text>
+            </View>
+            <View style={[styles.badge, { paddingHorizontal: s(7), paddingVertical: s(3), borderRadius: s(6) }]}>
+              <Text style={[styles.badgeText, { fontSize: s(10) }]}>Completed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={s(15)} color={GRAY} />
+          </TouchableOpacity>
+        );
+      })}
       <TouchableOpacity style={[styles.viewAllRow, { paddingTop: s(10) }]} onPress={onViewConsultations} accessibilityRole="link">
         <Text style={[styles.link, { fontSize: s(12) }]}>View all consultations →</Text>
       </TouchableOpacity>
@@ -310,8 +320,8 @@ function LatestPrescriptions({
   return (
     <View style={[styles.section, { padding: s(14), borderRadius: s(14) }]}>
       <View style={[styles.row, { marginBottom: s(10) }]}>
-        <Text style={[styles.sectionTitle, { fontSize: s(14) }]}>Current Prescriptions</Text>
-        <TouchableOpacity onPress={onViewPrescriptions} accessibilityRole="link"><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
+        <Text style={[styles.sectionTitle, { fontSize: s(14) }]} accessibilityRole="header">Current Prescriptions</Text>
+        <TouchableOpacity onPress={onViewPrescriptions} accessibilityRole="link" accessibilityLabel="View all prescriptions" hitSlop={8}><Text style={[styles.link, { fontSize: s(12) }]}>View all</Text></TouchableOpacity>
       </View>
       {loading ? (
         <SectionMessage text="Loading…" />
@@ -326,13 +336,14 @@ function LatestPrescriptions({
           activeOpacity={0.7}
           onPress={onViewPrescriptions}
           accessibilityRole="button"
+          accessibilityLabel={`${p.medication_name}${p.dosage ? ` ${p.dosage}` : ''}. Active. Open prescriptions`}
         >
           <Ionicons name="document-outline" size={s(20)} color={GRAY} />
           <View style={styles.flex1}>
-            <Text style={[styles.listTitle, { fontSize: s(13) }]}>{p.medication_name}{p.dosage ? ` ${p.dosage}` : ''}</Text>
+            <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={2}>{p.medication_name}{p.dosage && !p.medication_name.includes(p.dosage) ? ` ${p.dosage}` : ''}</Text>
             {!!p.frequency && <Text style={[styles.listSub, { fontSize: s(11) }]}>{p.frequency}</Text>}
             <Text style={[styles.listDate,  { fontSize: s(10) }]}>
-              {formatDay(p.prescribed_date) ? `Prescribed ${formatDay(p.prescribed_date)}` : ''}{p.doctor_name ? ` • ${p.doctor_name}` : ''}
+              {formatDay(p.prescribed_date) ? `Prescribed ${formatDay(p.prescribed_date)}` : ''}{p.doctor_name ? ` • ${tidyDoctorName(p.doctor_name)}` : ''}
             </Text>
           </View>
           <View style={[styles.badge, { backgroundColor: '#E6F4F1', paddingHorizontal: s(7), paddingVertical: s(3), borderRadius: s(6) }]}>
@@ -369,8 +380,8 @@ function UpcomingAppointments({
   return (
     <View style={[styles.section, { padding: s(14), borderRadius: s(14) }]}>
       <View style={[styles.row, { marginBottom: s(10) }]}>
-        <Text style={[styles.sectionTitle, { fontSize: s(14) }]}>Upcoming Appointments</Text>
-        <TouchableOpacity onPress={onViewAppointments} accessibilityRole="link"><Text style={[styles.link, { fontSize: s(12) }]}>Manage</Text></TouchableOpacity>
+        <Text style={[styles.sectionTitle, { fontSize: s(14) }]} accessibilityRole="header">Upcoming Appointments</Text>
+        <TouchableOpacity onPress={onViewAppointments} accessibilityRole="link" accessibilityLabel="Manage appointments" hitSlop={8}><Text style={[styles.link, { fontSize: s(12) }]}>Manage</Text></TouchableOpacity>
       </View>
       {loading ? (
         <SectionMessage text="Loading…" />
@@ -380,7 +391,7 @@ function UpcomingAppointments({
         <View style={[styles.row, { padding: s(8) }]}>
           <Text style={[styles.listDate, { fontSize: s(12), flex: 1 }]}>You have no upcoming appointments.</Text>
           {onBookAppointment && (
-            <TouchableOpacity onPress={onBookAppointment} accessibilityRole="button"><Text style={[styles.link, { fontSize: s(12) }]}>Book one →</Text></TouchableOpacity>
+            <TouchableOpacity onPress={onBookAppointment} accessibilityRole="button" accessibilityLabel="Book an appointment" hitSlop={8}><Text style={[styles.link, { fontSize: s(12) }]}>Book one →</Text></TouchableOpacity>
           )}
         </View>
       ) : upcoming.map((a) => (
@@ -390,13 +401,13 @@ function UpcomingAppointments({
           activeOpacity={0.8}
           onPress={onViewAppointments}
           accessibilityRole="button"
-          accessibilityLabel={`Appointment with ${a.doctor_name} on ${formatApptDate(a.scheduled_at)}`}
+          accessibilityLabel={`Appointment with ${tidyDoctorName(a.doctor_name)} on ${formatApptDate(a.scheduled_at)}`}
         >
           <View style={[styles.iconBox, { width: iconBox, height: iconBox, borderRadius: s(8), backgroundColor: '#E8F0FE' }]}>
             <Ionicons name={TYPE_ICON[a.type] ?? 'calendar-outline'} size={s(16)} color="#4285F4" />
           </View>
           <View style={styles.flex1}>
-            <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={1}>{a.doctor_name}</Text>
+            <Text style={[styles.listTitle, { fontSize: s(13) }]} numberOfLines={1}>{tidyDoctorName(a.doctor_name)}</Text>
             <Text style={[styles.listSub,   { fontSize: s(11) }]}>{formatApptDate(a.scheduled_at)}</Text>
           </View>
           <Ionicons name="chevron-forward" size={s(15)} color={GRAY} />
@@ -438,13 +449,7 @@ export function PatientMainDashboardAreaMobile(props: NavProps) {
         onViewAppointments={props.onViewAppointments}
         onBookAppointment={props.onBookAppointment}
       />
-      <RecentConsultations
-        appointments={appts.appointments}
-        loading={appts.loading}
-        error={appts.error}
-        onRetry={appts.refetch}
-        onViewConsultations={props.onViewConsultations}
-      />
+      <RecentConsultations onViewConsultations={props.onViewConsultations} />
       <LatestPrescriptions
         prescriptions={rx.prescriptions}
         loading={rx.loading}
@@ -463,7 +468,7 @@ const styles = StyleSheet.create({
   iconBox:      { alignItems: 'center', justifyContent: 'center' },
 
   quickCard:    { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER },
-  quickLabel:   { fontWeight: '700', color: TEXT, lineHeight: 17 },
+  quickLabel:   { fontWeight: '700', color: TEXT },
 
   banner:       { backgroundColor: '#F0F4FF', flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
   bannerTitle:  { fontWeight: '700', color: NAVY },

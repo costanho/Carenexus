@@ -11,7 +11,9 @@ import lombok.*;
 public class UpdateDependentAccessRequest {
 
     // Used by PATCH /api/caregiver/dependents/{accessId} (caregiver: may only narrow access) and
-    // PATCH /api/patients/me/caregivers/{accessId} (patient/admin: may grant or narrow).
+    // PATCH /api/patients/me/caregivers/{accessId} and PATCH /api/patients/me/caregiver-access/{accessId}
+    // (patient/admin: may grant or narrow). Setting canMessageCareTeam / canJoinCalls to true approves them only
+    // when the caller is the patient; admins never approve, caregivers can never turn them on.
 
     @JsonProperty("accessLevel")
     private String accessLevel;
@@ -40,6 +42,10 @@ public class UpdateDependentAccessRequest {
 
     @JsonProperty("canMessageCareTeam")
     private Boolean canMessageCareTeam;
+
+    /** Requested permission to join video calls (communication permissions need the patient's approval). */
+    @JsonProperty("canJoinCalls")
+    private Boolean canJoinCalls;
 
     @JsonProperty("canViewConsultations")
     private Boolean canViewConsultations;

@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { MobileNotificationBell } from '../../notifications/mobile-notification-bell';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
@@ -10,7 +11,10 @@ const WHITE = '#FFFFFF';
 const RED   = '#EF4444';
 const TEAL  = '#0D9488';
 
-export function PatientTopNavbar({ onProfilePress }: { onProfilePress?: () => void } = {}) {
+export function PatientTopNavbar({ onProfilePress, onOpenNotifications }: {
+  onProfilePress?: () => void;
+  onOpenNotifications?: () => void;
+} = {}) {
   const insets             = useSafeAreaInsets();
   const { width, height }  = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
@@ -44,6 +48,7 @@ export function PatientTopNavbar({ onProfilePress }: { onProfilePress?: () => vo
 
       {/* Right: avatar + sign out */}
       <View style={[styles.right, { gap: s(10) }]}>
+        {onOpenNotifications && <MobileNotificationBell onPress={onOpenNotifications} size={s(22)} />}
         {/* Avatar */}
         <TouchableOpacity
           style={[styles.userRow, { gap: s(4) }]}

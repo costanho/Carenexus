@@ -351,7 +351,7 @@ public class DavisFamilyScenarioTest extends BaseIntegrationTest {
         CareTeam careTeam = CareTeam.builder()
                 .patientSystemId(patientSystemId)
                 .providerSystemId(doctorSystemId != null ? doctorSystemId : caregiverSystemId)
-                .facilityId(1)
+                .facilityId(null)
                 .role(role)
                 .assignedAt(LocalDateTime.now())
                 .isActive(true)

@@ -1,4 +1,5 @@
 import { api } from './auth.interceptor';
+import { emitSignedOut } from './auth.events';
 import { clearAuth, getRefreshToken, getUser, saveTokens, saveUser } from './auth.storage';
 import type { AuthResponse, AuthUser, LoginPayload, RegisterPayload } from './auth.types';
 
@@ -59,6 +60,7 @@ export async function logout(): Promise<void> {
     // Server revocation is best-effort — always clear local tokens
   } finally {
     await clearAuth();
+    emitSignedOut();
   }
 }
 

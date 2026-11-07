@@ -4,6 +4,17 @@ import { useCurrentUser } from './use-current-user';
 
 export type AccessLevel  = 'FULL_ACCESS' | 'VIEW_ONLY' | 'EDIT_ONLY' | 'CUSTOM';
 export type HealthStatus = 'STABLE' | 'MONITOR' | 'CRITICAL' | string;
+export type AccessStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+/** Video call session status (one session per VIDEO appointment). Defined here so the proxy hook has no call-web dependency. */
+export type CallStatus =
+  | 'PREPARING'
+  | 'READY'
+  | 'FAILED'
+  | 'LIVE'
+  | 'ENDED'
+  | 'CANCELLED'
+  | 'NEEDS_TIME_CONFIRMATION';
 
 export interface CaregiverDependent {
   accessId:                 number;
@@ -25,6 +36,14 @@ export interface CaregiverDependent {
   expiresAt:                string | null;
   isActive:                 boolean;
   revokedAt:                string | null;
+  // communication permissions: the flags are requests, effective only after the patient approves
+  canJoinCalls:        boolean;
+  messagingApprovedAt: string | null;
+  callsApprovedAt:     string | null;
+  messagingAllowed:    boolean;
+  joinCallsAllowed:    boolean;
+  pendingApproval:     boolean;
+  accessStatus:        AccessStatus;
   // server-enriched patient fields
   patientName:          string | null;
   patientEmail:         string | null;
@@ -82,14 +101,18 @@ interface State {
 }
 
 export function useCaregiverDependents(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [dependents, setDependents] = useState<CaregiverDependent[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [tick,       setTick]       = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // The signed-in user could not be loaded: stop loading and say so instead of spinning forever
+      if (!userLoading) { setLoading(false); setError(userError ?? 'Failed to load your account.'); }
+      return;
+    }
     setLoading(true);
 
     api.get<CaregiverDependent[]>('/api/caregiver/dependents')
@@ -99,7 +122,7 @@ export function useCaregiverDependents(): State {
       })
       .catch((err) => setError(caregiverErrorMessage(err, 'Failed to load loved ones.')))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, userError, tick]);
 
   return { dependents, loading, error, refetch: () => setTick(t => t + 1) };
 }
@@ -116,8 +139,13 @@ export interface CaregiverAppointment {
   type:                  string | null;
   status:                string;
   reasonForVisit:        string | null;
+  /** Legacy field, always null. Use callJoinRoute. */
   videoConsultationLink: string | null;
   notes:                 string | null;
+  callStatus:            CallStatus | null;
+  callJoinRoute:         string | null;
+  joinWindowOpensAt:     string | null;
+  joinWindowClosesAt:    string | null;
 }
 
 export interface CaregiverConsultation {
@@ -143,7 +171,7 @@ interface ActivityState {
 }
 
 export function useCaregiverActivity(): ActivityState {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [appointments,  setAppointments]  = useState<CaregiverAppointment[]>([]);
   const [consultations, setConsultations] = useState<CaregiverConsultation[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -151,7 +179,10 @@ export function useCaregiverActivity(): ActivityState {
   const [tick,          setTick]          = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) { setLoading(false); setError(userError ?? 'Failed to load your account.'); }
+      return;
+    }
     setLoading(true);
 
     api.get<{ appointments?: CaregiverAppointment[]; consultations?: CaregiverConsultation[] }>(
@@ -164,7 +195,7 @@ export function useCaregiverActivity(): ActivityState {
       })
       .catch((err) => setError(caregiverErrorMessage(err, 'Failed to load appointments and activity.')))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, userError, tick]);
 
   return { appointments, consultations, loading, error, refetch: () => setTick(t => t + 1) };
 }

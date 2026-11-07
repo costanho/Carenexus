@@ -73,3 +73,8 @@ temp/
 .env
 .env.production
 .env.staging
+
+# Playwright
+e2e-results/
+e2e-report/
+playwright/.cache/

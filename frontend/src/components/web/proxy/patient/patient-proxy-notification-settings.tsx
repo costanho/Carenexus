@@ -28,7 +28,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
     title: 'Health Alerts',
     sub:   'Critical notifications about your linked patients\' health',
     items: [
-      { key: 'critical_alerts',    label: 'Critical Health Alerts',    sub: 'Immediate alerts for critical results or emergencies',       icon: 'warning-outline',          iconBg: '#FEE2E2', iconColor: RED    },
+      { key: 'critical_alerts',    label: 'Critical Health Alerts',    sub: 'When a result is marked as critical by the care team',       icon: 'warning-outline',          iconBg: '#FEE2E2', iconColor: RED    },
       { key: 'lab_results',        label: 'Lab Results',               sub: 'When new lab results are uploaded or require review',        icon: 'flask-outline',            iconBg: '#FEF3C7', iconColor: '#F59E0B' },
       { key: 'medication_due',     label: 'Medication Reminders',      sub: 'Daily reminders for due medications',                       icon: 'medical-outline',          iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'vitals_alert',       label: 'Vitals Outside Range',      sub: 'When BP, glucose or weight readings are abnormal',          icon: 'pulse-outline',            iconBg: '#FEE2E2', iconColor: RED    },
@@ -48,7 +48,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
     title: 'Care Team Messages',
     sub:   'Communication from doctors, nurses and pharmacists',
     items: [
-      { key: 'new_message',        label: 'New Messages',              sub: 'When the care team sends you a message',                   icon: 'chatbox-outline',          iconBg: '#EDE9FE', iconColor: PURPLE },
+      { key: 'new_message',        label: 'New Messages',              sub: 'In-app notification when the care team sends you a message', icon: 'chatbox-outline',          iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'prescription_ready', label: 'Prescription Ready',        sub: 'When a prescription is ready for collection',             icon: 'tablet-portrait-outline',  iconBg: '#D1FAE5', iconColor: GREEN  },
       { key: 'care_plan_update',   label: 'Care Plan Updates',         sub: 'Changes to treatment goals or care plans',                icon: 'document-text-outline',    iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'referral',           label: 'Referrals',                 sub: 'When a patient is referred to a specialist',              icon: 'share-outline',            iconBg: '#FEF3C7', iconColor: '#F59E0B' },
@@ -65,11 +65,32 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
   },
 ];
 
-const DELIVERY_CHANNELS = [
-  { key: 'push',  label: 'Push Notifications', icon: 'phone-portrait-outline' as IoniconsName },
-  { key: 'email', label: 'Email',               icon: 'mail-outline'           as IoniconsName },
-  { key: 'sms',   label: 'SMS',                 icon: 'chatbubble-outline'     as IoniconsName },
+// Email and SMS have no sender yet, so they are shown as unavailable and never saved from here.
+const DELIVERY_CHANNELS: { key: keyof Channels; label: string; icon: IoniconsName; available: boolean }[] = [
+  { key: 'push',  label: 'Push Notifications', icon: 'phone-portrait-outline', available: true  },
+  { key: 'email', label: 'Email',              icon: 'mail-outline',           available: false },
+  { key: 'sms',   label: 'SMS',                icon: 'chatbubble-outline',     available: false },
 ];
+
+/**
+ * Named switch (role="switch", aria-checked): the native Switch on web puts its label on a hidden input
+ * and exposes no state attribute, so the row itself is the control.
+ */
+function ToggleSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <TouchableOpacity
+      onPress={() => onChange(!value)}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+      aria-checked={value}
+      style={[styles.toggle, value && styles.toggleOn]}
+    >
+      <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
+    </TouchableOpacity>
+  );
+}
 
 function ToggleRow({ setting, value, onChange }: {
   setting: NotifSetting;
@@ -79,18 +100,13 @@ function ToggleRow({ setting, value, onChange }: {
   return (
     <View style={styles.toggleRow}>
       <View style={[styles.iconWrap, { backgroundColor: setting.iconBg }]}>
-        <Ionicons name={setting.icon} size={16} color={setting.iconColor} />
+        <Ionicons name={setting.icon} size={16} color={setting.iconColor} importantForAccessibility="no" />
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.toggleLabel}>{setting.label}</Text>
         <Text style={styles.toggleSub}>{setting.sub}</Text>
       </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: BORDER, true: PURPLE + '60' }}
-        thumbColor={value ? PURPLE : WHITE}
-      />
+      <ToggleSwitch label={setting.label} value={value} onChange={onChange} />
     </View>
   );
 }
@@ -123,6 +139,8 @@ const SETTING_FIELDS: Record<string, string> = {
 
 const CHANNEL_FIELDS = { push: 'pushNotifications', email: 'emailNotifications', sms: 'smsNotifications' } as const;
 type Channels = Record<keyof typeof CHANNEL_FIELDS, boolean>;
+/** Channels saved from this screen (email and SMS are not available yet). */
+const SAVED_CHANNELS: (keyof Channels)[] = ['push'];
 
 function errorMessage(err: any, fallback: string) {
   if (!err?.response) return 'Unable to reach the server. Please check your connection.';
@@ -183,7 +201,7 @@ export default function PatientProxyNotificationSettings() {
     setSaved(false);
     const body: Record<string, boolean> = {};
     for (const [key, field] of Object.entries(SETTING_FIELDS)) body[field] = !!settings[key];
-    for (const [key, field] of Object.entries(CHANNEL_FIELDS) as [keyof Channels, string][]) body[field] = channels[key];
+    for (const key of SAVED_CHANNELS) body[CHANNEL_FIELDS[key]] = channels[key];
     try {
       const { data } = await api.patch('/api/profile/settings/notifications', body);
       applyServer(data);
@@ -203,7 +221,7 @@ export default function PatientProxyNotificationSettings() {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Notification Settings</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Notification Settings</Text>
           <Text style={styles.pageSub}>{enabledCount} of {Object.keys(settings).length} notifications enabled</Text>
         </View>
         <TouchableOpacity
@@ -243,38 +261,43 @@ export default function PatientProxyNotificationSettings() {
         </View>
       ) : null}
       <Text style={styles.deliveryNote}>
-        These preferences are saved to your account. Email and SMS delivery of notifications is not available yet.
+        These preferences are saved to your account. Notifications are shown in CareNexus; email and SMS delivery is not available yet.
       </Text>
 
       {/* Delivery channels */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Delivery Channels</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header">Delivery Channels</Text>
         <Text style={styles.cardSub}>Choose how you receive notifications</Text>
         <View style={styles.channelRow}>
-          {DELIVERY_CHANNELS.map(ch => (
-            <TouchableOpacity
-              key={ch.key}
-              style={[styles.channelBtn, channels[ch.key as keyof typeof channels] && styles.channelBtnActive]}
-              activeOpacity={0.7}
-              onPress={() => { setChannels(c => ({ ...c, [ch.key]: !c[ch.key as keyof typeof channels] })); setSaved(false); }}
-            >
-              <Ionicons
-                name={ch.icon}
-                size={18}
-                color={channels[ch.key as keyof typeof channels] ? WHITE : GRAY}
-              />
-              <Text style={[styles.channelText, channels[ch.key as keyof typeof channels] && styles.channelTextActive]}>
-                {ch.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {DELIVERY_CHANNELS.map(ch => {
+            const on = ch.available && channels[ch.key];
+            return (
+              <TouchableOpacity
+                key={ch.key}
+                style={[styles.channelBtn, on && styles.channelBtnActive, !ch.available && styles.channelBtnUnavailable]}
+                activeOpacity={0.7}
+                disabled={!ch.available}
+                onPress={() => { setChannels(c => ({ ...c, [ch.key]: !c[ch.key] })); setSaved(false); }}
+                accessibilityRole="switch"
+                accessibilityLabel={ch.available ? ch.label : `${ch.label}, not available yet`}
+                accessibilityState={{ checked: on, disabled: !ch.available }}
+                aria-checked={on}
+              >
+                <Ionicons name={ch.icon} size={18} color={on ? WHITE : GRAY} importantForAccessibility="no" />
+                <View style={{ alignItems: 'flex-start', flexShrink: 1 }}>
+                  <Text style={[styles.channelText, on && styles.channelTextActive]}>{ch.label}</Text>
+                  {!ch.available && <Text style={styles.channelSoon}>Not available yet</Text>}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
       {/* Notification categories */}
       {CATEGORIES.map(cat => (
         <View key={cat.title} style={styles.card}>
-          <Text style={styles.cardTitle}>{cat.title}</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">{cat.title}</Text>
           <Text style={styles.cardSub}>{cat.sub}</Text>
           {cat.items.map((item, i) => (
             <View key={item.key}>
@@ -292,7 +315,7 @@ export default function PatientProxyNotificationSettings() {
       {/* Quiet hours */}
       <View style={styles.card}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={styles.cardTitle}>Quiet Hours</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Quiet Hours</Text>
           <View style={styles.soonPill}><Text style={styles.soonText}>Coming soon</Text></View>
         </View>
         <Text style={styles.cardSub}>Pausing non-critical notifications during set hours is not available yet</Text>
@@ -342,9 +365,11 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '700', color: TEXT, marginBottom: 4 },
   cardSub:   { fontSize: 12, color: GRAY, marginBottom: 16 },
 
-  channelRow: { flexDirection: 'row', gap: 10 },
-  channelBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingVertical: 12 },
+  channelRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  channelBtn: { flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 10 },
   channelBtnActive: { backgroundColor: PURPLE, borderColor: PURPLE },
+  channelBtnUnavailable: { backgroundColor: BG, borderStyle: 'dashed' },
+  channelSoon:      { fontSize: 11, color: GRAY },
   channelText:      { fontSize: 13, color: GRAY, fontWeight: '500' },
   channelTextActive:{ color: WHITE },
 
@@ -354,6 +379,10 @@ const styles = StyleSheet.create({
   iconWrap:    { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   toggleLabel: { fontSize: 14, fontWeight: '600', color: TEXT },
   toggleSub:   { fontSize: 12, color: GRAY, marginTop: 2 },
+  toggle:        { width: 44, height: 24, borderRadius: 12, backgroundColor: BORDER, justifyContent: 'center', paddingHorizontal: 2, flexShrink: 0 },
+  toggleOn:      { backgroundColor: PURPLE },
+  toggleThumb:   { width: 20, height: 20, borderRadius: 10, backgroundColor: WHITE } as any,
+  toggleThumbOn: { alignSelf: 'flex-end' },
 
   quietRow:   { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 8 },
   quietBlock: { gap: 4 },

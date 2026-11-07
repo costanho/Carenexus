@@ -165,10 +165,10 @@ function ProfileHero({ profile }: { profile: PatientProfile }) {
       </View>
 
       <View style={styles.heroRight}>
-        {profile.patient_id && (
+        {profile.patient_system_id && (
           <View style={styles.heroStatBox}>
             <Text style={styles.heroStatLabel}>Patient ID</Text>
-            <Text style={styles.heroStatValue}>#{profile.patient_id}</Text>
+            <Text style={styles.heroStatValue}>{profile.patient_system_id}</Text>
           </View>
         )}
         <View style={styles.heroStatBox}>
@@ -219,7 +219,7 @@ export function PatientWebProfile() {
       {/* Page header */}
       <View style={styles.pageHeader}>
         <View>
-          <Text style={styles.pageTitle}>Profile &amp; Settings</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Profile &amp; Settings</Text>
           <Text style={styles.pageSubtitle}>Your personal and health information</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} accessibilityRole="button">
@@ -311,7 +311,7 @@ export function PatientWebProfile() {
       <SectionCard title="Account Details" icon="shield-checkmark-outline">
         <View style={styles.accountGrid}>
           <InfoRow label="User ID"          value={`#${profile.user_id}`} />
-          <InfoRow label="Patient ID"       value={profile.patient_id ? `#${profile.patient_id}` : '—'} />
+          <InfoRow label="Patient ID"       value={profile.patient_system_id ?? '—'} />
           <InfoRow label="Role"             value={profile.role.charAt(0).toUpperCase() + profile.role.slice(1).toLowerCase()} valueColor={TEAL} />
           <InfoRow label="Account Status"   value={profile.is_active ? 'Active' : 'Inactive'} valueColor={profile.is_active ? GREEN : RED} />
           <InfoRow label="Profile Created"  value={formatDate(profile.patient_created_at)} />

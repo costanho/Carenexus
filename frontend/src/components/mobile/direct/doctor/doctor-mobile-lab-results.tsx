@@ -4,11 +4,12 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   type DoctorLabResult, type LabFlag, type LabStatus, type LabTestType,
   useDoctorLabResults,
 } from '@/hooks/use-doctor-lab-results';
+import { tidyDoctorName } from '@/hooks/use-doctors';
+import { formatDateOnly } from '@/lib/ui/date-only';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
@@ -35,29 +36,40 @@ function testTypeConfig(t: LabTestType) {
     case 'SWAB':    return { label: 'Swab',    color: TEAL,   bg: '#CCFBF1', icon: 'medical-outline'   as IoniconsName };
     case 'URINE':   return { label: 'Urine',   color: AMBER,  bg: '#FEF3C7', icon: 'flask-outline'     as IoniconsName };
     case 'CULTURE': return { label: 'Culture', color: PURPLE, bg: '#EDE9FE', icon: 'bug-outline'       as IoniconsName };
-    default:        return { label: t,         color: BLUE,   bg: '#EEF2FF', icon: 'analytics-outline' as IoniconsName };
+    default:        return { label: readable(t, 'Other'), color: BLUE,   bg: '#EEF2FF', icon: 'analytics-outline' as IoniconsName };
   }
 }
 
-function statusConfig(s: LabStatus) {
-  switch (s) {
-    case 'COMPLETED':       return { label: 'Completed',  color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline' as IoniconsName };
-    case 'REQUIRES_REVIEW': return { label: 'Needs Review', color: AMBER, bg: '#FEF3C7', icon: 'eye-outline'            as IoniconsName };
-    default:                return { label: s,            color: GRAY,  bg: '#F3F4F6', icon: 'help-circle-outline'     as IoniconsName };
+/** "IN_PROGRESS" -> "In progress"; used for any status or type the app has no label for. */
+function readable(value: string | null | undefined, fallback = 'Unknown') {
+  const t = String(value ?? '').replace(/_/g, ' ').toLowerCase().trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : fallback;
+}
+
+// The backend can also send PENDING, IN_PROGRESS, CRITICAL and CANCELLED, which LabStatus does not list.
+function statusConfig(st: LabStatus | string) {
+  switch (st) {
+    case 'COMPLETED':       return { label: 'Completed',    color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline' as IoniconsName };
+    case 'REQUIRES_REVIEW': return { label: 'Needs Review', color: AMBER, bg: '#FEF3C7', icon: 'eye-outline'              as IoniconsName };
+    case 'PENDING':         return { label: 'Pending',      color: BLUE,  bg: '#EEF2FF', icon: 'hourglass-outline'        as IoniconsName };
+    case 'IN_PROGRESS':     return { label: 'In Progress',  color: TEAL,  bg: '#CCFBF1', icon: 'sync-outline'             as IoniconsName };
+    case 'CRITICAL':        return { label: 'Critical',     color: RED,   bg: '#FEE2E2', icon: 'alert-circle-outline'     as IoniconsName };
+    case 'CANCELLED':       return { label: 'Cancelled',    color: GRAY,  bg: '#F3F4F6', icon: 'close-circle-outline'     as IoniconsName };
+    default:                return { label: readable(st),   color: GRAY,  bg: '#F3F4F6', icon: 'help-circle-outline'      as IoniconsName };
   }
 }
 
 function flagColor(f: LabFlag) {
   switch (f) {
-    case 'LOW':  return { text: AMBER, bg: '#FEF3C7', icon: 'arrow-down-outline' as IoniconsName };
-    case 'HIGH': return { text: RED,   bg: '#FEE2E2', icon: 'arrow-up-outline'   as IoniconsName };
-    default:     return { text: GREEN, bg: '#D1FAE5', icon: 'checkmark-outline'  as IoniconsName };
+    case 'LOW':  return { label: 'Low',    text: AMBER, bg: '#FEF3C7', icon: 'arrow-down-outline' as IoniconsName };
+    case 'HIGH': return { label: 'High',   text: RED,   bg: '#FEE2E2', icon: 'arrow-up-outline'   as IoniconsName };
+    default:     return { label: 'Normal', text: GREEN, bg: '#D1FAE5', icon: 'checkmark-outline'  as IoniconsName };
   }
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+/** Drops a leading "Dr." so avatar initials come from the name ("Dr. Michael Kariuki" -> "MK"). */
+function withoutTitle(name: string) {
+  return name.replace(/^\s*(dr(\.\s*|\s+))+/i, '').trim();
 }
 
 function formatDateTime(iso: string): string {
@@ -93,7 +105,6 @@ const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
 
 export default function DoctorMobileLabResults() {
   const { results, loading, error, refetch } = useDoctorLabResults();
-  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
   const s  = (n: number) => Math.round(n * (width  / 390));
@@ -137,7 +148,8 @@ export default function DoctorMobileLabResults() {
       })
   ), [results, typeFilter, search]);
 
-  if (loading) {
+  // Full-screen states only before the first load; a refetch keeps the list and expanded cards.
+  if (loading && results.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color={BLUE} />
@@ -145,7 +157,7 @@ export default function DoctorMobileLabResults() {
     );
   }
 
-  if (error) {
+  if (error && results.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: s(12), padding: s(24) }}>
         <Ionicons name="alert-circle-outline" size={s(48)} color={RED} />
@@ -154,6 +166,8 @@ export default function DoctorMobileLabResults() {
           style={{ backgroundColor: BLUE, borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: sh(10) }}
           onPress={refetch}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading lab results"
         >
           <Text style={{ color: WHITE, fontWeight: '600', fontSize: s(14) }}>Retry</Text>
         </TouchableOpacity>
@@ -167,12 +181,12 @@ export default function DoctorMobileLabResults() {
       {/* Navy Header */}
       <View style={{
         backgroundColor: NAVY,
-        paddingTop: insets.top + sh(10),
+        paddingTop: sh(10),
         paddingBottom: sh(16),
         paddingHorizontal: s(16),
         gap: sh(4),
       }}>
-        <Text style={{ fontSize: s(20), fontWeight: '700', color: WHITE }}>Labs & Results</Text>
+        <Text style={{ fontSize: s(20), fontWeight: '700', color: WHITE }} accessibilityRole="header">Labs & Results</Text>
         <Text style={{ fontSize: s(12), color: '#8BA3BE' }}>
           {results.length} test{results.length !== 1 ? 's' : ''} for your patients
         </Text>
@@ -205,7 +219,7 @@ export default function DoctorMobileLabResults() {
             { icon: 'water-outline'            as IoniconsName, iconBg: '#FEE2E2', iconColor: RED,   label: 'Blood',     value: stats.blood     },
             { icon: 'warning-outline'          as IoniconsName, iconBg: '#FEF3C7', iconColor: AMBER, label: 'Abnormal',  value: stats.abnormal  },
           ] as const).map(chip => (
-            <View key={chip.label} style={{
+            <View key={chip.label} accessible accessibilityLabel={`${chip.label}: ${chip.value}`} style={{
               backgroundColor: WHITE, borderRadius: s(12), borderWidth: 1, borderColor: BORDER,
               paddingHorizontal: s(14), paddingVertical: sh(6), alignItems: 'center', gap: sh(3),
               minWidth: s(78), alignSelf: 'flex-start',
@@ -237,8 +251,14 @@ export default function DoctorMobileLabResults() {
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
-            clearButtonMode="while-editing"
+            accessibilityLabel="Search lab results by test name, patient or doctor"
           />
+          {/* clearButtonMode is iOS-only, so draw our own clear button for Android too. */}
+          {!!search && (
+            <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8}>
+              <Ionicons name="close-circle" size={s(16)} color={LGRAY} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Type filter pills */}
@@ -269,6 +289,9 @@ export default function DoctorMobileLabResults() {
                 }}
                 onPress={() => setTypeFilter(f.key)}
                 activeOpacity={0.7}
+                accessibilityRole="tab"
+                accessibilityLabel={`Test type: ${f.label}`}
+                accessibilityState={{ selected: active }}
               >
                 <Text style={{ fontSize: s(13), fontWeight: active ? '700' : '500', color: active ? color : GRAY }}>
                   {f.label}
@@ -277,6 +300,10 @@ export default function DoctorMobileLabResults() {
             );
           })}
         </ScrollView>
+
+        {!!error && (
+          <Text style={{ fontSize: s(12), color: RED, marginHorizontal: s(16), marginBottom: sh(6) }} accessibilityRole="alert">{error}</Text>
+        )}
 
         {/* Result count */}
         <Text style={{ fontSize: s(12), color: GRAY, fontWeight: '500', marginHorizontal: s(16), marginBottom: sh(8) }}>
@@ -296,7 +323,8 @@ export default function DoctorMobileLabResults() {
               const tc         = testTypeConfig(result.test_type);
               const sc         = statusConfig(result.status);
               const pac        = avatarColor(result.patient_name);
-              const dac        = avatarColor(result.doctor_name);
+              const doctor     = tidyDoctorName(result.doctor_name);
+              const dac        = avatarColor(doctor);
               const subTests   = result.result_data ? Object.entries(result.result_data) : [];
               const abnormal   = subTests.filter(([, sub]) => sub.flag !== 'NORMAL');
               const isExpanded = expandedIds.has(result.result_id);
@@ -323,7 +351,7 @@ export default function DoctorMobileLabResults() {
                       borderWidth: 1, borderColor: '#FECACA',
                     }}>
                       <Ionicons name="alert-circle" size={s(12)} color={RED} />
-                      <Text style={{ fontSize: s(11), color: RED, fontWeight: '700' }}>
+                      <Text style={{ fontSize: s(11), color: RED, fontWeight: '700', flexShrink: 1 }}>
                         Critical — Immediate attention required
                       </Text>
                     </View>
@@ -360,12 +388,12 @@ export default function DoctorMobileLabResults() {
                         </View>
                       )}
                     </View>
-                    <Text style={{ fontSize: s(11), color: LGRAY }}>{formatDate(result.test_date)}</Text>
+                    <Text style={{ fontSize: s(11), color: LGRAY }}>{formatDateOnly(result.test_date)}</Text>
                   </View>
 
                   {/* Test name + icon */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(12) }}>
-                    <View style={{ width: s(40), height: s(40), borderRadius: s(10), backgroundColor: tc.bg, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: s(40), height: s(40), borderRadius: s(10), backgroundColor: tc.bg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Ionicons name={tc.icon} size={s(20)} color={tc.color} />
                     </View>
                     <Text style={{ flex: 1, fontSize: s(14), fontWeight: '700', color: TEXT, lineHeight: s(20) }}>
@@ -390,23 +418,23 @@ export default function DoctorMobileLabResults() {
 
                   {/* Patient + doctor row */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(10), flexWrap: 'wrap' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6), maxWidth: '100%' }}>
                       <View style={{ width: s(26), height: s(26), borderRadius: s(13), backgroundColor: pac, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ color: WHITE, fontSize: s(9), fontWeight: '700' }}>{initials(result.patient_name)}</Text>
                       </View>
-                      <View>
+                      <View style={{ flexShrink: 1 }}>
                         <Text style={{ fontSize: s(9), color: LGRAY, textTransform: 'uppercase' }}>Patient</Text>
-                        <Text style={{ fontSize: s(11), fontWeight: '600', color: TEXT }}>{result.patient_name}</Text>
+                        <Text style={{ fontSize: s(11), fontWeight: '600', color: TEXT }} numberOfLines={1}>{result.patient_name}</Text>
                       </View>
                     </View>
                     <View style={{ width: 1, height: s(24), backgroundColor: BORDER }} />
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6), maxWidth: '100%' }}>
                       <View style={{ width: s(26), height: s(26), borderRadius: s(13), backgroundColor: dac, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: WHITE, fontSize: s(9), fontWeight: '700' }}>{initials(result.doctor_name)}</Text>
+                        <Text style={{ color: WHITE, fontSize: s(9), fontWeight: '700' }}>{initials(withoutTitle(doctor))}</Text>
                       </View>
-                      <View>
+                      <View style={{ flexShrink: 1 }}>
                         <Text style={{ fontSize: s(9), color: LGRAY, textTransform: 'uppercase' }}>Ordered by</Text>
-                        <Text style={{ fontSize: s(11), fontWeight: '600', color: TEXT }}>{result.doctor_name}</Text>
+                        <Text style={{ fontSize: s(11), fontWeight: '600', color: TEXT }} numberOfLines={1}>{doctor}</Text>
                       </View>
                     </View>
                   </View>
@@ -443,7 +471,7 @@ export default function DoctorMobileLabResults() {
                                   <Text style={{ fontSize: s(12), color: TEXT }}>{sub.value} {sub.unit}</Text>
                                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(3), paddingHorizontal: s(6), paddingVertical: sh(2), borderRadius: s(8), backgroundColor: fc.bg }}>
                                     <Ionicons name={fc.icon} size={s(9)} color={fc.text} />
-                                    <Text style={{ fontSize: s(9), fontWeight: '700', color: fc.text }}>{sub.flag}</Text>
+                                    <Text style={{ fontSize: s(9), fontWeight: '700', color: fc.text }}>{fc.label}</Text>
                                   </View>
                                 </View>
                                 <Text style={{ fontSize: s(10), color: LGRAY, fontStyle: 'italic' }}>{sub.reference}</Text>
@@ -459,6 +487,9 @@ export default function DoctorMobileLabResults() {
                         style={{ flexDirection: 'row', alignItems: 'center', gap: s(4), alignSelf: 'flex-start' }}
                         onPress={() => toggleExpand(result.result_id)}
                         activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${isExpanded ? 'Hide' : 'Show'} results for ${result.test_name}`}
+                        accessibilityState={{ expanded: isExpanded }}
                       >
                         <Text style={{ fontSize: s(12), color: BLUE, fontWeight: '500' }}>
                           {isExpanded

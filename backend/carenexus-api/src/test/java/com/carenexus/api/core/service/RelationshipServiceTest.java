@@ -1,5 +1,8 @@
 package com.carenexus.api.core.service;
 
+import com.carenexus.api.auth.model.User;
+import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
 import com.carenexus.api.core.model.CareTeam;
 import com.carenexus.api.core.model.DependentAccess;
 import com.carenexus.api.core.repository.CareTeamRepository;
@@ -9,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,8 +41,55 @@ public class RelationshipServiceTest {
     @Mock
     private DependentAccessRepository dependentAccessRepository;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private RelationshipService relationshipService;
+
+    // ==================== RELATED DOCTORS (messaging / calls eligibility) ====================
+
+    @Test
+    public void relatedDoctors_unionOfCareTeamAppointmentsConsultations_deduplicated_activeDoctorsOnly() {
+        when(careTeamRepository.findAllDoctorsForPatient(LINDA)).thenReturn(List.of(careTeam(DOCTOR, LINDA, "PRIMARY_DOCTOR")));
+        when(careTeamRepository.findAppointmentDoctorSystemIdsForPatient(LINDA)).thenReturn(List.of("DOC-00002", DOCTOR));
+        when(careTeamRepository.findConsultationDoctorSystemIdsForPatient(LINDA)).thenReturn(List.of("DOC-00003", "DOC-00002"));
+        when(userRepository.findBySystemId(DOCTOR)).thenReturn(Optional.of(user(DOCTOR, "DOCTOR", true)));
+        when(userRepository.findBySystemId("DOC-00002")).thenReturn(Optional.of(user("DOC-00002", "DOCTOR", true)));
+        when(userRepository.findBySystemId("DOC-00003")).thenReturn(Optional.of(user("DOC-00003", "DOCTOR", false)));
+
+        assertEquals(List.of(DOCTOR, "DOC-00002"), relationshipService.getRelatedDoctorsForPatient(LINDA));
+    }
+
+    @Test
+    public void relatedDoctors_none() {
+        when(careTeamRepository.findAllDoctorsForPatient(LINDA)).thenReturn(List.of());
+        when(careTeamRepository.findAppointmentDoctorSystemIdsForPatient(LINDA)).thenReturn(List.of());
+        when(careTeamRepository.findConsultationDoctorSystemIdsForPatient(LINDA)).thenReturn(List.of());
+
+        assertTrue(relationshipService.getRelatedDoctorsForPatient(LINDA).isEmpty());
+        assertTrue(relationshipService.getRelatedDoctorsForPatient(null).isEmpty());
+    }
+
+    @Test
+    public void revokeCaregiverAccess_clearsApprovals_andPublishesEvent() {
+        DependentAccess access = access(SARAH, LINDA);
+        access.setAccessId(3);
+        access.setCanMessageCareTeam(true);
+        access.setMessagingApprovedAt(java.time.Instant.now());
+        access.setMessagingApprovedBySystemId(LINDA);
+        when(dependentAccessRepository.findActiveCaregiverAccessToDependents(SARAH, LINDA)).thenReturn(Optional.of(access));
+        when(dependentAccessRepository.save(any(DependentAccess.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        relationshipService.revokeCaregiverAccessToDependent(SARAH, LINDA);
+
+        assertFalse(access.getIsActive());
+        assertNull(access.getMessagingApprovedAt());
+        verify(eventPublisher).publishEvent((Object) new CaregiverAccessChangedEvent(3, LINDA, SARAH, true, false, false));
+    }
 
     // ==================== DOCTOR-PATIENT ====================
 
@@ -219,6 +270,14 @@ public class RelationshipServiceTest {
                 .role(role)
                 .isActive(true)
                 .build();
+    }
+
+    private static User user(String systemId, String role, boolean active) {
+        User user = new User();
+        user.setSystemId(systemId);
+        user.setRole(role);
+        user.setIsActive(active);
+        return user;
     }
 
     private static DependentAccess access(String caregiver, String patient) {

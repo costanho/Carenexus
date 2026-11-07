@@ -1,5 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
-import { emitSessionExpired } from './auth.events';
+import { emitSessionExpired, emitSignedOut } from './auth.events';
 import { clearAuth, getAccessToken, getRefreshToken, saveTokens, saveUser } from './auth.storage';
 import type { AuthResponse } from './auth.types';
 
@@ -93,6 +93,7 @@ api.interceptors.response.use(
       const rejected    = !isHttpError || (status !== undefined && status >= 400 && status < 500);
       if (rejected) {
         await clearAuth();
+        emitSignedOut();
         emitSessionExpired();
         return Promise.reject(error);
       }

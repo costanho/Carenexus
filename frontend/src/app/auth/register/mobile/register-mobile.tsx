@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { PhoneInput } from '@/components/shared/phone-input';
 import { parseApiError, register } from '@/lib/auth/auth.service';
 import { ROLE_HOME } from '@/lib/auth/auth.types';
@@ -24,6 +25,56 @@ import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type 
 import { getPasswordStrength } from '@/lib/validation/register/register.validators';
 
 const { WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
+
+type Scale = (n: number) => number;
+
+// Module scope: declared inside the screen, every keystroke made a new component type, remounted the
+// TextInput and closed the keyboard after each character.
+function Field({
+  s, label, icon, placeholder, value, onChangeText,
+  keyboardType = 'default', secureTextEntry = false,
+  rightEl, error, textContentType, autoComplete,
+}: {
+  s: Scale;
+  label: string; icon: IoniconsName; placeholder: string;
+  value: string; onChangeText: (v: string) => void;
+  keyboardType?: any; secureTextEntry?: boolean;
+  rightEl?: React.ReactNode; error?: string;
+  textContentType?: any; autoComplete?: any;
+}) {
+  return (
+    <View style={{ marginBottom: s(12) }}>
+      <Text style={[styles.label, { fontSize: s(12), marginBottom: s(6) }]}>{label}</Text>
+      <View style={[styles.inputRow, {
+        borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(12),
+        borderColor: error ? RED : BORDER,
+      }]}>
+        <Ionicons name={icon} size={s(16)} color={GRAY} style={{ marginRight: s(8) }} />
+        <TextInput
+          style={[styles.input, { fontSize: s(13) }]}
+          accessibilityLabel={label}
+          placeholder={placeholder}
+          placeholderTextColor={GRAY}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry}
+          autoCapitalize={secureTextEntry || keyboardType === 'email-address' ? 'none' : 'words'}
+          autoCorrect={false}
+          textContentType={textContentType}
+          autoComplete={autoComplete}
+        />
+        {rightEl}
+      </View>
+      {!!error && (
+        <View style={[styles.fieldError, { gap: s(4), marginTop: s(4) }]}>
+          <Ionicons name="alert-circle-outline" size={s(12)} color={RED} />
+          <Text style={[styles.fieldErrorText, { fontSize: s(11) }]}>{error}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function RegisterMobile() {
   const router = useRouter();
@@ -55,6 +106,7 @@ export default function RegisterMobile() {
   const strength      = getPasswordStrength(passwordValue);
 
   async function onSubmit(data: RegisterFormData) {
+    if (loading) return;
     setAuthError('');
     setLoading(true);
     try {
@@ -81,53 +133,12 @@ export default function RegisterMobile() {
     }
   }
 
-  // Defined inside to close over s() for proportional sizing
-  function Field({
-    label, icon, placeholder, value, onChangeText,
-    keyboardType = 'default', secureTextEntry = false,
-    rightEl, error,
-  }: {
-    label: string; icon: IoniconsName; placeholder: string;
-    value: string; onChangeText: (v: string) => void;
-    keyboardType?: any; secureTextEntry?: boolean;
-    rightEl?: React.ReactNode; error?: string;
-  }) {
-    return (
-      <View style={{ marginBottom: s(12) }}>
-        <Text style={[styles.label, { fontSize: s(12), marginBottom: s(6) }]}>{label}</Text>
-        <View style={[styles.inputRow, {
-          borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(12),
-          borderColor: error ? RED : BORDER,
-        }]}>
-          <Ionicons name={icon} size={s(16)} color={GRAY} style={{ marginRight: s(8) }} />
-          <TextInput
-            style={[styles.input, { fontSize: s(13) }]}
-            placeholder={placeholder}
-            placeholderTextColor={GRAY}
-            value={value}
-            onChangeText={onChangeText}
-            keyboardType={keyboardType}
-            secureTextEntry={secureTextEntry}
-            autoCapitalize={secureTextEntry || keyboardType === 'email-address' ? 'none' : 'words'}
-            autoCorrect={false}
-          />
-          {rightEl}
-        </View>
-        {!!error && (
-          <View style={[styles.fieldError, { gap: s(4), marginTop: s(4) }]}>
-            <Ionicons name="alert-circle-outline" size={s(12)} color={RED} />
-            <Text style={[styles.fieldErrorText, { fontSize: s(11) }]}>{error}</Text>
-          </View>
-        )}
-      </View>
-    );
-  }
-
   return (
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <StatusBar style="light" />
       {/* Branded header */}
       <View style={[styles.header, {
         backgroundColor: active.color,
@@ -145,7 +156,7 @@ export default function RegisterMobile() {
             <Text style={{ color: 'rgba(255,255,255,0.75)' }}>Nexus</Text>
           </Text>
         </View>
-        <Text style={[styles.headerTitle, { fontSize: s(22) }]}>Create account</Text>
+        <Text style={[styles.headerTitle, { fontSize: s(22) }]} accessibilityRole="header">Create account</Text>
         <Text style={[styles.headerSub, { fontSize: s(12) }]}>Join CareNexus — it only takes a minute.</Text>
       </View>
 
@@ -161,7 +172,7 @@ export default function RegisterMobile() {
       >
         {/* Role selector */}
         <Text style={[styles.label, { fontSize: s(12), marginBottom: s(8) }]}>I am a</Text>
-        <View style={[styles.roleRow, { gap: s(8), marginBottom: s(16) }]}>
+        <View style={[styles.roleRow, { gap: s(8), marginBottom: s(16) }]} accessibilityRole="radiogroup" accessibilityLabel="I am a">
           {REGISTER_ROLES.map(r => {
             const on = role === r.key;
             return (
@@ -174,6 +185,9 @@ export default function RegisterMobile() {
                 ]}
                 onPress={() => setRole(r.key)}
                 activeOpacity={0.8}
+                accessibilityRole="radio"
+                accessibilityLabel={r.label}
+                accessibilityState={{ selected: on, checked: on }}
               >
                 <Ionicons name={r.icon} size={s(20)} color={on ? r.color : GRAY} />
                 <Text style={[styles.roleLabel, { fontSize: s(10) }, on && { color: r.color, fontWeight: '700' }]}>
@@ -196,7 +210,7 @@ export default function RegisterMobile() {
           <View style={{ flex: 1 }}>
             <Controller control={control} name="firstName"
               render={({ field: { onChange, value } }) => (
-                <Field label="First Name" icon="person-outline" placeholder="John"
+                <Field s={s} label="First Name" icon="person-outline" placeholder="John"
                   value={value} onChangeText={onChange} error={errors.firstName?.message} />
               )}
             />
@@ -204,7 +218,7 @@ export default function RegisterMobile() {
           <View style={{ flex: 1 }}>
             <Controller control={control} name="lastName"
               render={({ field: { onChange, value } }) => (
-                <Field label="Last Name" icon="person-outline" placeholder="Smith"
+                <Field s={s} label="Last Name" icon="person-outline" placeholder="Smith"
                   value={value} onChangeText={onChange} error={errors.lastName?.message} />
               )}
             />
@@ -213,7 +227,7 @@ export default function RegisterMobile() {
 
         <Controller control={control} name="email"
           render={({ field: { onChange, value } }) => (
-            <Field label="Email Address" icon="mail-outline" placeholder="you@example.com"
+            <Field s={s} label="Email Address" icon="mail-outline" placeholder="you@example.com"
               value={value} onChangeText={onChange} keyboardType="email-address" error={errors.email?.message} />
           )}
         />
@@ -231,7 +245,7 @@ export default function RegisterMobile() {
         {/* Password */}
         <Controller control={control} name="password"
           render={({ field: { onChange, value } }) => (
-            <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
+            <Field s={s} label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters" textContentType="newPassword" autoComplete="new-password"
               value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
               rightEl={
                 <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPass ? 'Hide password' : 'Show password'} onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
@@ -252,7 +266,7 @@ export default function RegisterMobile() {
 
         <Controller control={control} name="confirmPassword"
           render={({ field: { onChange, value } }) => (
-            <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter password"
+            <Field s={s} label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter password" textContentType="newPassword" autoComplete="new-password"
               value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
               rightEl={
                 <TouchableOpacity accessibilityRole="button" accessibilityLabel={showConf ? 'Hide password confirmation' : 'Show password confirmation'} onPress={() => setShowConf(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
@@ -270,6 +284,9 @@ export default function RegisterMobile() {
               style={[styles.termsRow, { gap: s(10), marginBottom: s(6), marginTop: s(4) }]}
               onPress={() => onChange(agreedValue ? (undefined as any) : true)}
               activeOpacity={0.8}
+              accessibilityRole="checkbox"
+              accessibilityLabel="I agree to the Terms of Service and Privacy Policy"
+              accessibilityState={{ checked: !!agreedValue }}
             >
               <View style={[styles.checkbox, {
                 width: s(20), height: s(20), borderRadius: s(5),
@@ -294,7 +311,11 @@ export default function RegisterMobile() {
 
         {/* Auth error */}
         {!!authError && (
-          <View style={[styles.fieldError, { gap: s(6), marginBottom: s(8), padding: s(10), backgroundColor: '#FEF2F2', borderRadius: s(8) }]}>
+          <View
+            style={[styles.fieldError, { gap: s(6), marginBottom: s(8), padding: s(10), backgroundColor: '#FEF2F2', borderRadius: s(8) }]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
             <Ionicons name="alert-circle-outline" size={s(14)} color={RED} />
             <Text style={[styles.fieldErrorText, { fontSize: s(12), flex: 1 }]}>{authError}</Text>
           </View>
@@ -311,6 +332,9 @@ export default function RegisterMobile() {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Create account"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           <Ionicons name="person-add-outline" size={s(18)} color={WHITE} />
           <Text style={[styles.submitText, { fontSize: s(15) }]}>
@@ -321,7 +345,7 @@ export default function RegisterMobile() {
         {/* Sign in */}
         <View style={[styles.signinRow, { marginTop: s(16) }]}>
           <Text style={[styles.signinText, { fontSize: s(12) }]}>Already have an account? </Text>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/login/mobile/login-mobile')}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/login/mobile/login-mobile')} accessibilityRole="link" accessibilityLabel="Sign in">
             <Text style={[styles.signinLink, { fontSize: s(12), color: active.color }]}>Sign in</Text>
           </TouchableOpacity>
         </View>

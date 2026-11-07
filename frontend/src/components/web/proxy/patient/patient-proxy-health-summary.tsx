@@ -9,6 +9,7 @@ import {
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
+import { ariaLevel } from '@/components/web/direct/patient/a11y';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -111,7 +112,7 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
 
       {/* Vitals: no vitals store exists yet */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Latest Vitals</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Latest Vitals</Text>
         <Text style={styles.noneText}>No vitals recorded</Text>
       </View>
 
@@ -123,7 +124,7 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         <>
           {/* Conditions */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Chronic Conditions</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Chronic Conditions</Text>
             {extras.conditions.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (
@@ -137,7 +138,7 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
 
           {/* Allergies */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Allergies & Contraindications</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Allergies & Contraindications</Text>
             {extras.allergies.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (
@@ -154,7 +155,7 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
 
           {/* Emergency contacts */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Emergency Contacts</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Emergency Contacts</Text>
             {extras.emergencyContacts.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (

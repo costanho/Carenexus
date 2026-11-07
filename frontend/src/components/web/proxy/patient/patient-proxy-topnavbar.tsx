@@ -2,15 +2,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { logout } from '@/lib/auth/auth.service';
+import { NotificationBell } from '../../notifications/notification-bell';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const RED    = '#EF4444';
+// Below this width the subtitle and the name block are hidden so the greeting keeps its room.
+const NARROW_MAX = 640;
+const HIDDEN = { 'aria-hidden': true } as object;
 
 const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
@@ -32,9 +36,15 @@ function greeting() {
   return 'Good evening';
 }
 
-export function PatientProxyTopNavbar({ onNavigate }: { onNavigate?: (key: string) => void } = {}) {
+export function PatientProxyTopNavbar({ onNavigate, onOpenThread }: {
+  onNavigate?:   (key: string) => void;
+  /** Open the messages section on a thread (from a notification). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { user }              = useCurrentUser();
   const router                = useRouter();
+  const { width }             = useWindowDimensions();
+  const narrow                = width < NARROW_MAX;
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -57,15 +67,19 @@ export function PatientProxyTopNavbar({ onNavigate }: { onNavigate?: (key: strin
   }
 
   return (
-    <View style={styles.navbar}>
+    <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
       {/* Left: greeting */}
       <View style={styles.left}>
-        <Text style={styles.greeting}>{greeting()}, {firstName || '…'}!</Text>
-        <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>
+        <Text style={[styles.greeting, narrow && styles.greetingNarrow]} numberOfLines={narrow ? 2 : undefined}>{greeting()}, {firstName || '…'}!</Text>
+        {!narrow && <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>}
       </View>
 
       {/* Right: profile menu */}
-      <View style={styles.right}>
+      <View style={[styles.right, narrow && styles.rightNarrow]}>
+        {onOpenThread && (
+          <NotificationBell theme={{ accent: '#7C3AED', accentBg: '#F5F3FF' }} onOpenThread={onOpenThread} />
+        )}
+
         {/* Profile + dropdown */}
         <View style={styles.profileBlock}>
           <TouchableOpacity
@@ -73,21 +87,27 @@ export function PatientProxyTopNavbar({ onNavigate }: { onNavigate?: (key: strin
             activeOpacity={0.8}
             onPress={() => setMenuOpen(o => !o)}
             accessibilityRole="button"
-            accessibilityLabel="Account menu"
+            // Named by the visible name and role (WCAG 2.5.3); the initials are decorative.
+            // On phones the text is hidden, so the same words become the label.
+            accessibilityLabel={narrow ? `${fullName || '—'} Proxy / Caregiver` : undefined}
             accessibilityState={{ expanded: menuOpen }}
+            aria-expanded={menuOpen}
           >
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]}>
-                <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]} importantForAccessibility="no-hide-descendants" {...HIDDEN}>
+                {/* On phones the button is labelled by name, so it shows no other visible words (WCAG 2.5.3). */}
+                {narrow ? <Ionicons name="person" size={18} color={WHITE} /> : <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>}
               </View>
             )}
-            <View>
-              <Text style={styles.profileName}>{fullName || '—'}</Text>
-              <Text style={styles.profileRole}>Proxy / Caregiver</Text>
-            </View>
-            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} />
+            {!narrow && (
+              <View>
+                <Text style={styles.profileName}>{fullName || '—'}{' '}</Text>
+                <Text style={styles.profileRole}>Proxy / Caregiver</Text>
+              </View>
+            )}
+            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} {...HIDDEN} />
           </TouchableOpacity>
 
           {/* Dropdown menu */}
@@ -127,6 +147,7 @@ export function PatientProxyTopNavbar({ onNavigate }: { onNavigate?: (key: strin
 
 const styles = StyleSheet.create({
   navbar: {
+    zIndex: 20,
     height: 92,
     backgroundColor: WHITE,
     borderBottomWidth: 1,
@@ -137,10 +158,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     gap: 20,
   },
+  navbarNarrow: {
+    height: 64,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
 
   // Left
   left: {
     flex: 1,
+    minWidth: 0,
+  },
+  greetingNarrow: {
+    fontSize: 16,
+    marginBottom: 0,
   },
   greeting: {
     fontSize: 20,
@@ -158,6 +189,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+  },
+  rightNarrow: {
+    gap: 8,
+    flexShrink: 0,
   },
 
   // Profile block
