@@ -1,5 +1,5 @@
-import { Suspense, lazy, useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { MobileMessagingProvider } from '../messages/messaging-actions';
 import { DoctorBottomNavbar } from './doctor/doctor-bottom-navbar';
@@ -45,6 +45,13 @@ export function DoctorDashboardMobile() {
   }, []);
   const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
   const openMessages = useCallback(() => setActiveKey('messages'), []);
+
+  // Android back from a sub-screen returns to the dashboard instead of leaving the app.
+  useEffect(() => {
+    if (activeKey === 'dashboard') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setActiveKey('dashboard'); return true; });
+    return () => sub.remove();
+  }, [activeKey]);
 
   function renderContent() {
     if (activeKey === 'messages') {

@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { ageFromDateOnly, formatDateOnly } from '@/lib/ui/date-only';
 import { usePatientProfile, type PatientProfile } from '@/hooks/use-patient-profile';
 import { CaregiverAccessLink } from '../../messages/messaging-actions';
 
@@ -46,20 +48,17 @@ const GENDER_LABELS: Record<string, string> = {
   MALE: 'Male', FEMALE: 'Female', OTHER: 'Other',
 };
 
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
 function formatDateShort(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** Age from a date-only DOB, counting the birthday itself (no 365.25-day approximation, no time-zone shift). */
 function calcAge(dob: string | null): string {
-  if (!dob) return '—';
-  const diff = Date.now() - new Date(dob).getTime();
-  return `${Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000))} yrs`;
+  const age = ageFromDateOnly(dob);
+  return age === null ? '—' : `${age} yrs`;
 }
 
 export function PatientMobileProfile() {
@@ -87,6 +86,7 @@ export function PatientMobileProfile() {
         <TouchableOpacity
           style={[styles.retryBtn, { paddingVertical: sh(10), paddingHorizontal: s(28), borderRadius: s(8) }]}
           onPress={refetch}
+          accessibilityRole="button"
         >
           <Text style={[styles.retryBtnText, { fontSize: s(14) }]}>Try again</Text>
         </TouchableOpacity>
@@ -95,7 +95,7 @@ export function PatientMobileProfile() {
   }
 
   const fullName   = `${profile.first_name} ${profile.last_name}`;
-  const initials   = `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase();
+  const initials   = `${profile.first_name?.[0] ?? ''}${profile.last_name?.[0] ?? ''}`.toUpperCase() || '?';
   const healthCfg  = profile.health_status ? HEALTH_CONFIG[profile.health_status] : null;
   const bloodCfg   = profile.blood_type ? (BLOOD_CONFIG[profile.blood_type] ?? { color: TEAL, bg: TEAL_L }) : null;
 
@@ -105,9 +105,12 @@ export function PatientMobileProfile() {
 
   return (
     <View style={styles.root}>
+      <StatusBar style="light" />
+      {/* The whole page scrolls: a pinned header and avatar card left little room for details on small phones. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: sh(32) }} showsVerticalScrollIndicator={false}>
       {/* Teal header */}
       <View style={[styles.header, { paddingTop: headerPadTop, paddingBottom: sh(80), paddingHorizontal: s(20) }]}>
-        <Text style={[styles.headerTitle, { fontSize: s(18) }]}>Profile &amp; Settings</Text>
+        <Text style={[styles.headerTitle, { fontSize: s(18) }]} accessibilityRole="header">Profile &amp; Settings</Text>
         <TouchableOpacity onPress={refetch} style={[styles.headerRefresh, { padding: s(8) }]} accessibilityRole="button" accessibilityLabel="Refresh">
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -179,19 +182,15 @@ export function PatientMobileProfile() {
         </View>
       </View>
 
-      {/* Scrollable sections */}
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { padding: s(16), paddingBottom: sh(32) }]}
-        showsVerticalScrollIndicator={false}
-      >
+      {/* Sections */}
+      <View style={[styles.scrollContent, { padding: s(16) }]}>
         <CaregiverAccessLink />
 
         {/* Personal Information */}
         <SectionCard title="Personal Information" icon="person-circle-outline" s={s} sh={sh}>
           <InfoRow label="First Name"    value={profile.first_name}                                             s={s} sh={sh} />
           <InfoRow label="Last Name"     value={profile.last_name}                                              s={s} sh={sh} />
-          <InfoRow label="Date of Birth" value={formatDate(profile.date_of_birth)}                             s={s} sh={sh} />
+          <InfoRow label="Date of Birth" value={formatDateOnly(profile.date_of_birth, { day: 'numeric', month: 'long', year: 'numeric' })}                             s={s} sh={sh} />
           <InfoRow label="Age"           value={calcAge(profile.date_of_birth)}                                s={s} sh={sh} />
           <InfoRow label="Gender"        value={profile.gender ? GENDER_LABELS[profile.gender] : '—'}          s={s} sh={sh} last />
         </SectionCard>
@@ -267,12 +266,13 @@ export function PatientMobileProfile() {
         {/* Account Details */}
         <SectionCard title="Account Details" icon="shield-checkmark-outline" s={s} sh={sh}>
           <InfoRow label="User ID"         value={`#${profile.user_id}`}                                          s={s} sh={sh} />
-          <InfoRow label="Patient ID"      value={profile.patient_id ? `#${profile.patient_id}` : '—'}            s={s} sh={sh} />
+          <InfoRow label="Patient ID"      value={profile.patient_system_id ?? '—'}                                s={s} sh={sh} />
           <InfoRow label="Role"            value={profile.role.charAt(0).toUpperCase() + profile.role.slice(1).toLowerCase()} valueColor={TEAL} s={s} sh={sh} />
           <InfoRow label="Account Status"  value={profile.is_active ? 'Active' : 'Inactive'} valueColor={profile.is_active ? GREEN : RED} s={s} sh={sh} />
           <InfoRow label="Member Since"    value={formatDateShort(profile.patient_created_at ?? profile.user_created_at)} s={s} sh={sh} />
           <InfoRow label="Last Updated"    value={formatDateShort(profile.user_updated_at)}                        s={s} sh={sh} last />
         </SectionCard>
+      </View>
       </ScrollView>
     </View>
   );
@@ -290,7 +290,7 @@ function SectionCard({
         <View style={[styles.cardIconBox, { width: s(30), height: s(30), borderRadius: s(8) }]}>
           <Ionicons name={icon} size={s(15)} color={TEAL} />
         </View>
-        <Text style={[styles.cardTitle, { fontSize: s(14) }]}>{title}</Text>
+        <Text style={[styles.cardTitle, { fontSize: s(14) }]} accessibilityRole="header">{title}</Text>
       </View>
       <View style={styles.cardDivider} />
       {children}

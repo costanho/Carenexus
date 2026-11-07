@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
-import { loadActiveDoctors } from './use-doctors';
+import { loadActiveDoctors, type Doctor } from './use-doctors';
 
 export interface MedicalRecord {
   record_id:             number;
@@ -56,7 +56,8 @@ export function useMedicalRecords(): State {
 
     Promise.all([
       api.get<any[]>(`/api/medical-records/patient/${user.system_id}`),
-      loadActiveDoctors(),
+      // Doctor names are a nicety: a failed doctor list must not hide the records themselves.
+      loadActiveDoctors().catch(() => [] as Doctor[]),
     ])
       .then(([recordsRes, doctorsRes]) => {
         const doctorMap = new Map<string, { name: string; specialization: string | null }>();

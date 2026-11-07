@@ -50,8 +50,8 @@ export function DoctorBottomNavbar({ activeKey = 'dashboard', onNavigate }: Doct
             activeOpacity={0.7}
             onPress={() => onNavigate?.(tab.key)}
             accessibilityRole="tab"
-            accessibilityLabel={tabLabel(tab.key, tab.label)}
             accessibilityState={{ selected: isActive }}
+            accessibilityLabel={tabLabel(tab.key, ({ appointments: 'Appointments', consultations: 'Consultations' } as Record<string, string>)[tab.key] ?? tab.label)}
           >
             {isActive && (
               <View style={[styles.activeIndicator, { height: s(3), top: -padTop }]} />

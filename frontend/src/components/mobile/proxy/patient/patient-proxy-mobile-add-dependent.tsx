@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, useWindowDimensions, View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '@/lib/auth/auth.interceptor';
+import { daysUntilDateOnly, isValidDateOnly } from '@/lib/ui/date-only';
 
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
@@ -49,7 +50,7 @@ interface AccessForm {
   relationship: string; access_level: AccessLevel; expires_at: string;
   can_view_records: boolean; can_view_appointments: boolean;
   can_view_medications: boolean; can_view_lab_results: boolean;
-  can_view_imaging: boolean; can_message_care_team: boolean;
+  can_view_imaging: boolean;
   can_view_consultations: boolean; can_schedule_appointments: boolean;
   can_manage_care_plan: boolean;
 }
@@ -76,27 +77,24 @@ function generatePassword() {
   return chars.join('');
 }
 
-// Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
-function isValidDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
-}
+// Dates are typed as YYYY-MM-DD and checked on their Y-M-D parts only (see lib/ui/date-only): parsing them
+// through Date shifts the day in time zones ahead of UTC. An expiry date means "until the end of that day".
 
+// Messaging is not part of an access level: it is a separate request the patient approves, so it stays off here.
 function permissionsForLevel(level: AccessLevel): Partial<AccessForm> {
   if (level === 'FULL_ACCESS') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   };
   if (level === 'VIEW_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: false, can_message_care_team: false,
+    can_view_lab_results: true, can_view_imaging: false,
     can_view_consultations: true, can_schedule_appointments: false, can_manage_care_plan: false,
   };
   if (level === 'EDIT_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: false,
   };
   return {};
@@ -112,9 +110,11 @@ function MLabel({ text, required, s }: { text: string; required?: boolean; s: (n
   );
 }
 
-function MInput({ value, onChange, placeholder, error, secureTextEntry, keyboardType, s }: {
+function MInput({ value, onChange, placeholder, error, secureTextEntry, keyboardType, label, s }: {
   value: string; onChange: (v: string) => void; placeholder?: string;
   error?: string; secureTextEntry?: boolean; keyboardType?: any;
+  /** Spoken name of the field (the visible label is a separate Text). */
+  label?: string;
   s: (n: number) => number;
 }) {
   return (
@@ -128,24 +128,31 @@ function MInput({ value, onChange, placeholder, error, secureTextEntry, keyboard
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize="none"
+        accessibilityLabel={label}
+        accessibilityHint={error || undefined}
       />
-      {error ? <Text style={[styles.errorText, { fontSize: s(11), marginTop: s(3) }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.errorText, { fontSize: s(11), marginTop: s(3) }]} accessibilityLiveRegion="polite">{error}</Text> : null}
     </View>
   );
 }
 
-function MSelectRow<T extends string>({ options, value, onChange, s }: {
+function MSelectRow<T extends string>({ options, value, onChange, label, s }: {
   options: { value: T; label: string }[]; value: T | ''; onChange: (v: T) => void;
+  /** Group name read before each option, e.g. "Gender". */
+  label?: string;
   s: (n: number) => number;
 }) {
   return (
-    <View style={[styles.selectRow, { gap: s(8), marginBottom: s(4) }]}>
+    <View style={[styles.selectRow, { gap: s(8), marginBottom: s(4) }]} accessibilityRole="radiogroup" accessibilityLabel={label}>
       {options.map(o => (
         <TouchableOpacity
           key={o.value}
           style={[styles.selectChip, { borderRadius: s(8), paddingHorizontal: s(12), paddingVertical: s(8) }, value === o.value && styles.selectChipActive]}
           activeOpacity={0.7}
           onPress={() => onChange(o.value)}
+          accessibilityRole="radio"
+          accessibilityLabel={label ? `${label}: ${o.label}` : o.label}
+          accessibilityState={{ selected: value === o.value, checked: value === o.value }}
         >
           <Text style={[styles.selectChipText, { fontSize: s(12) }, value === o.value && styles.selectChipTextActive]}>
             {o.label}
@@ -170,9 +177,14 @@ function MTagInput({ tags, onAdd, onRemove, placeholder, s }: {
       <View style={[styles.tagChips, { gap: s(6) }]}>
         {tags.map((t, i) => (
           <View key={i} style={[styles.tagChip, { borderRadius: s(20), paddingHorizontal: s(10), paddingVertical: s(4), gap: s(5) }]}>
-            <Text style={[styles.tagChipText, { fontSize: s(12) }]}>{t}</Text>
-            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}>
-              <Ionicons name="close" size={s(12)} color={PURPLE} />
+            <Text style={[styles.tagChipText, { fontSize: s(12), flexShrink: 1 }]}>{t}</Text>
+            <TouchableOpacity
+              onPress={() => onRemove(i)}
+              hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${t}`}
+            >
+              <Ionicons name="close" size={s(12)} color={PURPLE} importantForAccessibility="no" />
             </TouchableOpacity>
           </View>
         ))}
@@ -186,11 +198,15 @@ function MTagInput({ tags, onAdd, onRemove, placeholder, s }: {
           placeholderTextColor={GRAY2}
           onSubmitEditing={add}
           returnKeyType="done"
+          blurOnSubmit={false}
+          accessibilityLabel={placeholder}
         />
         <TouchableOpacity
           style={[styles.tagAddBtn, { borderRadius: s(10), paddingHorizontal: s(14), paddingVertical: s(9) }]}
           onPress={add}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Add"
         >
           <Text style={[styles.tagAddBtnText, { fontSize: s(13) }]}>Add</Text>
         </TouchableOpacity>
@@ -207,6 +223,9 @@ function MPermSwitch({ label, value, onChange, s }: {
       style={[styles.permRow, { paddingVertical: s(11), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BORDER }]}
       activeOpacity={0.7}
       onPress={() => onChange(!value)}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
     >
       <Text style={[styles.permLabel, { fontSize: s(13) }]}>{label}</Text>
       <View style={[styles.toggle, { width: s(40), height: s(22), borderRadius: s(11) }, value && styles.toggleOn]}>
@@ -222,7 +241,11 @@ const STEPS = ['Personal', 'Health', 'Access'];
 
 function MStepper({ current, s }: { current: number; s: (n: number) => number }) {
   return (
-    <View style={[styles.stepper, { borderRadius: s(14), padding: s(14), marginBottom: s(16) }]}>
+    <View
+      style={[styles.stepper, { borderRadius: s(14), padding: s(14), marginBottom: s(16) }]}
+      accessible
+      accessibilityLabel={`Step ${current + 1} of ${STEPS.length}: ${STEPS[current]}`}
+    >
       {STEPS.map((label, i) => {
         const done   = i < current;
         const active = i === current;
@@ -238,7 +261,7 @@ function MStepper({ current, s }: { current: number; s: (n: number) => number })
                 ? <Ionicons name="checkmark" size={s(13)} color={WHITE} />
                 : <Text style={[styles.stepNum, { fontSize: s(12) }, (active || done) && { color: WHITE }]}>{i + 1}</Text>}
             </View>
-            <Text style={[styles.stepLabel, { fontSize: s(10) }, active && styles.stepLabelActive]}>{label}</Text>
+            <Text style={[styles.stepLabel, { fontSize: s(10) }, active && styles.stepLabelActive]} numberOfLines={1}>{label}</Text>
             {i < STEPS.length - 1 && <View style={[styles.stepLine, done && styles.stepLineDone]} />}
           </View>
         );
@@ -252,7 +275,7 @@ function MStepper({ current, s }: { current: number; s: (n: number) => number })
 function MCard({ title, sub, s, children }: { title: string; sub?: string; s: (n: number) => number; children: React.ReactNode }) {
   return (
     <View style={[styles.card, { borderRadius: s(14), padding: s(16), gap: s(12), marginBottom: s(16) }]}>
-      <Text style={[styles.cardTitle, { fontSize: s(16) }]}>{title}</Text>
+      <Text style={[styles.cardTitle, { fontSize: s(16) }]} accessibilityRole="header">{title}</Text>
       {sub && <Text style={[styles.cardSub, { fontSize: s(12), marginTop: -s(6) }]}>{sub}</Text>}
       {children}
     </View>
@@ -268,8 +291,7 @@ export default function PatientProxyMobileAddDependent({
   onDone:   () => void;
   onCancel: () => void;
 }) {
-  const { s, sh } = useScale();
-  const insets    = useSafeAreaInsets();
+  const { s } = useScale();
   const [step, setStep] = useState(0);
 
   const [personal, setPersonal] = useState<PersonalForm>({
@@ -283,7 +305,7 @@ export default function PatientProxyMobileAddDependent({
   const [access, setAccess] = useState<AccessForm>({
     relationship: '', access_level: 'FULL_ACCESS', expires_at: '',
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   });
 
@@ -292,6 +314,24 @@ export default function PatientProxyMobileAddDependent({
   const [submitErr,  setSubmitErr]  = useState('');
   const [success,    setSuccess]    = useState(false);
   const [pwVisible,  setPwVisible]  = useState(false);
+  const [pwCopied,   setPwCopied]   = useState(false);
+
+  // "Copied" reverts after a moment so the button can be used again.
+  useEffect(() => {
+    if (!pwCopied) return;
+    const t = setTimeout(() => setPwCopied(false), 2500);
+    return () => clearTimeout(t);
+  }, [pwCopied]);
+
+  async function copyPassword() {
+    try {
+      await Clipboard.setStringAsync(personal.password);
+      setPwCopied(true);
+    } catch {
+      // Clipboard unavailable: the password can still be revealed and long-pressed to copy.
+      setPwCopied(false);
+    }
+  }
 
   function setP(k: keyof PersonalForm, v: string) {
     setPersonal(p => ({ ...p, [k]: v }));
@@ -329,8 +369,10 @@ export default function PatientProxyMobileAddDependent({
 
   function validateStep2() {
     const e: Record<string, string> = {};
-    if (!health.date_of_birth) e.date_of_birth = 'Required';
-    else if (!isValidDate(health.date_of_birth)) e.date_of_birth = 'Use YYYY-MM-DD';
+    const dob = health.date_of_birth.trim();
+    if (!dob) e.date_of_birth = 'Required';
+    else if (!isValidDateOnly(dob)) e.date_of_birth = 'Use a real date as YYYY-MM-DD';
+    else if ((daysUntilDateOnly(dob) ?? 0) > 0) e.date_of_birth = 'Date of birth cannot be in the future';
     if (!health.gender)        e.gender        = 'Select a gender';
     if (!health.blood_type)    e.blood_type    = 'Select blood type';
     setErrors(e);
@@ -340,7 +382,9 @@ export default function PatientProxyMobileAddDependent({
   function validateStep3() {
     const e: Record<string, string> = {};
     if (!access.relationship.trim()) e.relationship = 'Required';
-    if (access.expires_at.trim() && !isValidDate(access.expires_at.trim())) e.expires_at = 'Use YYYY-MM-DD';
+    const expiry = access.expires_at.trim();
+    if (expiry && !isValidDateOnly(expiry)) e.expires_at = 'Use a real date as YYYY-MM-DD';
+    else if (expiry && (daysUntilDateOnly(expiry) ?? 0) < 0) e.expires_at = 'Expiry date cannot be in the past';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -367,7 +411,7 @@ export default function PatientProxyMobileAddDependent({
         phone:       personal.phone.trim(),
         password:    personal.password,
 
-        dateOfBirth:       health.date_of_birth,
+        dateOfBirth:       health.date_of_birth.trim(),
         gender:            health.gender || null,
         bloodType:         health.blood_type || null,
         healthStatus:      health.health_status,
@@ -382,7 +426,8 @@ export default function PatientProxyMobileAddDependent({
         canViewMedications:      access.can_view_medications,
         canViewLabResults:       access.can_view_lab_results,
         canViewImaging:          access.can_view_imaging,
-        canMessageCareTeam:      access.can_message_care_team,
+        // Never requested from here: messaging is a separate request the patient approves.
+        canMessageCareTeam:      false,
         canViewConsultations:    access.can_view_consultations,
         canScheduleAppointments: access.can_schedule_appointments,
         canManageCarePlan:       access.can_manage_care_plan,
@@ -403,14 +448,14 @@ export default function PatientProxyMobileAddDependent({
     return (
       <ScrollView
         style={{ flex: 1, backgroundColor: BG }}
-        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: s(24), paddingBottom: insets.bottom + s(24) }}
+        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: s(24), paddingBottom: s(24) }}
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.successCard, { borderRadius: s(20), padding: s(28), gap: s(14), width: '100%' }]}>
           <View style={{ alignItems: 'center' }}>
             <Ionicons name="checkmark-circle" size={s(64)} color={GREEN} />
           </View>
-          <Text style={[styles.successTitle, { fontSize: s(22), textAlign: 'center' }]}>Loved One Added!</Text>
+          <Text style={[styles.successTitle, { fontSize: s(22), textAlign: 'center' }]} accessibilityRole="header">Loved One Added!</Text>
           <Text style={[styles.cardSub, { fontSize: s(13), textAlign: 'center', lineHeight: s(20) }]}>
             {personal.first_name} {personal.last_name} has been added as a linked patient under your care.
           </Text>
@@ -421,19 +466,31 @@ export default function PatientProxyMobileAddDependent({
             </Text>
             <View style={[styles.credRow, { gap: s(8) }]}>
               <Text style={[styles.cardSub, { fontSize: s(12) }]}>Email</Text>
-              <Text style={[styles.credValue, { fontSize: s(13) }]} numberOfLines={1}>{personal.email}</Text>
+              <Text style={[styles.credValue, { fontSize: s(13) }]} numberOfLines={1} selectable>{personal.email}</Text>
             </View>
             <View style={[styles.credRow, { gap: s(8) }]}>
               <Text style={[styles.cardSub, { fontSize: s(12) }]}>Password</Text>
-              <TouchableOpacity
-                onPress={() => setPwVisible(v => !v)}
-                accessibilityRole="button"
-                accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: s(6) }}
-              >
-                <Text style={[styles.credValue, { fontSize: s(13) }]}>{pwVisible ? personal.password : '••••••••••••'}</Text>
-                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={s(16)} color={GRAY} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: s(6), flexShrink: 1 }}>
+                <Text style={[styles.credValue, { fontSize: s(13) }]} selectable={pwVisible}>
+                  {pwVisible ? personal.password : '••••••••••••'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setPwVisible(v => !v)}
+                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
+                >
+                  <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={s(16)} color={GRAY} importantForAccessibility="no" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={copyPassword}
+                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={pwCopied ? 'Password copied' : 'Copy password'}
+                >
+                  <Ionicons name={pwCopied ? 'checkmark-outline' : 'copy-outline'} size={s(16)} color={pwCopied ? '#10B981' : GRAY} importantForAccessibility="no" />
+                </TouchableOpacity>
+              </View>
             </View>
             <Text style={[styles.cardSub, { fontSize: s(11), fontStyle: 'italic', marginTop: s(2) }]}>
               Share these credentials with {personal.first_name} securely, in person or by phone. Do not send the password by email or SMS.
@@ -444,6 +501,7 @@ export default function PatientProxyMobileAddDependent({
             style={[styles.primaryBtn, { borderRadius: s(12), paddingVertical: s(14), marginTop: s(4) }]}
             onPress={onDone}
             activeOpacity={0.8}
+            accessibilityRole="button"
           >
             <Text style={[styles.primaryBtnText, { fontSize: s(15) }]}>Back to Dashboard</Text>
           </TouchableOpacity>
@@ -453,12 +511,15 @@ export default function PatientProxyMobileAddDependent({
   }
 
   // ── Form ─────────────────────────────────────────────────────────────────────
+  // The top nav above already pads for the status bar, so no safe-area top inset here.
   return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView
       style={{ flex: 1, backgroundColor: BG }}
-      contentContainerStyle={{ padding: s(16), paddingTop: insets.top > 0 ? insets.top : s(16), paddingBottom: insets.bottom + s(24) }}
+      contentContainerStyle={{ padding: s(16), paddingBottom: s(24) }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
     >
       {/* Header */}
       <View style={[styles.pageHeader, { gap: s(4), marginBottom: s(16) }]}>
@@ -466,11 +527,13 @@ export default function PatientProxyMobileAddDependent({
           style={[styles.backBtn, { gap: s(6), marginBottom: s(6) }]}
           onPress={onCancel}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Back to dashboard"
         >
-          <Ionicons name="arrow-back-outline" size={s(18)} color={GRAY} />
+          <Ionicons name="arrow-back-outline" size={s(18)} color={GRAY} importantForAccessibility="no" />
           <Text style={[styles.backBtnText, { fontSize: s(13) }]}>Back</Text>
         </TouchableOpacity>
-        <Text style={[styles.successTitle, { fontSize: s(20) }]}>Add Loved One</Text>
+        <Text style={[styles.successTitle, { fontSize: s(20) }]} accessibilityRole="header">Add Loved One</Text>
         <Text style={[styles.cardSub, { fontSize: s(12) }]}>Register a new patient under your proxy care</Text>
       </View>
 
@@ -484,36 +547,40 @@ export default function PatientProxyMobileAddDependent({
             <View style={{ flexDirection: 'row', gap: s(10) }}>
               <View style={{ flex: 1 }}>
                 <MLabel text="First Name" required s={s} />
-                <MInput value={personal.first_name} onChange={v => setP('first_name', v)} placeholder="Thomas" error={errors.first_name} s={s} />
+                <MInput value={personal.first_name} onChange={v => setP('first_name', v)} placeholder="Thomas" error={errors.first_name} label="First name" s={s} />
               </View>
               <View style={{ flex: 1 }}>
                 <MLabel text="Last Name" required s={s} />
-                <MInput value={personal.last_name} onChange={v => setP('last_name', v)} placeholder="Dube" error={errors.last_name} s={s} />
+                <MInput value={personal.last_name} onChange={v => setP('last_name', v)} placeholder="Dube" error={errors.last_name} label="Last name" s={s} />
               </View>
             </View>
 
             <MLabel text="Email Address" required s={s} />
-            <MInput value={personal.email} onChange={v => setP('email', v)} placeholder="thomas.dube@email.com" keyboardType="email-address" error={errors.email} s={s} />
+            <MInput value={personal.email} onChange={v => setP('email', v)} placeholder="thomas.dube@email.com" keyboardType="email-address" error={errors.email} label="Email address" s={s} />
 
             <MLabel text="Phone Number" required s={s} />
-            <MInput value={personal.phone} onChange={v => setP('phone', v)} placeholder="+263771234567" keyboardType="phone-pad" error={errors.phone} s={s} />
+            <MInput value={personal.phone} onChange={v => setP('phone', v)} placeholder="+263771234567" keyboardType="phone-pad" error={errors.phone} label="Phone number" s={s} />
 
             <MLabel text="Temporary Password" s={s} />
             <View style={{ flexDirection: 'row', gap: s(8), alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
-                <MInput value={personal.password} onChange={v => setP('password', v)} secureTextEntry={!pwVisible} error={errors.password} s={s} />
+                <MInput value={personal.password} onChange={v => setP('password', v)} secureTextEntry={!pwVisible} error={errors.password} label="Temporary password" s={s} />
               </View>
               <TouchableOpacity
                 style={[styles.iconBtn, { width: s(42), height: s(42), borderRadius: s(10) }]}
                 onPress={() => setPwVisible(v => !v)}
+                accessibilityRole="button"
+                accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
               >
-                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={s(18)} color={GRAY} />
+                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={s(18)} color={GRAY} importantForAccessibility="no" />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.iconBtn, { width: s(42), height: s(42), borderRadius: s(10) }]}
                 onPress={regeneratePassword}
+                accessibilityRole="button"
+                accessibilityLabel="Generate a new password"
               >
-                <Ionicons name="refresh-outline" size={s(18)} color={PURPLE} />
+                <Ionicons name="refresh-outline" size={s(18)} color={PURPLE} importantForAccessibility="no" />
               </TouchableOpacity>
             </View>
             <Text style={[styles.hint, { fontSize: s(11) }]}>
@@ -528,13 +595,14 @@ export default function PatientProxyMobileAddDependent({
         <MCard title="Health Profile" sub="Medical and demographic information" s={s}>
           <View style={{ gap: s(6) }}>
             <MLabel text="Date of Birth" required s={s} />
-            <MInput value={health.date_of_birth} onChange={v => setH('date_of_birth', v)} placeholder="YYYY-MM-DD" error={errors.date_of_birth} s={s} />
+            <MInput value={health.date_of_birth} onChange={v => setH('date_of_birth', v)} placeholder="YYYY-MM-DD" error={errors.date_of_birth} label="Date of birth, YYYY-MM-DD" s={s} />
 
             <MLabel text="Gender" required s={s} />
             <MSelectRow<Gender>
               options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'OTHER', label: 'Other' }]}
               value={health.gender}
               onChange={v => setH('gender', v)}
+              label="Gender"
               s={s}
             />
             {errors.gender ? <Text style={[styles.errorText, { fontSize: s(11) }]}>{errors.gender}</Text> : null}
@@ -544,6 +612,7 @@ export default function PatientProxyMobileAddDependent({
               options={(['A+','A-','B+','B-','O+','O-','AB+','AB-'] as BloodType[]).map(v => ({ value: v, label: v }))}
               value={health.blood_type}
               onChange={v => setH('blood_type', v)}
+              label="Blood type"
               s={s}
             />
             {errors.blood_type ? <Text style={[styles.errorText, { fontSize: s(11) }]}>{errors.blood_type}</Text> : null}
@@ -557,6 +626,7 @@ export default function PatientProxyMobileAddDependent({
               ]}
               value={health.health_status}
               onChange={v => setH('health_status', v)}
+              label="Health status"
               s={s}
             />
 
@@ -586,14 +656,14 @@ export default function PatientProxyMobileAddDependent({
         <MCard title="Access Settings" sub="Define your proxy relationship and permissions" s={s}>
           <View style={{ gap: s(6) }}>
             <MLabel text="Relationship to Patient" required s={s} />
-            <MInput value={access.relationship} onChange={v => setA('relationship', v)} placeholder="e.g. Father, Mother, Guardian…" error={errors.relationship} s={s} />
+            <MInput value={access.relationship} onChange={v => setA('relationship', v)} placeholder="e.g. Father, Mother, Guardian…" error={errors.relationship} label="Relationship to patient" s={s} />
 
             <MLabel text="Access Level" required s={s} />
-            <View style={{ gap: s(8), marginBottom: s(4) }}>
+            <View style={{ gap: s(8), marginBottom: s(4) }} accessibilityRole="radiogroup" accessibilityLabel="Access level">
               {([
                 { value: 'FULL_ACCESS', label: 'Full Access',  sub: 'All permissions enabled',           color: GREEN  },
                 { value: 'VIEW_ONLY',   label: 'View Only',    sub: 'Read records, no actions',          color: PURPLE },
-                { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + message + schedule',         color: ORANGE },
+                { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + schedule',                   color: ORANGE },
                 { value: 'CUSTOM',      label: 'Custom',        sub: 'Set individual permissions below', color: GRAY   },
               ] as { value: AccessLevel; label: string; sub: string; color: string }[]).map(opt => (
                 <TouchableOpacity
@@ -605,6 +675,9 @@ export default function PatientProxyMobileAddDependent({
                   ]}
                   activeOpacity={0.7}
                   onPress={() => changeAccessLevel(opt.value)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${opt.label}: ${opt.sub}`}
+                  accessibilityState={{ selected: access.access_level === opt.value, checked: access.access_level === opt.value }}
                 >
                   <View style={[styles.accessRadio, { width: s(18), height: s(18), borderRadius: s(9) }, access.access_level === opt.value && { borderColor: opt.color }]}>
                     {access.access_level === opt.value && (
@@ -621,14 +694,13 @@ export default function PatientProxyMobileAddDependent({
 
             {access.access_level === 'CUSTOM' && (
               <View style={[styles.permBox, { borderRadius: s(12), padding: s(14) }]}>
-                <Text style={[styles.cardTitle, { fontSize: s(13), marginBottom: s(10) }]}>Individual Permissions</Text>
+                <Text style={[styles.cardTitle, { fontSize: s(13), marginBottom: s(10) }]} accessibilityRole="header">Individual Permissions</Text>
                 {([
                   { key: 'can_view_records',          label: 'View Medical Records'     },
                   { key: 'can_view_appointments',     label: 'View Appointments'        },
                   { key: 'can_view_medications',      label: 'View Medications'         },
                   { key: 'can_view_lab_results',      label: 'View Lab Results'         },
                   { key: 'can_view_imaging',          label: 'View Imaging Results'     },
-                  { key: 'can_message_care_team',     label: 'Message Care Team'        },
                   { key: 'can_view_consultations',    label: 'View Consultations'       },
                   { key: 'can_schedule_appointments', label: 'Schedule Appointments'    },
                   { key: 'can_manage_care_plan',      label: 'Manage Care Plan'         },
@@ -639,7 +711,7 @@ export default function PatientProxyMobileAddDependent({
             )}
 
             <MLabel text="Access Expiry Date (optional)" s={s} />
-            <MInput value={access.expires_at} onChange={v => setA('expires_at', v)} placeholder="YYYY-MM-DD (leave blank for no expiry)" error={errors.expires_at} s={s} />
+            <MInput value={access.expires_at} onChange={v => setA('expires_at', v)} placeholder="YYYY-MM-DD" error={errors.expires_at} label="Access expiry date, YYYY-MM-DD, optional" s={s} />
             <Text style={[styles.hint, { fontSize: s(11) }]}>Leave blank if this proxy access should not expire.</Text>
           </View>
         </MCard>
@@ -647,8 +719,8 @@ export default function PatientProxyMobileAddDependent({
 
       {/* Error banner */}
       {submitErr ? (
-        <View style={[styles.errorBanner, { borderRadius: s(10), padding: s(14), gap: s(8), marginBottom: s(12) }]}>
-          <Ionicons name="alert-circle-outline" size={s(16)} color={RED} />
+        <View style={[styles.errorBanner, { borderRadius: s(10), padding: s(14), gap: s(8), marginBottom: s(12) }]} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+          <Ionicons name="alert-circle-outline" size={s(16)} color={RED} importantForAccessibility="no" />
           <Text style={[styles.errorBannerText, { fontSize: s(13) }]}>{submitErr}</Text>
         </View>
       ) : null}
@@ -659,8 +731,10 @@ export default function PatientProxyMobileAddDependent({
           style={[styles.outlineBtn, { flex: 1, borderRadius: s(10), paddingVertical: s(13), gap: s(6) }]}
           onPress={step > 0 ? () => setStep(st => st - 1) : onCancel}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={step > 0 ? 'Previous step' : 'Cancel'}
         >
-          {step > 0 && <Ionicons name="arrow-back-outline" size={s(16)} color={GRAY} />}
+          {step > 0 && <Ionicons name="arrow-back-outline" size={s(16)} color={GRAY} importantForAccessibility="no" />}
           <Text style={[styles.outlineBtnText, { fontSize: s(14) }]}>{step > 0 ? 'Back' : 'Cancel'}</Text>
         </TouchableOpacity>
 
@@ -669,9 +743,11 @@ export default function PatientProxyMobileAddDependent({
             style={[styles.primaryBtn, { flex: 1, borderRadius: s(10), paddingVertical: s(13), gap: s(6) }]}
             onPress={nextStep}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Continue"
           >
             <Text style={[styles.primaryBtnText, { fontSize: s(14) }]}>Continue</Text>
-            <Ionicons name="arrow-forward-outline" size={s(16)} color={WHITE} />
+            <Ionicons name="arrow-forward-outline" size={s(16)} color={WHITE} importantForAccessibility="no" />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -679,11 +755,14 @@ export default function PatientProxyMobileAddDependent({
             onPress={handleSubmit}
             activeOpacity={0.8}
             disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel={submitting ? 'Adding loved one' : 'Add loved one'}
+            accessibilityState={{ disabled: submitting, busy: submitting }}
           >
             {submitting
               ? <ActivityIndicator size="small" color={WHITE} />
               : <>
-                  <Ionicons name="person-add-outline" size={s(16)} color={WHITE} />
+                  <Ionicons name="person-add-outline" size={s(16)} color={WHITE} importantForAccessibility="no" />
                   <Text style={[styles.primaryBtnText, { fontSize: s(14) }]}>Add Loved One</Text>
                 </>
             }
@@ -691,6 +770,7 @@ export default function PatientProxyMobileAddDependent({
         )}
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

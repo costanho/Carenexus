@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
+import { CLINIC_TIME_ZONE } from '@/lib/calls/format';
 import { describeCallJoin, type CallJoinInfo } from '@/lib/calls/join';
 import type { CallSessionStatus } from '@/lib/calls/types';
 import { useCurrentUser } from './use-current-user';
@@ -54,18 +55,40 @@ export function toScheduledAt(date: string, time: string): string {
   return `${date}T${time}:00`;
 }
 
-/** True when the given local date (YYYY-MM-DD) and time (HH:mm) are later than now on this device. */
-export function isFutureSlot(date: string, time: string): boolean {
-  if (!date || !time) return false;
-  const t = new Date(toScheduledAt(date, time)).getTime();
+const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2})?/;
+
+/**
+ * The clinic's current wall-clock time as "YYYY-MM-DDTHH:mm:ss". Appointment times are clinic wall-clock values
+ * (LocalDateTime, no offset), so they are compared with this rather than with the device clock: a device in
+ * another time zone would otherwise treat a 10:00 appointment as starting at 10:00 its own time.
+ */
+export function clinicNowLocal(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CLINIC_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now);
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
+/** True when the clinic wall-clock value is later than the clinic's current time (device clock as a fallback). */
+export function isAfterClinicNow(local: string): boolean {
+  const m = WALL_CLOCK.exec(local ?? '');
+  if (m) return `${m[1]}${m[2] ?? ':00'}` > clinicNowLocal();
+  const t = new Date(local).getTime();
   return !Number.isNaN(t) && t > Date.now();
 }
 
-/** SCHEDULED/RESCHEDULED appointments that have not started yet. */
+/** True when the given clinic date (YYYY-MM-DD) and time (HH:mm) are later than the clinic's current time. */
+export function isFutureSlot(date: string, time: string): boolean {
+  if (!date || !time) return false;
+  return isAfterClinicNow(toScheduledAt(date, time));
+}
+
+/** SCHEDULED/RESCHEDULED appointments that have not started yet (in clinic time). */
 export function isUpcomingAppointment(a: Appointment): boolean {
   if (a.status !== 'SCHEDULED' && a.status !== 'RESCHEDULED') return false;
-  const t = new Date(a.scheduled_at).getTime();
-  return !Number.isNaN(t) && t > Date.now();
+  return isAfterClinicNow(a.scheduled_at);
 }
 
 /** The patient's Join control for an appointment (internal call route), or null for none. */
