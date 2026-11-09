@@ -343,9 +343,12 @@ export default function PatientProxyMobileProfile({
   dependent: initialDependent,
   onBack,
   onOpenRecord,
+  onDependentChange,
 }: {
   dependent: CaregiverDependent;
   onBack: () => void;
+  /** Called with the updated grant after a successful access change, so the parent's copy stays current. */
+  onDependentChange?: (dependent: CaregiverDependent) => void;
   /** Opens one of this loved one's record screens (filtered to them). */
   onOpenRecord?: (key: ProxyRecordKey) => void;
 }) {
@@ -498,7 +501,11 @@ export default function PatientProxyMobileProfile({
         canScheduleAppointments:  aPerms.canScheduleAppointments,
         canManageCarePlan:        aPerms.canManageCarePlan,
       });
-      if (data) setDependent(prev => ({ ...prev, ...data }));
+      if (data) {
+        const updated = { ...dependent, ...data };
+        setDependent(updated);
+        onDependentChange?.(updated);
+      }
       setEditingAccess(false);
     } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save access settings.')); }
     finally { setSaving(false); }

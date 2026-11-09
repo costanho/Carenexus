@@ -66,7 +66,8 @@ function mapLabResult(r: any, patientSystemId: string): LabResult {
     referenceRange:  str(r?.referenceRange),
     subTests:        parseSubTests(r?.resultData),
     status:          str(r?.status) ?? 'PENDING',
-    isCritical:      !!r?.isCritical,
+    // A doctor can sign a result off with status CRITICAL without setting the flag; both mean critical
+    isCritical:      !!r?.isCritical || r?.status === 'CRITICAL',
     testDate:        str(r?.testDate),
     reviewedAt:      str(r?.reviewedAt),
   };

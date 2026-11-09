@@ -155,7 +155,7 @@ export function MobileMessageCareTeamButton({ dependent, compact }: { dependent:
       dependent={dependent}
       compact={compact}
       busy={careTeam.openingFor === dependent.accessId}
-      error={careTeam.openingFor == null ? careTeam.error : null}
+      error={careTeam.errorFor === dependent.accessId ? careTeam.error : null}
       onPress={careTeam.open}
     />
   );

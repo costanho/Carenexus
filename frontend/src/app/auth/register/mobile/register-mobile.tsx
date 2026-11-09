@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'expo-router';
+import { useRouter, useIsFocused } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -78,6 +78,7 @@ function Field({
 
 export default function RegisterMobile() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -138,7 +139,8 @@ export default function RegisterMobile() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar style="light" />
+      {/* Only while this screen is in front: it stays mounted under the dashboard after sign-up/sign-in */}
+      {isFocused && <StatusBar style="light" />}
       {/* Branded header */}
       <View style={[styles.header, {
         backgroundColor: active.color,
