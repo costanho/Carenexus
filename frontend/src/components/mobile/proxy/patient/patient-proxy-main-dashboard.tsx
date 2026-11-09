@@ -22,13 +22,13 @@ const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
 const PURPLE_BG   = '#F5F3FF';
 const PURPLE_LIGHT= '#EDE9FE';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -42,7 +42,7 @@ function healthDotColor(status: string | null) {
     case 'STABLE':   return GREEN;
     case 'MONITOR':  return ORANGE;
     case 'CRITICAL': return RED;
-    default:         return '#9CA3AF';
+    default:         return '#6B7280';
   }
 }
 // A null status means the patient has not shared their records with this caregiver (the backend redacts it).

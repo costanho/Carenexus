@@ -9,14 +9,14 @@ import { api } from '@/lib/auth/auth.interceptor';
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
 const GRAY       = '#6B7280';
-const GRAY2      = '#9CA3AF';
+const GRAY2      = '#6B7280';
 const BORDER     = '#E5E7EB';
 const BG         = '#F9FAFB';
 const PURPLE     = '#7C3AED';
 const PURPLE_BG  = '#F5F3FF';
-const GREEN      = '#10B981';
-const ORANGE     = '#F59E0B';
-const RED        = '#EF4444';
+const GREEN      = '#047857';
+const ORANGE     = '#B45309';
+const RED        = '#B91C1C';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -713,7 +713,7 @@ const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 28, paddingBottom: 60, gap: 20, maxWidth: 820, alignSelf: 'center', width: '100%' } as any,
 
-  pageHeader: { gap: 6 },
+  pageHeader: { gap: 6, flexWrap: 'wrap' },
   backBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   backBtnText:{ fontSize: 13, color: GRAY },
   pageTitle:  { fontSize: 24, fontWeight: '700', color: TEXT },

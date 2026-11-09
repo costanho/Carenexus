@@ -1,5 +1,6 @@
-import { Suspense, lazy, useCallback, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { NavDrawer } from '../layout/nav-drawer';
 import { DoctorLeftSidebar } from './doctor/doctor-left-sidebar';
 import { DoctorMainDashboardArea } from './doctor/doctor-main-dashboard-area';
 import { DoctorTopNavbar } from './doctor/doctor-top-navbar';
@@ -32,7 +33,17 @@ const loader = (
 export function DoctorDashboardWeb() {
   const { width } = useWindowDimensions();
   const isCollapsed = width < 1024;
+  // Phones: the sidebar becomes a drawer behind a menu button, so pages get the full width.
+  const isSmall = width < 768;
   const [activeKey, setActiveKey] = useState('dashboard');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // Wider than a phone the drawer is not shown; close it so it does not pop open again on the way back.
+  useEffect(() => { if (!isSmall) setDrawerOpen(false); }, [isSmall]);
+  function navigateFromSidebar(key: string) {
+    setActiveKey(key);
+    setDrawerOpen(false);
+  }
   const [openThreadId, setOpenThreadId] = useState<number | null>(null);
 
   const openThread = useCallback((threadId: number) => {
@@ -122,15 +133,24 @@ export function DoctorDashboardWeb() {
 
   return (
     <View style={styles.container}>
-      <DoctorLeftSidebar
-        collapsed={isCollapsed}
-        activeKey={activeKey}
-        onNavigate={setActiveKey}
-      />
+      {!isSmall && (
+        <DoctorLeftSidebar
+          collapsed={isCollapsed}
+          activeKey={activeKey}
+          onNavigate={setActiveKey}
+        />
+      )}
       <View style={styles.main}>
-        <DoctorTopNavbar onProfilePress={() => setActiveKey('profile')} onOpenThread={openThread} />
+        <DoctorTopNavbar
+          onMenuPress={isSmall ? () => setDrawerOpen(true) : undefined}
+          onProfilePress={() => setActiveKey('profile')}
+          onOpenThread={openThread}
+        />
         {renderContent()}
       </View>
+      <NavDrawer open={isSmall && drawerOpen} onClose={closeDrawer} closeColor="#FFFFFF">
+        <DoctorLeftSidebar collapsed={false} activeKey={activeKey} onNavigate={navigateFromSidebar} />
+      </NavDrawer>
     </View>
   );
 }

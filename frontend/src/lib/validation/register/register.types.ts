@@ -28,7 +28,7 @@ export type PasswordStrength = {
 
 // ── Shared colour palette ──────────────────────────────────────────────────────
 export const COLORS = {
-  TEAL:   '#0D9488',
+  TEAL:   '#0F766E',
   PURPLE: '#7C3AED',
   INDIGO: '#4F46E5',
   NAVY:   '#0D1B2E',
@@ -37,8 +37,8 @@ export const COLORS = {
   GRAY:   '#6B7280',
   BORDER: '#E5E7EB',
   BG:     '#F9FAFB',
-  RED:    '#EF4444',
-  GREEN:  '#10B981',
+  RED:    '#B91C1C',
+  GREEN:  '#047857',
 } as const;
 
 // ── Shared role definitions ────────────────────────────────────────────────────

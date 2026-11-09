@@ -14,17 +14,17 @@ import { apiErrorMessage, invalidateAppointments, isFutureSlot, toScheduledAt } 
 import { api } from '@/lib/auth/auth.interceptor';
 import { ariaHidden, ariaPressed } from './a11y';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const GRAY2  = '#9CA3AF';
+const GRAY2  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
-const GREEN  = '#10B981';
+const RED    = '#B91C1C';
+const GREEN  = '#047857';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type ApptType = 'IN_PERSON' | 'VIDEO' | 'PHONE';
@@ -414,7 +414,7 @@ export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
       >
         {/* Header */}
         <View style={styles.pageHeader}>
-          <View>
+          <View style={styles.pageHeaderText}>
             <Text style={styles.pageTitle} accessibilityRole="header">Book Appointment</Text>
             <Text style={styles.pageSub}>Schedule a visit with your healthcare provider</Text>
           </View>
@@ -680,7 +680,8 @@ const styles = StyleSheet.create({
   formPaneFull: { flex: 1, borderRightWidth: 0 },
   formScroll:   { flexGrow: 1, padding: 40, maxWidth: 780, alignSelf: 'center', width: '100%' },
 
-  pageHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 32 },
+  pageHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 32, flexWrap: 'wrap' },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:  { fontSize: 22, fontWeight: '800', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 2 },
 

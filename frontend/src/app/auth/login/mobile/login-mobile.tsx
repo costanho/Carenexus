@@ -21,7 +21,7 @@ import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
 import { showMessage } from '@/lib/ui/dialogs';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const PURPLE = '#7C3AED';
 const INDIGO = '#4F46E5';
 const WHITE  = '#FFFFFF';
@@ -29,7 +29,7 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 

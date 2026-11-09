@@ -10,7 +10,7 @@ const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
 export interface DoctorTopNavbarMobileProps {
   onMenuPress?:    () => void;
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     color: GRAY,
   },
   avatarFallback: {
-    backgroundColor: '#0D9488',
+    backgroundColor: '#0F766E',
     alignItems: 'center',
     justifyContent: 'center',
   },

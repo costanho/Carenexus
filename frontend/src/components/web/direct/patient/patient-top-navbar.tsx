@@ -44,7 +44,8 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
             <Ionicons name="menu-outline" size={26} color={TEXT} />
           </TouchableOpacity>
         )}
-        <View>
+        {/* Shrinks (and truncates) instead of running under the bell on a phone. */}
+        <View style={styles.titleBlock}>
           <Text style={styles.title} numberOfLines={1}>Welcome back, {firstName}!</Text>
           {!isSmall && (
             <Text style={styles.subtitle}>Here's your health overview and latest updates.</Text>
@@ -126,6 +127,10 @@ const styles = StyleSheet.create({
   },
   menuBtn: {
     padding: 4,
+  },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: 16,

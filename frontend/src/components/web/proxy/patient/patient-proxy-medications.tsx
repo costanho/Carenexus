@@ -16,9 +16,9 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
 
 interface Prescription {
   prescription_id:      number;
@@ -206,7 +206,7 @@ export default function PatientProxyMedications() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pageHeader}>
-        <View>
+        <View style={styles.pageHeaderText}>
           <Text style={styles.pageTitle} accessibilityRole="header">Medications</Text>
           <Text style={styles.pageSub}>Prescriptions for your linked patients</Text>
         </View>
@@ -282,11 +282,12 @@ const styles = StyleSheet.create({
   scroll:    { flex: 1, backgroundColor: BG },
   container: { padding: 24, paddingBottom: 48, gap: 16 },
 
-  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
 
-  statsRow: { flexDirection: 'row', gap: 12 },
+  statsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   statPill: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
   statVal:  { fontSize: 24, fontWeight: '700' },
   statLabel:{ fontSize: 12, fontWeight: '500', marginTop: 2 },

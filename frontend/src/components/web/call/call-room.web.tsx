@@ -395,8 +395,9 @@ function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }
     : 'Connection unknown';
   const qualityColor =
     quality === ConnectionQuality.Excellent || quality === ConnectionQuality.Good ? '#22C55E'
+    // Bright colours: these sit on the dark call room
     : quality === ConnectionQuality.Poor ? '#F59E0B'
-    : quality === ConnectionQuality.Lost ? '#EF4444' : '#94A3B8';
+    : quality === ConnectionQuality.Lost ? '#F87171' : '#94A3B8';
 
   return (
     <View

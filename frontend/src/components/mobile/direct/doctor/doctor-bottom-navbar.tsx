@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessagesTabIcon, useTabLabel } from '../../messages/messages-tab-icon';
 
 const BLUE   = '#4F46E5';
-const GRAY   = '#9CA3AF';
+const GRAY   = '#6B7280';
 const WHITE  = '#FFFFFF';
 const BORDER = '#E5E7EB';
 

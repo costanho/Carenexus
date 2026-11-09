@@ -17,15 +17,15 @@ import { MessageCareTeamButton } from './message-care-team-button';
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
 const GRAY         = '#6B7280';
-const GRAY2        = '#9CA3AF';
+const GRAY2        = '#6B7280';
 const BORDER       = '#E5E7EB';
 const BG           = '#F9FAFB';
 const PURPLE       = '#7C3AED';
 const PURPLE_BG    = '#F5F3FF';
 const PURPLE_LIGHT = '#EDE9FE';
-const GREEN        = '#10B981';
-const ORANGE       = '#F59E0B';
-const RED          = '#EF4444';
+const GREEN        = '#047857';
+const ORANGE       = '#B45309';
+const RED          = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type AccessLevel  = 'FULL_ACCESS' | 'VIEW_ONLY' | 'EDIT_ONLY' | 'CUSTOM';
@@ -45,7 +45,7 @@ interface PatientDetail {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#4F46E5','#0D9488','#F59E0B','#EF4444','#8B5CF6','#10B981','#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5','#0F766E','#B45309','#B91C1C','#6D28D9','#047857','#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -813,7 +813,7 @@ const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { alignSelf:'center', width:'100%', maxWidth:860, padding:28, gap:20, paddingBottom:48 } as any,
 
-  pageHeader: { gap: 4 },
+  pageHeader: { gap: 4, flexWrap: 'wrap' },
   backBtn:    { flexDirection:'row', alignItems:'center', gap:6, alignSelf:'flex-start', marginBottom:6 },
   backText:   { fontSize:14, color:PURPLE, fontWeight:'500' },
   pageTitle:  { fontSize:24, fontWeight:'700', color:TEXT },

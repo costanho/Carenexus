@@ -7,19 +7,19 @@ const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const AMBER  = '#F59E0B';
-const PURPLE = '#8B5CF6';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const AMBER  = '#B45309';
+const PURPLE = '#6D28D9';
+const RED    = '#B91C1C';
 const TEAL   = '#2DD4BF';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -189,8 +189,9 @@ export default function DoctorMobileProfile() {
                   borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: sh(2),
                   borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
                 }}>
-                  <View style={{ width: s(5), height: s(5), borderRadius: s(3), backgroundColor: GREEN }} />
-                  <Text style={{ fontSize: s(10), fontWeight: '600', color: GREEN }}>Active</Text>
+                  {/* Light green on the navy hero: the darker GREEN fails contrast here */}
+                  <View style={{ width: s(5), height: s(5), borderRadius: s(3), backgroundColor: '#34D399' }} />
+                  <Text style={{ fontSize: s(10), fontWeight: '600', color: '#34D399' }}>Active</Text>
                 </View>
               )}
             </View>

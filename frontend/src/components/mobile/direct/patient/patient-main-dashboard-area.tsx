@@ -7,14 +7,14 @@ import { usePatientProfile } from '@/hooks/use-patient-profile';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
 import { formatDateOnly } from '@/lib/ui/date-only';
 
-const TEAL       = '#0D9488';
+const TEAL       = '#0F766E';
 const NAVY       = '#1E3A5F';
 const GRAY       = '#6B7280';
 const GRAY_LIGHT = '#F9FAFB';
 const BORDER     = '#E5E7EB';
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
-const RED        = '#EF4444';
+const RED        = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -54,10 +54,10 @@ const quickActions: QuickAction[] = [
   { key: 'book',          label: 'Book Appointment',      icon: 'calendar-outline',        iconBg: '#EEE8FF', iconColor: '#7C5CFC' },
   { key: 'appointments',  label: 'My Appointments',       icon: 'calendar-number-outline', iconBg: '#FFF3E6', iconColor: '#F4A124' },
   { key: 'consultations', label: 'Consultation History',  icon: 'document-text-outline',   iconBg: '#EEF2FF', iconColor: '#4F46E5' },
-  { key: 'records',       label: 'Medical Records',       icon: 'folder-open-outline',     iconBg: '#F0FDF4', iconColor: '#10B981' },
-  { key: 'lab',           label: 'Lab Results',           icon: 'flask-outline',           iconBg: '#EFF6FF', iconColor: '#3B82F6' },
-  { key: 'imaging',       label: 'Imaging Results',       icon: 'image-outline',           iconBg: '#F5F3FF', iconColor: '#8B5CF6' },
-  { key: 'prescriptions', label: 'Prescriptions',         icon: 'medkit-outline',          iconBg: '#ECFDF5', iconColor: '#10B981' },
+  { key: 'records',       label: 'Medical Records',       icon: 'folder-open-outline',     iconBg: '#F0FDF4', iconColor: '#047857' },
+  { key: 'lab',           label: 'Lab Results',           icon: 'flask-outline',           iconBg: '#EFF6FF', iconColor: '#1D4ED8' },
+  { key: 'imaging',       label: 'Imaging Results',       icon: 'image-outline',           iconBg: '#F5F3FF', iconColor: '#6D28D9' },
+  { key: 'prescriptions', label: 'Prescriptions',         icon: 'medkit-outline',          iconBg: '#ECFDF5', iconColor: '#047857' },
 ];
 
 type NavProps = {
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
 
   section:      { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER },
   sectionTitle: { fontWeight: '700', color: TEXT },
-  link:         { color: '#4F6EF7', fontWeight: '500' },
+  link:         { color: '#4338CA', fontWeight: '500' },
 
   metricCard:   { borderWidth: 1, borderColor: BORDER },
   metricLabel:  { color: GRAY },

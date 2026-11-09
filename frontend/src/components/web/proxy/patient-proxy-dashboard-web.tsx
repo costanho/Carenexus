@@ -1,6 +1,7 @@
-import React, { lazy, Suspense, useCallback, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { NavDrawer } from '../layout/nav-drawer';
 import { PatientProxySidebar }  from './patient/patient-proxy-sidebar';
 import { PatientProxyTopNavbar } from './patient/patient-proxy-topnavbar';
 import { PatientProxyMainDashboard } from './patient/patient-proxy-main-dashboard';
@@ -30,6 +31,12 @@ function Loader() {
 export function PatientProxyDashboardWeb() {
   const { width } = useWindowDimensions();
   const isCollapsed = width < 1024;
+  // Phones: the sidebar becomes a drawer behind a menu button, so pages get the full width.
+  const isSmall = width < 768;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // Wider than a phone the drawer is not shown; close it so it does not pop open again on the way back.
+  useEffect(() => { if (!isSmall) setDrawerOpen(false); }, [isSmall]);
   const [activeKey, setActiveKey]               = useState('dashboard');
   const [navKey,    setNavKey]                  = useState(0);
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
@@ -84,16 +91,30 @@ export function PatientProxyDashboardWeb() {
 
   return (
     <View style={styles.container}>
-      <PatientProxySidebar
-        collapsed={isCollapsed}
-        activeKey={activeKey}
-        onNavigate={navigate}
-        onSelectPatient={selectPatient}
-      />
+      {!isSmall && (
+        <PatientProxySidebar
+          collapsed={isCollapsed}
+          activeKey={activeKey}
+          onNavigate={navigate}
+          onSelectPatient={selectPatient}
+        />
+      )}
       <View style={styles.main}>
-        <PatientProxyTopNavbar onNavigate={navigate} onOpenThread={openThread} />
+        <PatientProxyTopNavbar
+          onNavigate={navigate}
+          onOpenThread={openThread}
+          onMenuPress={isSmall ? () => setDrawerOpen(true) : undefined}
+        />
         {renderContent()}
       </View>
+      <NavDrawer open={isSmall && drawerOpen} onClose={closeDrawer}>
+        <PatientProxySidebar
+          collapsed={false}
+          activeKey={activeKey}
+          onNavigate={key => { setDrawerOpen(false); navigate(key); }}
+          onSelectPatient={dep => { setDrawerOpen(false); selectPatient(dep); }}
+        />
+      </NavDrawer>
     </View>
   );
 }

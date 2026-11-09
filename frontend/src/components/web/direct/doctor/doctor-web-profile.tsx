@@ -5,20 +5,20 @@ import { useDoctorProfile } from '@/hooks/use-doctor-profile';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const AMBER  = '#F59E0B';
-const TEAL   = '#0D9488';
+const GREEN  = '#047857';
+const AMBER  = '#B45309';
+const TEAL   = '#0F766E';
 const NAVY   = '#0D1B2E';
-const PURPLE = '#8B5CF6';
-const RED    = '#EF4444';
+const PURPLE = '#6D28D9';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -259,8 +259,9 @@ const styles = StyleSheet.create({
   nameRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   heroName:    { fontSize: 24, fontWeight: '700', color: WHITE },
   activeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)' },
-  activeDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
-  activeText:  { fontSize: 11, fontWeight: '600', color: GREEN },
+  // On the navy hero the darker GREEN fails contrast; a light green reads (over 6:1).
+  activeDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399' },
+  activeText:  { fontSize: 11, fontWeight: '600', color: '#34D399' },
 
   heroSpec:        { fontSize: 15, color: '#8BA3BE', fontWeight: '500' },
   heroMeta:        { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

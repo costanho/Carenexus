@@ -12,13 +12,13 @@ import { isPatientVisibleConsultation, useConsultations, type Consultation } fro
 import { tidyDoctorName } from '@/hooks/use-doctors';
 import { formatDateOnly } from '@/lib/ui/date-only';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
-const GREEN  = '#10B981';
-const AMBER  = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const BLUE   = '#3B82F6';
+const GREEN  = '#047857';
+const AMBER  = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const BLUE   = '#1D4ED8';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';

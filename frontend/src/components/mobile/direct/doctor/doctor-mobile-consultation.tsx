@@ -11,16 +11,16 @@ const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BG2    = '#F3F4F6';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const TEAL   = '#0D9488';
-const AMBER  = '#D97706';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
 
 type IoniconsName  = React.ComponentProps<typeof Ionicons>['name'];
 type ConsultStatus = DoctorConsultation['status'];
@@ -77,7 +77,7 @@ function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -205,7 +205,7 @@ function ConsultCard({ c, s }: { c: DoctorConsultation; s: (n: number) => number
             <ClinicalRow icon="journal-outline" iconColor={BLUE} label="History of Present Illness" content={c.history_of_present_illness} s={s} />
           )}
           {!!c.physical_examination && (
-            <ClinicalRow icon="body-outline" iconColor="#8B5CF6" label="Physical Examination" content={c.physical_examination} s={s} />
+            <ClinicalRow icon="body-outline" iconColor="#6D28D9" label="Physical Examination" content={c.physical_examination} s={s} />
           )}
           {!!c.clinical_notes && (
             <ClinicalRow icon="clipboard-outline" iconColor={TEAL} label="Clinical Notes" content={c.clinical_notes} s={s} />

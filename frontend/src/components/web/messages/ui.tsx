@@ -20,7 +20,7 @@ export interface MessagesTheme {
   accentBg: string;
 }
 
-export const DEFAULT_THEME: MessagesTheme = { accent: '#0D9488', accentBg: '#E8F5F4' };
+export const DEFAULT_THEME: MessagesTheme = { accent: '#0F766E', accentBg: '#E8F5F4' };
 
 export const ThemeContext = createContext<MessagesTheme>(DEFAULT_THEME);
 export function useTheme(): MessagesTheme {

@@ -9,8 +9,8 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
-const GREEN  = '#10B981';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -29,7 +29,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
     sub:   'Critical notifications about your linked patients\' health',
     items: [
       { key: 'critical_alerts',    label: 'Critical Health Alerts',    sub: 'When a result is marked as critical by the care team',       icon: 'warning-outline',          iconBg: '#FEE2E2', iconColor: RED    },
-      { key: 'lab_results',        label: 'Lab Results',               sub: 'When new lab results are uploaded or require review',        icon: 'flask-outline',            iconBg: '#FEF3C7', iconColor: '#F59E0B' },
+      { key: 'lab_results',        label: 'Lab Results',               sub: 'When new lab results are uploaded or require review',        icon: 'flask-outline',            iconBg: '#FEF3C7', iconColor: '#B45309' },
       { key: 'medication_due',     label: 'Medication Reminders',      sub: 'Daily reminders for due medications',                       icon: 'medical-outline',          iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'vitals_alert',       label: 'Vitals Outside Range',      sub: 'When BP, glucose or weight readings are abnormal',          icon: 'pulse-outline',            iconBg: '#FEE2E2', iconColor: RED    },
     ],
@@ -40,7 +40,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
     items: [
       { key: 'appt_reminder_24h',  label: '24-Hour Appointment Reminder', sub: 'Reminder the day before a scheduled appointment',       icon: 'calendar-outline',         iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'appt_reminder_1h',   label: '1-Hour Appointment Reminder',  sub: 'Reminder 1 hour before the appointment',               icon: 'alarm-outline',            iconBg: '#D1FAE5', iconColor: GREEN  },
-      { key: 'appt_changes',       label: 'Appointment Changes',          sub: 'When appointments are cancelled or rescheduled',        icon: 'calendar-clear-outline',   iconBg: '#FEF3C7', iconColor: '#F59E0B' },
+      { key: 'appt_changes',       label: 'Appointment Changes',          sub: 'When appointments are cancelled or rescheduled',        icon: 'calendar-clear-outline',   iconBg: '#FEF3C7', iconColor: '#B45309' },
       { key: 'video_call_ready',   label: 'Video Call Ready',             sub: 'When a video consultation is ready to join',            icon: 'videocam-outline',         iconBg: '#D1FAE5', iconColor: GREEN  },
     ],
   },
@@ -51,7 +51,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
       { key: 'new_message',        label: 'New Messages',              sub: 'In-app notification when the care team sends you a message', icon: 'chatbox-outline',          iconBg: '#EDE9FE', iconColor: PURPLE },
       { key: 'prescription_ready', label: 'Prescription Ready',        sub: 'When a prescription is ready for collection',             icon: 'tablet-portrait-outline',  iconBg: '#D1FAE5', iconColor: GREEN  },
       { key: 'care_plan_update',   label: 'Care Plan Updates',         sub: 'Changes to treatment goals or care plans',                icon: 'document-text-outline',    iconBg: '#EDE9FE', iconColor: PURPLE },
-      { key: 'referral',           label: 'Referrals',                 sub: 'When a patient is referred to a specialist',              icon: 'share-outline',            iconBg: '#FEF3C7', iconColor: '#F59E0B' },
+      { key: 'referral',           label: 'Referrals',                 sub: 'When a patient is referred to a specialist',              icon: 'share-outline',            iconBg: '#FEF3C7', iconColor: '#B45309' },
     ],
   },
   {
@@ -59,7 +59,7 @@ const CATEGORIES: { title: string; sub: string; items: NotifSetting[] }[] = [
     sub:   'Account activity and security alerts',
     items: [
       { key: 'login_alert',        label: 'New Login Alert',           sub: 'When your account is accessed from a new device',         icon: 'shield-outline',           iconBg: '#FEE2E2', iconColor: RED    },
-      { key: 'access_change',      label: 'Proxy Access Changes',      sub: 'When your proxy permissions are modified',                icon: 'key-outline',              iconBg: '#FEF3C7', iconColor: '#F59E0B' },
+      { key: 'access_change',      label: 'Proxy Access Changes',      sub: 'When your proxy permissions are modified',                icon: 'key-outline',              iconBg: '#FEF3C7', iconColor: '#B45309' },
       { key: 'weekly_summary',     label: 'Weekly Health Summary',     sub: 'A weekly digest of all patient activity',                 icon: 'stats-chart-outline',      iconBg: '#EDE9FE', iconColor: PURPLE },
     ],
   },
@@ -220,7 +220,7 @@ export default function PatientProxyNotificationSettings() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.pageHeader}>
-        <View>
+        <View style={styles.pageHeaderText}>
           <Text style={styles.pageTitle} accessibilityRole="header">Notification Settings</Text>
           <Text style={styles.pageSub}>{enabledCount} of {Object.keys(settings).length} notifications enabled</Text>
         </View>
@@ -346,7 +346,8 @@ export default function PatientProxyNotificationSettings() {
 const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 24, paddingBottom: 48, gap: 20 },
-  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
   saveBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },

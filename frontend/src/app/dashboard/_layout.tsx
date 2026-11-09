@@ -36,7 +36,7 @@ type Session = { role: Role } | null | undefined;
 function Loader() {
   return (
     <View style={styles.loader}>
-      <ActivityIndicator size="large" color="#0D9488" accessibilityLabel="Loading" />
+      <ActivityIndicator size="large" color="#0F766E" accessibilityLabel="Loading" />
     </View>
   );
 }

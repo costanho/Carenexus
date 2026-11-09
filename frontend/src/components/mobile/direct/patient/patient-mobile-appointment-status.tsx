@@ -17,12 +17,12 @@ import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import { CalendarPicker, TimePicker } from './patient-mobile-appointment';
 import { MessageDoctorButton } from '../../messages/messaging-actions';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
-const GREEN  = '#10B981';
-const AMBER  = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
+const GREEN  = '#047857';
+const AMBER  = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';

@@ -50,7 +50,7 @@ const PatientMobileProfile = lazy(
 function LoadingFallback() {
   return (
     <View style={styles.loading}>
-      <ActivityIndicator size="large" color="#0D9488" />
+      <ActivityIndicator size="large" color="#0F766E" />
     </View>
   );
 }

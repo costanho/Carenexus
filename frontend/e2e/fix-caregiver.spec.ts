@@ -17,6 +17,9 @@ const section = (nav: string) => PROXY_SECTIONS.find(s => s.nav === nav)!;
 
 /** Waits for the caregiver dashboard and shows every loved one (the list starts collapsed to three). */
 async function openDashboard(page: Page): Promise<void> {
+  // At phone width the sidebar is a drawer behind the menu button.
+  const menu = page.getByRole('button', { name: 'Open menu' });
+  if (await menu.count()) await menu.first().click();
   await navButton(page, 'Dashboard').click();
   await expect(page.getByRole('heading', { name: 'Loved One Overview', exact: true })).toBeVisible();
   await expect(page.getByText('Loading loved ones')).toHaveCount(0, { timeout: 20_000 });

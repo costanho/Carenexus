@@ -19,17 +19,17 @@ const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BG2    = '#F3F4F6';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const TEAL   = '#0D9488';
-const AMBER  = '#D97706';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type AppStatus    = ScheduleEntry['status'];
@@ -60,9 +60,9 @@ function statusConfig(st: AppStatus) {
 
 function typeConfig(t: AppType) {
   switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#10B981' };
+    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#047857' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF', accent: '#4F46E5' };
-    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#F59E0B' };
+    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#B45309' };
     default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG2,       accent: BORDER    };
   }
 }
@@ -91,7 +91,7 @@ function isToday(iso: string) {
   return d.toDateString() === n.toDateString();
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;

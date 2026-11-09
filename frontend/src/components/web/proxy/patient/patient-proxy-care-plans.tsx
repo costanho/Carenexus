@@ -9,7 +9,7 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -73,7 +73,7 @@ export default function PatientProxyCarePlans() {
 const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 24, paddingBottom: 48, gap: 20 },
-  pageHeader: { marginBottom: 4 },
+  pageHeader: { marginBottom: 4, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
 

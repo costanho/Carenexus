@@ -11,7 +11,7 @@ const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 // Below this width the subtitle and the name block are hidden so the greeting keeps its room.
 const NARROW_MAX = 640;
 const HIDDEN = { 'aria-hidden': true } as object;
@@ -20,7 +20,7 @@ const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
   : '/auth/login/mobile/login-mobile';
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -36,8 +36,10 @@ function greeting() {
   return 'Good evening';
 }
 
-export function PatientProxyTopNavbar({ onNavigate, onOpenThread }: {
+export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }: {
   onNavigate?:   (key: string) => void;
+  /** Phones: opens the navigation drawer. */
+  onMenuPress?:  () => void;
   /** Open the messages section on a thread (from a notification). */
   onOpenThread?: (threadId: number) => void;
 } = {}) {
@@ -68,6 +70,17 @@ export function PatientProxyTopNavbar({ onNavigate, onOpenThread }: {
 
   return (
     <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
+      {!!onMenuPress && (
+        <TouchableOpacity
+          onPress={onMenuPress}
+          style={styles.menuBtn}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
+        >
+          <Ionicons name="menu-outline" size={26} color={TEXT} />
+        </TouchableOpacity>
+      )}
       {/* Left: greeting */}
       <View style={styles.left}>
         <Text style={[styles.greeting, narrow && styles.greetingNarrow]} numberOfLines={narrow ? 2 : undefined}>{greeting()}, {firstName || '…'}!</Text>
@@ -163,6 +176,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 8,
   },
+
+  menuBtn: { padding: 4, marginRight: 4 },
 
   // Left
   left: {
