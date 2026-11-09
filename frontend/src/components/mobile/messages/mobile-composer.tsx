@@ -5,6 +5,9 @@ import { BORDER, GRAY, LIGHT, RED, TEXT, WHITE, useTheme } from '@/components/we
 import { useDraft } from '@/hooks/use-draft';
 import { MAX_MESSAGE_LENGTH, URGENT_HELPER_TEXT } from '@/lib/communications/types';
 
+const MIN_INPUT = 40;
+const MAX_INPUT = 120;
+
 interface Props {
   /** Stored draft key for this thread; null disables drafts. */
   draftKey:        string | null;
@@ -18,6 +21,9 @@ export function MobileComposer({ draftKey, disabled, disabledReason, onSend }: P
   const { accent } = useTheme();
   const { text, setText, clear } = useDraft(draftKey);
   const [urgent, setUrgent] = useState(false);
+  // The box grows with its text up to 120 pt; set explicitly so it shrinks back after a send (iOS keeps
+  // a multiline input at its tallest size otherwise).
+  const [inputHeight, setInputHeight] = useState(MIN_INPUT);
 
   const trimmed = text.trim();
   const tooLong = trimmed.length > MAX_MESSAGE_LENGTH;
@@ -29,6 +35,7 @@ export function MobileComposer({ draftKey, disabled, disabledReason, onSend }: P
     onSend(trimmed, urgent);
     clear();
     setUrgent(false);
+    setInputHeight(MIN_INPUT);
   }
 
   if (disabled) {
@@ -45,9 +52,13 @@ export function MobileComposer({ draftKey, disabled, disabledReason, onSend }: P
       {urgent && <Text style={styles.helper} accessibilityLiveRegion="polite">{URGENT_HELPER_TEXT}</Text>}
       <View style={styles.inputRow}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { height: inputHeight }]}
           value={text}
           onChangeText={setText}
+          onContentSizeChange={e => {
+            const h = Math.min(MAX_INPUT, Math.max(MIN_INPUT, Math.ceil(e.nativeEvent.contentSize.height) + 20));
+            setInputHeight(h);
+          }}
           placeholder="Write a message…"
           placeholderTextColor={LIGHT}
           multiline
@@ -102,7 +113,7 @@ const styles = StyleSheet.create({
   wrap:        { borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: WHITE, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8, gap: 6 },
   inputRow:    { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   input: {
-    flex: 1, minHeight: 40, maxHeight: 120,
+    flex: 1,
     borderWidth: 1, borderColor: BORDER, borderRadius: 20,
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10,
     fontSize: 15, color: TEXT, backgroundColor: WHITE,

@@ -7,14 +7,14 @@ import { usePatientProfile } from '@/hooks/use-patient-profile';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
 import { ariaLevel } from './a11y';
 
-const TEAL       = '#0D9488';
+const TEAL       = '#0F766E';
 const NAVY       = '#1E3A5F';
 const GRAY       = '#6B7280';
 const GRAY_LIGHT = '#F9FAFB';
 const BORDER     = '#E5E7EB';
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
-const RED        = '#EF4444';
+const RED        = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   bannerIcon:       { backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center' },
   bannerText:       { flex: 1 },
   bannerTitle:      { fontSize: 18, fontWeight: '700', color: NAVY, marginBottom: 6 },
-  bannerDesc:       { fontSize: 13, color: GRAY, lineHeight: 20 },
+  bannerDesc:       { fontSize: 13, color: '#374151', lineHeight: 20 },
   bannerDecor:      { position: 'absolute', right: -20, top: -20, opacity: 0.15 },
   decorCircleOuter: { width: 140, height: 140, borderRadius: 70, borderWidth: 24, borderColor: TEAL },
   decorCircleInner: { width: 80, height: 80, borderRadius: 40, borderWidth: 16, borderColor: TEAL, position: 'absolute', right: 10, bottom: -30 },
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
   section:       { backgroundColor: WHITE, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: BORDER, gap: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionTitle:  { fontSize: 15, fontWeight: '700', color: TEXT },
-  link:          { fontSize: 13, color: '#4F6EF7', fontWeight: '500' },
+  link:          { fontSize: 13, color: '#4338CA', fontWeight: '500' },
 
   metricsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   metricCard: { flex: 1, minWidth: 100, borderRadius: 10, borderWidth: 1, borderColor: BORDER, padding: 12, gap: 4, alignItems: 'flex-start' },

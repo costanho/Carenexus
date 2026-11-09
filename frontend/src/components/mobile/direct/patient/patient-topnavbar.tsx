@@ -8,8 +8,8 @@ import { MobileNotificationBell } from '../../notifications/mobile-notification-
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
-const RED   = '#EF4444';
-const TEAL  = '#0D9488';
+const RED   = '#B91C1C';
+const TEAL  = '#0F766E';
 
 export function PatientTopNavbar({ onProfilePress, onOpenNotifications }: {
   onProfilePress?: () => void;

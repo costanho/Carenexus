@@ -8,8 +8,8 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const PURPLE = '#7C3AED';
-const RED    = '#EF4444';
-const ORANGE = '#F59E0B';
+const RED    = '#B91C1C';
+const ORANGE = '#B45309';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 

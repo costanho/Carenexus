@@ -5,16 +5,16 @@ import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { ariaLevel } from './a11y';
 import { CallTimePending } from './call-time-pending';
 
-const TEAL      = '#0D9488';
+const TEAL      = '#0F766E';
 const TEAL_BG   = '#E8F5F4';
 const GRAY      = '#6B7280';
 const GRAY_LIGHT = '#F3F4F6';
 const BORDER    = '#E5E7EB';
 const WHITE     = '#FFFFFF';
-const RED       = '#EF4444';
+const RED       = '#B91C1C';
 const ORANGE    = '#F97316';
-const AMBER     = '#F59E0B';
-const GREEN     = '#10B981';
+const AMBER     = '#B45309';
+const GREEN     = '#047857';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 

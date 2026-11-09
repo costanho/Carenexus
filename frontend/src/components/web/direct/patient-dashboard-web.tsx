@@ -106,7 +106,7 @@ export function PatientDashboardWeb() {
     }
   }, [user?.system_id, openThread]);
 
-  const loader = <View style={styles.loader}><ActivityIndicator size="large" color="#0D9488" /></View>;
+  const loader = <View style={styles.loader}><ActivityIndicator size="large" color="#0F766E" /></View>;
 
   function renderCenter() {
     if (activeKey === 'book-appointment') {

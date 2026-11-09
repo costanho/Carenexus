@@ -5,8 +5,8 @@ import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessagesTabIcon, useTabLabel } from '../../messages/messages-tab-icon';
 
-const TEAL  = '#0D9488';
-const GRAY  = '#9CA3AF';
+const TEAL  = '#0F766E';
+const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
 const BORDER = '#E5E7EB';
 

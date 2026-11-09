@@ -9,15 +9,15 @@ import { type DoctorMedicalRecord, type RecordType, useDoctorMedicalRecords } fr
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const TEAL   = '#0D9488';
-const AMBER  = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
+const GREEN  = '#047857';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
 const NAVY   = '#1E3A5F';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -45,7 +45,7 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -259,7 +259,7 @@ export default function DoctorWebMedicalRecords() {
 
       {/* Page header */}
       <View style={styles.pageHeader}>
-        <View>
+        <View style={styles.pageHeaderText}>
           <Text style={styles.pageTitle} accessibilityRole="header">Medical Records</Text>
           <Text style={styles.pageSub}>All records for patients associated with you</Text>
         </View>
@@ -350,7 +350,8 @@ const styles = StyleSheet.create({
   container: { padding: 24, paddingBottom: 48 },
   center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
   pageSub:     { fontSize: 14, color: GRAY },
   refreshBtn:  {

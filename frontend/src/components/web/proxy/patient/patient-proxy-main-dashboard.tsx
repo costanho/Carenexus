@@ -22,9 +22,9 @@ const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
 const PURPLE_LIGHT = '#EDE9FE';
 const PURPLE_BG    = '#F5F3FF';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -128,7 +128,7 @@ function isSameDay(a: Date, b: Date) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -141,7 +141,7 @@ function healthDotColor(s: string | null) {
   if (s === 'STABLE')   return GREEN;
   if (s === 'MONITOR')  return ORANGE;
   if (s === 'CRITICAL') return RED;
-  return '#9CA3AF';
+  return '#6B7280';
 }
 function calcAge(dob: string | null) {
   if (!dob) return '';
@@ -464,9 +464,9 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 40, gap: 20 },
 
   // Stat cards
-  statsRow: { flexDirection: 'row', gap: 12 },
+  statsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   statCard: {
-    flex: 1, backgroundColor: WHITE,
+    flexGrow: 1, flexBasis: 150, backgroundColor: WHITE,
     borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16,
   },
   statIconBg: { width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },

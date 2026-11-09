@@ -179,7 +179,7 @@ export function CaregiverAccessLink() {
         <Text style={styles.linkTitle}>Caregivers and access</Text>
         <Text style={styles.linkSub}>Approve messaging and video calls, or remove access</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" importantForAccessibility="no" />
+      <Ionicons name="chevron-forward" size={18} color="#6B7280" importantForAccessibility="no" />
     </TouchableOpacity>
   );
 }

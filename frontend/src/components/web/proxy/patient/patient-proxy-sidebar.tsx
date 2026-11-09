@@ -19,7 +19,7 @@ type NavItem      = { key: string; label: string; icon: IoniconsName; comingSoon
 
 const careItems: NavItem[] = [
   { key: 'appointments',       label: 'Appointments',        icon: 'calendar-outline' },
-  { key: 'medications',        label: 'Medications',         icon: 'pencil-outline' },
+  { key: 'medications',        label: 'Medications',         icon: 'medkit-outline' },
   { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline' },
   { key: 'notifications',      label: 'Notifications',       icon: 'notifications-outline' },
   { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline', comingSoon: true },
@@ -45,9 +45,9 @@ function initials(name: string) {
 function healthDotColor(status: string | null) {
   switch (status) {
     case 'STABLE':   return '#22C55E';
-    case 'MONITOR':  return '#F59E0B';
-    case 'CRITICAL': return '#EF4444';
-    default:         return '#9CA3AF';
+    case 'MONITOR':  return '#B45309';
+    case 'CRITICAL': return '#B91C1C';
+    default:         return '#6B7280';
   }
 }
 function accessLabel(level: string) {
@@ -138,7 +138,7 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             {loading ? (
               <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 12 }} />
             ) : error ? (
-              <Text style={[styles.emptyText, { color: '#EF4444' }]}>{error}</Text>
+              <Text style={[styles.emptyText, { color: '#B91C1C' }]}>{error}</Text>
             ) : dependents.length === 0 ? (
               <Text style={styles.emptyText}>No linked patients yet.</Text>
             ) : (

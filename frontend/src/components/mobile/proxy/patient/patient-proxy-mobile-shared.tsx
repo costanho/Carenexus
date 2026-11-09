@@ -10,15 +10,15 @@ import { tidyDoctorName, useDoctors } from '@/hooks/use-doctors';
 export const WHITE        = '#FFFFFF';
 export const TEXT         = '#111827';
 export const GRAY         = '#6B7280';
-export const GRAY2        = '#9CA3AF';
+export const GRAY2        = '#6B7280';
 export const BORDER       = '#E5E7EB';
 export const BG           = '#F9FAFB';
 export const PURPLE       = '#7C3AED';
 export const PURPLE_BG    = '#F5F3FF';
 export const PURPLE_LIGHT = '#EDE9FE';
-export const GREEN        = '#10B981';
-export const ORANGE       = '#F59E0B';
-export const RED          = '#EF4444';
+export const GREEN        = '#047857';
+export const ORANGE       = '#B45309';
+export const RED          = '#B91C1C';
 
 export type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -28,7 +28,7 @@ export function useScale() {
   return { s };
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 export function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;

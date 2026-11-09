@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   empty:       { fontSize: 13 },
   person:      { gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: '#F9FAFB' },
   personDark:  { borderColor: '#334155', backgroundColor: '#1E293B' },
-  personFresh: { borderColor: '#F59E0B', borderWidth: 2 },
+  personFresh: { borderColor: '#B45309', borderWidth: 2 },
   personInfo:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label:       { fontSize: 13, fontWeight: '600' },
   sub:         { fontSize: 12 },

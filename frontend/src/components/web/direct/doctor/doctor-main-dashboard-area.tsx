@@ -13,10 +13,10 @@ const GRAY    = '#6B7280';
 const BORDER  = '#E5E7EB';
 const BG      = '#F9FAFB';
 const BLUE    = '#4F46E5';
-const GREEN   = '#10B981';
-const ORANGE  = '#F59E0B';
-const RED     = '#EF4444';
-const PURPLE  = '#8B5CF6';
+const GREEN   = '#047857';
+const ORANGE  = '#B45309';
+const RED     = '#B91C1C';
+const PURPLE  = '#6D28D9';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -34,7 +34,7 @@ function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -203,7 +203,7 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
             <StatCard icon="time-outline"      iconBg="#F5F3FF" iconColor={PURPLE}  label="Upcoming Appointments"  value={String(dashboard?.upcoming.length ?? 0)}          sub="Scheduled ahead"                subColor={GRAY}  />
             <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed Consultations" value={String(dashboard?.completed_consultations ?? 0)} sub="All time"                    subColor={GRAY}  />
             <StatCard icon="document-text-outline" iconBg="#FEF3C7" iconColor={ORANGE} label="Open Consultations"  value={String(dashboard?.pending_consultations ?? 0)}   sub="Draft or in progress"           subColor={ORANGE} />
-            <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#3B82F6" label="My Patients"            value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="With appointments" subColor={GRAY} />
+            <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#1D4ED8" label="My Patients"            value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="With appointments" subColor={GRAY} />
           </View>
 
           {/* Two-column body */}

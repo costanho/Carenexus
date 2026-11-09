@@ -62,7 +62,7 @@ export default function RootLayout() {
     return (
       <View style={styles.loader}>
         {head}
-        <ActivityIndicator size="large" color="#0D9488" accessibilityLabel="Loading" />
+        <ActivityIndicator size="large" color="#0F766E" accessibilityLabel="Loading" />
       </View>
     );
   }

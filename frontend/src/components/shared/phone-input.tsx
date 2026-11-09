@@ -18,7 +18,7 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const TEXT   = '#111827';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 const WHITE  = '#FFFFFF';
 const OVERLAY= 'rgba(0,0,0,0.45)';
 
@@ -44,7 +44,7 @@ function parseValue(value: string): { country: Country; local: string } {
   return { country: defaultCountry, local: value };
 }
 
-export function PhoneInput({ value, onChange, error, accentColor = '#0D9488', scale }: PhoneInputProps) {
+export function PhoneInput({ value, onChange, error, accentColor = '#0F766E', scale }: PhoneInputProps) {
   const s = scale ?? ((n: number) => n);
   const isWeb = Platform.OS === 'web';
 

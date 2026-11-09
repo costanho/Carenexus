@@ -11,15 +11,15 @@ import { daysUntilDateOnly, isValidDateOnly } from '@/lib/ui/date-only';
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
 const GRAY       = '#6B7280';
-const GRAY2      = '#9CA3AF';
+const GRAY2      = '#6B7280';
 const BORDER     = '#E5E7EB';
 const BG         = '#F9FAFB';
 const PURPLE     = '#7C3AED';
 const PURPLE_BG  = '#F5F3FF';
 const PURPLE_LIGHT = '#EDE9FE';
-const GREEN      = '#10B981';
-const ORANGE     = '#F59E0B';
-const RED        = '#EF4444';
+const GREEN      = '#047857';
+const ORANGE     = '#B45309';
+const RED        = '#B91C1C';
 
 // ─── Scaling ──────────────────────────────────────────────────────────────────
 
@@ -488,7 +488,7 @@ export default function PatientProxyMobileAddDependent({
                   accessibilityRole="button"
                   accessibilityLabel={pwCopied ? 'Password copied' : 'Copy password'}
                 >
-                  <Ionicons name={pwCopied ? 'checkmark-outline' : 'copy-outline'} size={s(16)} color={pwCopied ? '#10B981' : GRAY} importantForAccessibility="no" />
+                  <Ionicons name={pwCopied ? 'checkmark-outline' : 'copy-outline'} size={s(16)} color={pwCopied ? '#047857' : GRAY} importantForAccessibility="no" />
                 </TouchableOpacity>
               </View>
             </View>

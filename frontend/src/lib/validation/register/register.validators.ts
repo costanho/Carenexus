@@ -16,9 +16,9 @@ export function getPasswordStrength(password: string): PasswordStrength {
 
   const colors: Record<PasswordStrength['level'], string> = {
     0: 'transparent',
-    1: '#EF4444',
+    1: '#B91C1C',
     2: '#4F46E5',
-    3: '#10B981',
+    3: '#047857',
   };
 
   const labels: Record<PasswordStrength['level'], string> = {

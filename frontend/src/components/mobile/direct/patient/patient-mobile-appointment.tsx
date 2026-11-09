@@ -16,16 +16,16 @@ import { doctorInitial, tidyDoctorName, useDoctors } from '@/hooks/use-doctors';
 import { apiErrorMessage, invalidateAppointments, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
 import { api } from '@/lib/auth/auth.interceptor';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const GRAY2  = '#9CA3AF';
+const GRAY2  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
-const GREEN  = '#10B981';
+const RED    = '#B91C1C';
+const GREEN  = '#047857';
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_LABELS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];

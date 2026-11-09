@@ -12,11 +12,11 @@ import { CalendarPicker } from '../patient/patient-web-appointment';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
 /** Same step as the patient booking time picker (:00, :15, :30, :45). */
 const SLOT_STEP_MINUTES = 15;
