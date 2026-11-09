@@ -56,7 +56,9 @@ export function MobileComposer({ draftKey, disabled, disabledReason, onSend }: P
           value={text}
           onChangeText={setText}
           onContentSizeChange={e => {
-            const h = Math.min(MAX_INPUT, Math.max(MIN_INPUT, Math.ceil(e.nativeEvent.contentSize.height) + 20));
+            // contentSize already includes the vertical padding (iOS text inset, Android compound padding);
+            // only the 1pt top and bottom borders are added.
+            const h = Math.min(MAX_INPUT, Math.max(MIN_INPUT, Math.ceil(e.nativeEvent.contentSize.height) + 2));
             setInputHeight(h);
           }}
           placeholder="Write a message…"

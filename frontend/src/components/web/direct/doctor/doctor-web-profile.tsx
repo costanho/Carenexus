@@ -259,8 +259,9 @@ const styles = StyleSheet.create({
   nameRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   heroName:    { fontSize: 24, fontWeight: '700', color: WHITE },
   activeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)' },
-  activeDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
-  activeText:  { fontSize: 11, fontWeight: '600', color: GREEN },
+  // On the navy hero the darker GREEN fails contrast; a light green reads (over 6:1).
+  activeDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399' },
+  activeText:  { fontSize: 11, fontWeight: '600', color: '#34D399' },
 
   heroSpec:        { fontSize: 15, color: '#8BA3BE', fontWeight: '500' },
   heroMeta:        { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

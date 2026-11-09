@@ -395,8 +395,9 @@ function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }
     : 'Connection unknown';
   const qualityColor =
     quality === ConnectionQuality.Excellent || quality === ConnectionQuality.Good ? '#22C55E'
-    : quality === ConnectionQuality.Poor ? '#B45309'
-    : quality === ConnectionQuality.Lost ? '#B91C1C' : '#94A3B8';
+    // Bright colours: these sit on the dark call room
+    : quality === ConnectionQuality.Poor ? '#F59E0B'
+    : quality === ConnectionQuality.Lost ? '#F87171' : '#94A3B8';
 
   return (
     <View
@@ -449,7 +450,7 @@ function ControlButton(props: {
       style={[
         styles.ctrl,
         { backgroundColor: neutralBg },
-        props.highlight && { borderColor: '#B45309', borderWidth: 2 },
+        props.highlight && { borderColor: '#F59E0B', borderWidth: 2 },
         props.disabled && { opacity: 0.5 },
       ]}
     >

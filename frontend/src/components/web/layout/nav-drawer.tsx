@@ -1,11 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function focusablesIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))
+    .filter(el => el.getAttribute('aria-disabled') !== 'true' && el.getClientRects().length > 0);
+}
 
 /**
  * Phone-width navigation for the web dashboards: the full sidebar slides over the page, with a backdrop,
  * a Close menu button and Escape to close. Below the breakpoint the dashboards show this instead of a
  * permanent icon rail, so the page keeps the whole screen width (same pattern as the patient dashboard).
+ *
+ * Web keyboard behaviour matches the notification panel: focus moves into the drawer when it opens and
+ * stays there (Tab wraps), and when it closes focus goes back to whatever opened it (the menu button).
  */
 export function NavDrawer({ open, onClose, closeColor = '#111827', children }: {
   open:        boolean;
@@ -14,12 +24,50 @@ export function NavDrawer({ open, onClose, closeColor = '#111827', children }: {
   closeColor?: string;
   children:    ReactNode;
 }) {
+  const panelRef = useRef<View>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open || Platform.OS !== 'web' || typeof document === 'undefined') return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const opener = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current as unknown as HTMLElement | null;
+    (panel && focusablesIn(panel)[0])?.focus?.();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !panel) return;
+      const items = focusablesIn(panel);
+      if (items.length === 0) { e.preventDefault(); return; }
+      const first = items[0];
+      const last  = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      const inside = !!active && panel.contains(active);
+      if (e.shiftKey && (!inside || active === first)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (!inside || active === last)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    // Focus that lands behind the backdrop (e.g. a click on the page) is sent back into the drawer.
+    const onFocusIn = (e: FocusEvent) => {
+      if (panel && e.target instanceof Node && !panel.contains(e.target)) focusablesIn(panel)[0]?.focus();
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('focusin', onFocusIn);
+      // Back to the menu button once the drawer is gone (if it is still on the page).
+      if (opener && opener.isConnected) setTimeout(() => opener.focus?.(), 0);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
@@ -32,7 +80,7 @@ export function NavDrawer({ open, onClose, closeColor = '#111827', children }: {
         importantForAccessibility="no"
         aria-hidden
       />
-      <View style={styles.panel}>
+      <View ref={panelRef} style={styles.panel}>
         {children}
         <TouchableOpacity
           style={styles.closeBtn}

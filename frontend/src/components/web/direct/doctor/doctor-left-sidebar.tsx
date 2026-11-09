@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
   badge:     { marginLeft: 'auto', minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: BG, fontSize: 11, fontWeight: '700' },
-  badgeDot:  { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: '#B91C1C' },
+  badgeDot:  { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: LOGOUT_RED }, // bright red: the only unread cue on the navy rail
   soonText: { fontSize: 9, fontWeight: '700', color: '#8BA3BE', letterSpacing: 0.5 },
 
   sidebar: {

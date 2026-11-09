@@ -189,8 +189,9 @@ export default function DoctorMobileProfile() {
                   borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: sh(2),
                   borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
                 }}>
-                  <View style={{ width: s(5), height: s(5), borderRadius: s(3), backgroundColor: GREEN }} />
-                  <Text style={{ fontSize: s(10), fontWeight: '600', color: GREEN }}>Active</Text>
+                  {/* Light green on the navy hero: the darker GREEN fails contrast here */}
+                  <View style={{ width: s(5), height: s(5), borderRadius: s(3), backgroundColor: '#34D399' }} />
+                  <Text style={{ fontSize: s(10), fontWeight: '600', color: '#34D399' }}>Active</Text>
                 </View>
               )}
             </View>

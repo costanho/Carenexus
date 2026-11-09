@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 import { NavDrawer } from '../layout/nav-drawer';
@@ -35,6 +35,8 @@ export function PatientProxyDashboardWeb() {
   const isSmall = width < 768;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // Wider than a phone the drawer is not shown; close it so it does not pop open again on the way back.
+  useEffect(() => { if (!isSmall) setDrawerOpen(false); }, [isSmall]);
   const [activeKey, setActiveKey]               = useState('dashboard');
   const [navKey,    setNavKey]                  = useState(0);
   const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);

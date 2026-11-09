@@ -106,7 +106,7 @@ export function CallAdmissionPanel(props: {
         ) : requested.map(p => (
           <View
             key={p.participantId}
-            style={[styles.person, dark && styles.personDark, fresh.has(p.participantId) && styles.personFresh]}
+            style={[styles.person, dark && styles.personDark, fresh.has(p.participantId) && (dark ? styles.personFreshDark : styles.personFresh)]}
           >
             <View style={styles.personInfo}>
               <Ionicons name="person-circle-outline" size={20} color={muted} />
@@ -191,6 +191,8 @@ const styles = StyleSheet.create({
   person:      { gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: '#F9FAFB' },
   personDark:  { borderColor: '#334155', backgroundColor: '#1E293B' },
   personFresh: { borderColor: '#B45309', borderWidth: 2 },
+  // Bright amber on the dark call room (the darker amber is for light surfaces)
+  personFreshDark: { borderColor: '#F59E0B', borderWidth: 2 },
   personInfo:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label:       { fontSize: 13, fontWeight: '600' },
   sub:         { fontSize: 12 },

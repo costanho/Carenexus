@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { NavDrawer } from '../layout/nav-drawer';
 import { DoctorLeftSidebar } from './doctor/doctor-left-sidebar';
@@ -38,6 +38,8 @@ export function DoctorDashboardWeb() {
   const [activeKey, setActiveKey] = useState('dashboard');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // Wider than a phone the drawer is not shown; close it so it does not pop open again on the way back.
+  useEffect(() => { if (!isSmall) setDrawerOpen(false); }, [isSmall]);
   function navigateFromSidebar(key: string) {
     setActiveKey(key);
     setDrawerOpen(false);
