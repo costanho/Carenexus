@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { isAfterClinicNow } from '@/hooks/use-appointments';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const NAVY   = '#0D1B2E';
@@ -223,8 +224,8 @@ export default function DoctorMobileSchedule() {
       return d >= todayStart && d <= todayEnd && e.status !== 'CANCELLED';
     }).length,
     completed: entries.filter(e => e.status === 'COMPLETED').length,
-    // Appointments have no IN_PROGRESS status; active future-facing ones are SCHEDULED or RESCHEDULED.
-    upcoming:  entries.filter(e => e.status === 'SCHEDULED' || e.status === 'RESCHEDULED').length,
+    // Booked or moved and still ahead in clinic time; past ones never closed out are not upcoming.
+    upcoming:  entries.filter(e => (e.status === 'SCHEDULED' || e.status === 'RESCHEDULED') && isAfterClinicNow(e.scheduled_at)).length,
   }), [entries, todayStart, todayEnd]);
 
   const filtered = useMemo(() => {

@@ -8,6 +8,7 @@ import {
   type CaregiverConsultation,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
+import { isAfterClinicNow } from '@/hooks/use-appointments';
 import { tidyDoctorName, useDoctors } from '@/hooks/use-doctors';
 import { ageFromDateOnly } from '@/lib/ui/date-only';
 import { EmptyState, ErrorState } from '@/components/web/proxy/patient/proxy-states';
@@ -203,10 +204,10 @@ export function PatientProxyMainDashboardMobile({ onNavigate, onSelectPatient }:
     dependents.find(d => d.patientSystemId === patientSystemId)?.patientName ?? fallback ?? 'Your loved one';
 
   const upcoming = useMemo(() => {
-    const now = Date.now();
+    // scheduledAt is a clinic wall-clock value: compare it with clinic time, as the Schedule screen does
     return appointments
-      .filter(a => (a.status === 'SCHEDULED' || a.status === 'RESCHEDULED') && new Date(a.scheduledAt).getTime() > now)
-      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+      .filter(a => (a.status === 'SCHEDULED' || a.status === 'RESCHEDULED') && isAfterClinicNow(a.scheduledAt))
+      .sort((a, b) => String(a.scheduledAt).localeCompare(String(b.scheduledAt)));
   }, [appointments]);
 
   // Only finalised consultations are shown (the backend already filters; this mirrors isPatientVisibleConsultation).

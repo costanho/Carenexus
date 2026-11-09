@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
 import { useDoctorPatients } from '@/hooks/use-doctor-patients';
 import type { MessagingMode } from '@/lib/communications/types';
@@ -90,6 +90,9 @@ function FilterMenu({ options, value, onChange, searchable }: {
               accessibilityLabel="Search patients to filter by"
             />
           )}
+          {/* A ScrollView, not overflow: 'scroll' (web only): on phones the menu sits inside the inbox list,
+              so long lists must scroll inside the menu instead of being clipped. */}
+          <ScrollView style={styles.options} nestedScrollEnabled keyboardShouldPersistTaps="handled">
           <View accessibilityRole="radiogroup" accessibilityLabel="Filter by patient">
             {[null, ...shown].map(o => {
               const on = (o?.systemId ?? null) === value;
@@ -111,6 +114,7 @@ function FilterMenu({ options, value, onChange, searchable }: {
             })}
             {shown.length === 0 && <Text style={styles.note}>No patients match "{query}".</Text>}
           </View>
+          </ScrollView>
         </View>
       )}
     </View>
@@ -121,7 +125,8 @@ const styles = StyleSheet.create({
   wrap:       { gap: 6 },
   toggle:     { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', maxWidth: '100%', borderWidth: 1, borderColor: BORDER, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 5 },
   toggleText: { fontSize: 12, color: TEXT, fontWeight: '600', flexShrink: 1 },
-  menu:       { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingVertical: 4, maxHeight: 260, overflow: 'scroll' },
+  menu:       { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingVertical: 4 },
+  options:    { maxHeight: 220 },
   search:     { marginHorizontal: 8, marginVertical: 4, borderWidth: 1, borderColor: BORDER, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 7, fontSize: 13, color: TEXT },
   option:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 7 },
   optionText: { fontSize: 13, color: TEXT, flexShrink: 1 },
