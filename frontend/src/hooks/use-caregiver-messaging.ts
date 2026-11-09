@@ -82,6 +82,8 @@ interface CareTeamConversation {
   /** accessId of the loved one whose conversation is being opened, or null. */
   openingFor: number | null;
   error:      string | null;
+  /** accessId of the loved one the last error belongs to, or null. */
+  errorFor:   number | null;
   /** Opens the existing care-team conversation for `dep`, or starts one. No-op unless messaging is allowed. */
   open:       (dep: CaregiverDependent) => Promise<void>;
 }
@@ -93,12 +95,14 @@ interface CareTeamConversation {
 export function useCareTeamConversation(onOpenThread: ((threadId: number) => void) | undefined): CareTeamConversation {
   const [openingFor, setOpeningFor] = useState<number | null>(null);
   const [error,      setError]      = useState<string | null>(null);
+  const [errorFor,   setErrorFor]   = useState<number | null>(null);
 
   const open = useCallback(async (dep: CaregiverDependent) => {
     if (!onOpenThread || openingFor != null) return;
     if (caregiverMessagingState(dep).status !== 'ALLOWED') return;
     setOpeningFor(dep.accessId);
     setError(null);
+    setErrorFor(dep.accessId);
     try {
       const thread = (await findCareTeamThread(dep.patientSystemId)) ?? (await startCareTeamThread(dep));
       onOpenThread(thread.threadId);
@@ -109,5 +113,5 @@ export function useCareTeamConversation(onOpenThread: ((threadId: number) => voi
     }
   }, [onOpenThread, openingFor]);
 
-  return { openingFor, error, open };
+  return { openingFor, error, errorFor, open };
 }

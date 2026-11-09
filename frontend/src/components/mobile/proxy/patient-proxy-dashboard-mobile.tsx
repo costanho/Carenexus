@@ -55,7 +55,9 @@ export function PatientProxyDashboardMobile() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { setActiveKey(backTo); return true; });
     return () => sub.remove();
   }, [activeKey, recordFocus]);
-  useEffect(() => { if (activeKey === 'dashboard' || activeKey === 'patient-profile') setRecordFocus(null); }, [activeKey]);
+  // Focus lasts only for the record screen it was opened for: leaving it any other way (a tab, the dashboard,
+  // Back to the profile) clears it, so the tab later opens unfiltered with no "Back to profile".
+  useEffect(() => { if (recordFocus && recordFocus.key !== activeKey) setRecordFocus(null); }, [activeKey, recordFocus]);
 
   function openRecordFor(key: string, dep: CaregiverDependent) {
     setRecordFocus({ key, patientSystemId: dep.patientSystemId });
@@ -107,6 +109,7 @@ export function PatientProxyDashboardMobile() {
             dependent={selectedDependent}
             onBack={() => setActiveKey('dashboard')}
             onOpenRecord={(key) => openRecordFor(key, selectedDependent)}
+            onDependentChange={setSelectedDependent}
           />
         </Suspense>
       );

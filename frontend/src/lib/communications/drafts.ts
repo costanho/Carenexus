@@ -59,6 +59,7 @@ export function removeStoredKeys(prefix: string, keepUser?: string | null): void
       if (k && k.startsWith(`${prefix}.`) && !(keep && k.startsWith(keep))) doomed.push(k);
     }
     doomed.forEach(k => s.removeItem(k));
+    s.removeMatchingLater?.(`${prefix}.`, keep);
   } catch {
     // ignore
   }
