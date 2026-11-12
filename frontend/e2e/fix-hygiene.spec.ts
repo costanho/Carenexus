@@ -3,8 +3,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
 import {
-  type Clients, cancelLeftoverE2EAppointments, clientId, createLiveableVideoAppointment, disposeAll, loginAll,
-  privateThreadThomasJames, sarahGrant,
+  type Clients, cancelLeftoverE2EAppointments, clientId, createLiveableVideoAppointment, disposeAll, listAppointments,
+  loginAll, privateThreadThomasJames, sarahGrant,
 } from './support/api';
 import { API_URL, JAMES, SARAH, THOMAS } from './support/env';
 import { type UserPage, newUserPage, openMessages } from './support/ui';
@@ -13,6 +13,12 @@ import { resetE2EData } from './global-setup';
 // Test-data hygiene: scripts/dev-reset-e2e-data.sh (run by globalSetup / globalTeardown and
 // `npm run e2e:clean`) deletes what the suites create, keeps the demo seed, refuses anything that
 // is not the local dev database, and a cleanup that cannot reach Docker never fails the run.
+//
+// Tables written: an "E2E video call test" VIDEO appointment with its call_sessions, call_jobs and provider_events, an
+// e2e-fix-… care team conversation and a tagged message in the Thomas / Dr. Banda private thread (message_threads,
+// thread_members, messages, notifications); refresh_tokens and audit_log for every sign-in. The test then runs
+// scripts/dev-reset-e2e-data.sh, which deletes all of it (and every other e2e row), and checks a second run deletes
+// nothing.
 
 const run = promisify(execFile);
 const SCRIPT = path.resolve(__dirname, '../../scripts/dev-reset-e2e-data.sh');
@@ -68,7 +74,8 @@ test.describe('e2e test-data cleanup', () => {
     test('deletes e2e appointments, calls and conversations from the UI and keeps the demo data', async ({ browser }) => {
       const { thomas, james } = api!;
       const tag = `e2e-fix-${Date.now().toString(36)}`;
-      const seedAppointments = async () => (await james.ok(james.get<any[]>(`/api/appointments/doctor/${JAMES.systemId}`), 'doctor appointments'))
+      // Every appointment of Dr. Banda from the canonical paged list (the legacy array is capped at 200 rows).
+      const seedAppointments = async () => (await listAppointments(james, { doctorSystemId: JAMES.systemId }))
         .filter(a => !/^(e2e|Demo video consultation|Smoke test$)/i.test(String(a.reasonForVisit ?? '')));
       const seedBefore = (await seedAppointments()).map(a => a.appointmentId).sort();
 

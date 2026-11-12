@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { prepareDemoAccounts } from './support/accounts';
 import { API_URL } from './support/env';
 
 // Runs scripts/dev-reset-e2e-data.sh before the run (globalSetup) and after it (global-teardown.ts),
@@ -8,6 +9,10 @@ import { API_URL } from './support/env';
 // E2E_CLEANUP=0 keeps the data (for example to inspect it after a failure). The script only ever
 // targets the local docker container or localhost; when Docker is not reachable the cleanup is
 // skipped with a warning and the run goes on (specs that need the DB fail on their own).
+//
+// Before the run the demo accounts are also prepared (support/accounts.ts prepareDemoAccounts): each one
+// accepts the current Terms and Privacy versions it has not accepted yet, so a UI sign-in lands on the
+// dashboard instead of /auth/accept-terms. E2E_PREPARE=0 skips this; it never fails the run.
 
 const run = promisify(execFile);
 const SCRIPT = path.resolve(__dirname, '../../scripts/dev-reset-e2e-data.sh');
@@ -41,6 +46,24 @@ export async function resetE2EData(when: string, env: NodeJS.ProcessEnv = proces
   }
 }
 
+/** Accepts pending legal documents for the demo accounts (local API only). Logs, never throws. */
+export async function prepareAccounts(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (env.E2E_PREPARE === '0') {
+    console.warn('[e2e setup] demo accounts not prepared (E2E_PREPARE=0)');
+    return;
+  }
+  if (!LOCAL_HOSTS.has(new URL(API_URL).hostname)) {
+    console.warn(`[e2e setup] demo accounts not prepared: the API ${API_URL} is not local`);
+    return;
+  }
+  const results = await prepareDemoAccounts();
+  const failed = results.filter(r => !r.ok);
+  const accepted = results.filter(r => r.accepted > 0).map(r => r.email);
+  if (accepted.length) console.log(`[e2e setup] accepted the current terms for ${accepted.join(', ')}`);
+  for (const f of failed) console.warn(`[e2e setup] could not prepare ${f.email}: ${f.message}`);
+}
+
 export default async function globalSetup(): Promise<void> {
   await resetE2EData('before the run');
+  await prepareAccounts();
 }
