@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { useDoctorSchedule, type ScheduleEntry } from '@/hooks/use-doctor-schedule';
 
 const WHITE   = '#FFFFFF';
 const TEXT    = '#111827';
@@ -41,35 +42,31 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: Stat
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-type AppointmentProps = {
-  time: string;
-  name: string;
-  type: string;
-  status: 'Confirmed' | 'Pending';
-  action: 'Join Call' | 'Start';
-  avatarId: number;
-};
-
-function AppointmentRow({ time, name, type, status, action, avatarId }: AppointmentProps) {
-  const isConfirmed = status === 'Confirmed';
-  const isJoin = action === 'Join Call';
+function AppointmentRow({ entry }: { entry: ScheduleEntry }) {
+  const isScheduled = entry.status === 'SCHEDULED';
+  const isVideo     = entry.type === 'VIDEO';
+  const time = new Date(entry.scheduledAt).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
   return (
     <View style={styles.apptRow}>
       <View style={styles.apptTime}>
         <Text style={styles.apptTimeText}>{time}</Text>
-        <Text style={styles.apptDuration}>30 mins</Text>
+        <Text style={styles.apptDuration}>{entry.durationMinutes} mins</Text>
       </View>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }} style={styles.apptAvatar} />
+      <View style={[styles.apptAvatar, { backgroundColor: BORDER, alignItems: 'center', justifyContent: 'center' }]}>
+        <Ionicons name="person-outline" size={20} color={GRAY} />
+      </View>
       <View style={styles.apptInfo}>
-        <Text style={styles.apptName}>{name}</Text>
-        <Text style={styles.apptType}>{type}</Text>
+        <Text style={styles.apptName}>{entry.patientName || entry.patientSystemId}</Text>
+        <Text style={styles.apptType}>{entry.reasonForVisit ?? entry.type.replace('_', ' ')}</Text>
       </View>
-      <View style={[styles.badge, { backgroundColor: isConfirmed ? '#D1FAE5' : '#FEF3C7' }]}>
-        <Text style={[styles.badgeText, { color: isConfirmed ? GREEN : ORANGE }]}>{status}</Text>
+      <View style={[styles.badge, { backgroundColor: isScheduled ? '#D1FAE5' : '#FEF3C7' }]}>
+        <Text style={[styles.badgeText, { color: isScheduled ? GREEN : ORANGE }]}>
+          {entry.status.replace('_', ' ')}
+        </Text>
       </View>
-      <TouchableOpacity style={[styles.actionBtn, isJoin && styles.actionBtnJoin]} activeOpacity={0.8}>
-        {isJoin && <Ionicons name="videocam-outline" size={14} color={BLUE} style={{ marginRight: 4 }} />}
-        <Text style={[styles.actionBtnText, isJoin && { color: BLUE }]}>{action}</Text>
+      <TouchableOpacity style={[styles.actionBtn, isVideo && styles.actionBtnJoin]} activeOpacity={0.8}>
+        {isVideo && <Ionicons name="videocam-outline" size={14} color={BLUE} style={{ marginRight: 4 }} />}
+        <Text style={[styles.actionBtnText, isVideo && { color: BLUE }]}>{isVideo ? 'Join Call' : 'Start'}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.moreBtn} activeOpacity={0.7}>
         <Ionicons name="ellipsis-vertical" size={18} color={GRAY} />
@@ -178,8 +175,14 @@ export function DoctorMainDashboardArea() {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const { user } = useCurrentUser();
+  const { entries, loading: apptLoading } = useDoctorSchedule();
   const greeting = user ? `Dr. ${user.first_name} ${user.last_name}` : 'Doctor';
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const todayStr   = new Date().toDateString();
+  const todayAppts = entries.filter(e => new Date(e.scheduledAt).toDateString() === todayStr);
+  const upcoming   = todayAppts.filter(e => e.status === 'SCHEDULED').length;
+  const SHOW_LIMIT = 5;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -198,7 +201,7 @@ export function DoctorMainDashboardArea() {
 
       {/* Stat Cards */}
       <View style={styles.statsRow}>
-        <StatCard icon="calendar-outline"   iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appointments" value="8" sub="3 upcoming"       subColor={BLUE}   />
+        <StatCard icon="calendar-outline"   iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appointments" value={apptLoading ? '…' : String(todayAppts.length)} sub={`${upcoming} upcoming`} subColor={BLUE}   />
         <StatCard icon="videocam-outline"   iconBg="#D1FAE5" iconColor={GREEN}   label="Consultations Today"  value="5" sub="2 completed"      subColor={GREEN}  />
         <StatCard icon="medkit-outline"     iconBg="#FEF3C7" iconColor={ORANGE}  label="Prescriptions Issued" value="6" sub="Today"            subColor={GRAY}   />
         <StatCard icon="people-outline"     iconBg="#EFF6FF" iconColor="#3B82F6" label="New Patients"         value="3" sub="This week"        subColor={GRAY}   />
@@ -211,15 +214,18 @@ export function DoctorMainDashboardArea() {
         <View style={[styles.leftCol, isLarge && styles.leftColWide]}>
           {/* Today's Schedule */}
           <Card title="Today's Schedule" action="View full schedule">
-            <AppointmentRow time="09:00 AM" name="Sarah Johnson"   type="Follow-up Consultation"   status="Confirmed" action="Join Call" avatarId={47} />
-            <View style={styles.separator} />
-            <AppointmentRow time="10:00 AM" name="Michael Brown"   type="Initial Consultation"     status="Confirmed" action="Join Call" avatarId={12} />
-            <View style={styles.separator} />
-            <AppointmentRow time="11:30 AM" name="Esther Williams" type="Review Results"           status="Confirmed" action="Join Call" avatarId={32} />
-            <View style={styles.separator} />
-            <AppointmentRow time="02:00 PM" name="David Thompson"  type="Follow-up Consultation"   status="Pending"   action="Start"    avatarId={15} />
-            <View style={styles.separator} />
-            <AppointmentRow time="03:00 PM" name="Grace Mutasa"    type="Chronic Care Management"  status="Confirmed" action="Start"    avatarId={56} />
+            {apptLoading ? (
+              <ActivityIndicator size="small" color={BLUE} style={{ marginVertical: 16 }} />
+            ) : todayAppts.length === 0 ? (
+              <Text style={{ fontSize: 13, color: GRAY, paddingVertical: 16, textAlign: 'center' }}>No appointments today.</Text>
+            ) : (
+              todayAppts.slice(0, SHOW_LIMIT).map((entry, i) => (
+                <View key={entry.appointmentId}>
+                  {i > 0 && <View style={styles.separator} />}
+                  <AppointmentRow entry={entry} />
+                </View>
+              ))
+            )}
             <TouchableOpacity style={styles.viewAll} activeOpacity={0.7}>
               <Text style={styles.viewAllText}>View all appointments →</Text>
             </TouchableOpacity>

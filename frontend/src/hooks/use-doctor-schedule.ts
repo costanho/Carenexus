@@ -1,67 +1,21 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
+import { useCurrentUser } from './use-current-user';
 
-// Shape returned by GET /api/doctors/schedule (camelCase from Spring)
-interface ApiScheduleEntry {
-  entryId:                string;
-  type:                   'APPOINTMENT' | 'CONSULTATION';
+export interface ScheduleEntry {
+  appointmentId:          number;
   patientSystemId:        string;
-  patientName:            string;
+  patientName:            string | null;
   doctorSystemId:         string;
   scheduledAt:            string;
   durationMinutes:        number;
-  createdAt:              string;
-  updatedAt:              string;
-  appointmentId?:         number;
-  appointmentType?:       string;
-  appointmentStatus?:     string;
-  reasonForVisit?:        string | null;
-  videoConsultationLink?: string | null;
-  reminderSent?:          boolean;
-  notes?:                 string | null;
-  consultationId?:        number;
-  chiefComplaint?:        string | null;
-  diagnosis?:             string | null;
-  treatmentPlan?:         string | null;
-  followUpRequired?:      boolean;
-  followUpDate?:          string | null;
-  consultationStatus?:    string;
-  startedAt?:             string | null;
-  completedAt?:           string | null;
-}
-
-// Public interface — matches the field names components already use
-export interface ScheduleEntry {
-  appointment_id:          number;
-  scheduled_at:            string;
-  duration_minutes:        number;
-  type:                    'IN_PERSON' | 'VIDEO' | 'PHONE';
-  status:                  string;
-  patient_name:            string;
-  patient_system_id:       string;
-  reason_for_visit:        string | null;
-  video_consultation_link: string | null;
-  notes:                   string | null;
-  facility_name:           string | null;
-  created_at:              string;
-  updated_at:              string;
-}
-
-function toScheduleEntry(e: ApiScheduleEntry): ScheduleEntry {
-  return {
-    appointment_id:          e.appointmentId ?? 0,
-    scheduled_at:            e.scheduledAt,
-    duration_minutes:        e.durationMinutes,
-    type:                    (e.appointmentType as ScheduleEntry['type']) ?? 'IN_PERSON',
-    status:                  e.appointmentStatus ?? e.consultationStatus ?? 'SCHEDULED',
-    patient_name:            e.patientName,
-    patient_system_id:       e.patientSystemId,
-    reason_for_visit:        e.reasonForVisit ?? null,
-    video_consultation_link: e.videoConsultationLink ?? null,
-    notes:                   e.notes ?? null,
-    facility_name:           null,
-    created_at:              e.createdAt,
-    updated_at:              e.updatedAt,
+  type:                   'IN_PERSON' | 'VIDEO' | 'PHONE';
+  status:                 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED' | 'IN_PROGRESS';
+  reasonForVisit:         string | null;
+  videoConsultationLink:  string | null;
+  notes:                  string | null;
+  consultation?: {
+    status: 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED';
   };
 }
 
@@ -73,21 +27,40 @@ interface State {
 }
 
 export function useDoctorSchedule(): State {
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [tick,    setTick]    = useState(0);
+  const { user } = useCurrentUser();
+  const [entries,  setEntries]  = useState<ScheduleEntry[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+  const [tick,     setTick]     = useState(0);
 
   useEffect(() => {
+    if (!user?.system_id) return;
     setLoading(true);
-    api.get<ApiScheduleEntry[]>('/api/doctors/schedule')
-      .then(({ data }) => {
-        setEntries(data.map(toScheduleEntry));
+    Promise.all([
+      api.get<ScheduleEntry[]>(`/api/doctors/appointments/${user.system_id}`),
+      api.get<any[]>(`/api/doctors/patients/${user.system_id}`),
+    ])
+      .then(([apptRes, patientsRes]) => {
+        const nameMap = new Map<string, string>();
+        patientsRes.data.forEach((p: any) => {
+          const sysId = p.patientSystemId ?? p.patient_system_id;
+          if (!sysId) return;
+          const name = `${p.firstName ?? p.first_name ?? ''} ${p.lastName ?? p.last_name ?? ''}`.trim();
+          if (name) nameMap.set(sysId, name);
+        });
+
+        const sorted = [...apptRes.data]
+          .map(e => ({
+            ...e,
+            patientName: e.patientName || nameMap.get(e.patientSystemId) || e.patientSystemId,
+          }))
+          .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+        setEntries(sorted);
         setError(null);
       })
-      .catch(() => setError('Failed to load schedule.'))
+      .catch(() => setError('Failed to load appointments.'))
       .finally(() => setLoading(false));
-  }, [tick]);
+  }, [user?.system_id, tick]);
 
   return { entries, loading, error, refetch: () => setTick(t => t + 1) };
 }

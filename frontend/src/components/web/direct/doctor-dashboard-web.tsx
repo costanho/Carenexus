@@ -11,6 +11,7 @@ const DoctorWebPatients        = lazy(() => import('./doctor/doctor-web-patients
 const DoctorWebMedicalRecords  = lazy(() => import('./doctor/doctor-web-medical-records'));
 const DoctorWebPrescription    = lazy(() => import('./doctor/doctor-web-prescription'));
 const DoctorWebLabResults      = lazy(() => import('./doctor/doctor-web-lab-results'));
+const DoctorWebAIDiagnosis     = lazy(() => import('./doctor/doctor-web-ai-diagnosis'));
 const DoctorWebProfile         = lazy(() => import('./doctor/doctor-web-profile'));
 
 const styles = StyleSheet.create({
@@ -77,6 +78,13 @@ export function DoctorDashboardWeb() {
       return (
         <Suspense fallback={loader}>
           <DoctorWebLabResults />
+        </Suspense>
+      );
+    }
+    if (activeKey === 'ai-diagnosis') {
+      return (
+        <Suspense fallback={loader}>
+          <DoctorWebAIDiagnosis />
         </Suspense>
       );
     }

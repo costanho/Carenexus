@@ -1,5 +1,7 @@
 package com.carenexus.api.core.service;
 
+import com.carenexus.api.auth.model.User;
+import com.carenexus.api.auth.repository.UserRepository;
 import com.carenexus.api.core.dto.request.CreateAppointmentRequest;
 import com.carenexus.api.core.dto.response.AppointmentResponse;
 import com.carenexus.api.core.model.Appointment;
@@ -24,6 +26,7 @@ public class AppointmentService {
     private final AppointmentRepository appointmentRepository;
     private final PatientRepository patientRepository;
     private final DoctorRepository doctorRepository;
+    private final UserRepository userRepository;
 
     public AppointmentResponse createAppointment(CreateAppointmentRequest request) {
         // Validate required fields
@@ -256,9 +259,14 @@ public class AppointmentService {
     }
 
     private AppointmentResponse mapToResponse(Appointment appointment) {
+        String patientName = userRepository.findBySystemId(appointment.getPatientSystemId())
+                .map(u -> u.getFirstName() + " " + u.getLastName())
+                .orElse(null);
+
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
                 .patientSystemId(appointment.getPatientSystemId())
+                .patientName(patientName)
                 .doctorSystemId(appointment.getDoctorSystemId())
                 .facilityId(appointment.getFacilityId())
                 .scheduledAt(appointment.getScheduledAt())

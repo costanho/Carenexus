@@ -106,8 +106,9 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
   const sc  = statusConfig(entry.status);
   const tc  = typeConfig(entry.type);
   const cc  = consultConfig(entry.consultation);
-  const ac  = avatarColor(entry.patient_name);
-  const tod = isToday(entry.scheduled_at);
+  const name = entry.patientName ?? entry.patientSystemId ?? '—';
+  const ac  = avatarColor(name);
+  const tod = isToday(entry.scheduledAt);
 
   return (
     <View style={[styles.apptCard, { borderLeftColor: tc.accent }]}>
@@ -124,19 +125,19 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
         {/* Left: avatar + patient info */}
         <View style={styles.apptLeft}>
           <View style={[styles.avatar, { backgroundColor: ac }]}>
-            <Text style={styles.avatarText}>{initials(entry.patient_name)}</Text>
+            <Text style={styles.avatarText}>{initials(name)}</Text>
           </View>
           <View style={styles.apptPatientCol}>
-            <Text style={styles.patientName}>{entry.patient_name}</Text>
-            <Text style={styles.apptId}>Appt #{entry.appointment_id}</Text>
+            <Text style={styles.patientName}>{name}</Text>
+            <Text style={styles.apptId}>Appt #{entry.appointmentId}</Text>
             <View style={styles.apptDateTime}>
               <Ionicons name="calendar-outline" size={12} color={GRAY} />
-              <Text style={styles.apptDateText}>{formatDate(entry.scheduled_at)}</Text>
+              <Text style={styles.apptDateText}>{formatDate(entry.scheduledAt)}</Text>
             </View>
             <View style={styles.apptDateTime}>
               <Ionicons name="time-outline" size={12} color={GRAY} />
               <Text style={styles.apptDateText}>
-                {formatTime(entry.scheduled_at)} · {entry.duration_minutes} min
+                {formatTime(entry.scheduledAt)} · {entry.durationMinutes} min
               </Text>
             </View>
           </View>
@@ -144,19 +145,13 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
 
         {/* Center: details */}
         <View style={styles.apptCenter}>
-          {!!entry.reason_for_visit && (
+          {!!entry.reasonForVisit && (
             <View style={styles.detailRow}>
               <Ionicons name="clipboard-outline" size={13} color={BLUE} style={styles.detailIcon} />
-              <Text style={styles.detailText} numberOfLines={2}>{entry.reason_for_visit}</Text>
+              <Text style={styles.detailText} numberOfLines={2}>{entry.reasonForVisit}</Text>
             </View>
           )}
-          {!!entry.facility_name && (
-            <View style={styles.detailRow}>
-              <Ionicons name="business-outline" size={13} color={GRAY} style={styles.detailIcon} />
-              <Text style={styles.detailFacility}>{entry.facility_name}</Text>
-            </View>
-          )}
-          {!entry.facility_name && entry.type !== 'IN_PERSON' && (
+          {entry.type !== 'IN_PERSON' && (
             <View style={styles.detailRow}>
               <Ionicons name="globe-outline" size={13} color={GRAY} style={styles.detailIcon} />
               <Text style={styles.detailFacility}>Virtual</Text>
@@ -190,7 +185,7 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
           </View>
 
           {/* Video link */}
-          {entry.type === 'VIDEO' && !!entry.video_consultation_link && (
+          {entry.type === 'VIDEO' && !!entry.videoConsultationLink && (
             <TouchableOpacity style={styles.videoBtn} activeOpacity={0.8}>
               <Ionicons name="videocam-outline" size={13} color={BLUE} />
               <Text style={styles.videoBtnText}>Join Call</Text>
@@ -234,7 +229,7 @@ export default function DoctorWebAppointment() {
   const filtered = useMemo(() => {
     return entries
       .filter(e => {
-        const d = new Date(e.scheduled_at);
+        const d = new Date(e.scheduledAt);
         switch (dateFilter) {
           case 'today':    return d >= todayS && d <= todayE;
           case 'week':     return d >= todayS && d <= weekE;
@@ -245,8 +240,8 @@ export default function DoctorWebAppointment() {
       })
       .filter(e => statusFilter === 'ALL' || e.status === statusFilter)
       .filter(e => typeFilter   === 'ALL' || e.type   === typeFilter)
-      .filter(e => !search || e.patient_name.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+      .filter(e => !search || (e.patientName ?? e.patientSystemId ?? '').toLowerCase().includes(search.toLowerCase()))
+      .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
   }, [entries, dateFilter, statusFilter, typeFilter, search, now, todayS, todayE, weekE]);
 
   const dateFilters:   { key: DateFilter;   label: string }[] = [
@@ -393,7 +388,7 @@ export default function DoctorWebAppointment() {
         </View>
       ) : (
         <View style={styles.list}>
-          {filtered.map(e => <AppCard key={e.appointment_id} entry={e} />)}
+          {filtered.map(e => <AppCard key={e.appointmentId} entry={e} />)}
         </View>
       )}
     </ScrollView>

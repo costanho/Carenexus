@@ -35,6 +35,7 @@ const sections: NavSection[] = [
     title: 'CLINICAL',
     items: [
       { key: 'prescriptions', label: 'Prescriptions',  icon: 'medkit-outline' },
+      { key: 'ai-diagnosis',  label: 'AI Diagnosis',   icon: 'scan-outline' },
       { key: 'referrals',     label: 'Referrals',      icon: 'git-compare-outline' },
       { key: 'labs',          label: 'Labs & Results', icon: 'flask-outline' },
     ],

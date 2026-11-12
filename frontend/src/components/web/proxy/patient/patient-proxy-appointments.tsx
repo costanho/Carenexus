@@ -49,10 +49,11 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
 }
 
-function ApptCard({ appt }: { appt: Appointment }) {
+function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<string, string> }) {
   const { bg, text } = statusColor(appt.status);
   const isVideo    = appt.type === 'VIDEO';
   const isUpcoming = appt.status === 'SCHEDULED';
+  const doctorName = appt.doctorSystemId ? (doctorMap.get(appt.doctorSystemId) ?? appt.doctorSystemId) : '—';
 
   return (
     <View style={[styles.card, isUpcoming && styles.cardUpcoming]}>
@@ -79,12 +80,10 @@ function ApptCard({ appt }: { appt: Appointment }) {
           <Ionicons name={isVideo ? 'videocam-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
           <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>{isVideo ? 'Video Call' : 'In Person'}</Text>
         </View>
-        {appt.doctorSystemId && (
-          <View style={styles.detail}>
-            <Ionicons name="person-outline" size={14} color={GRAY} />
-            <Text style={styles.detailText}>{appt.doctorSystemId}</Text>
-          </View>
-        )}
+        <View style={styles.detail}>
+          <Ionicons name="person-outline" size={14} color={GRAY} />
+          <Text style={styles.detailText}>{doctorName}</Text>
+        </View>
       </View>
 
       {appt.notes && (
@@ -107,15 +106,28 @@ type Filter = 'all' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export default function PatientProxyAppointments() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [doctorMap,    setDoctorMap]    = useState<Map<string, string>>(new Map());
   const [loading, setLoading]           = useState(true);
   const [error,   setError]             = useState<string | null>(null);
   const [filter,  setFilter]            = useState<Filter>('all');
 
   useEffect(() => {
     setLoading(true);
-    api.get<ActivityResponse>('/api/caregiver/dependents/activity')
-      .then(({ data }) => {
-        const sorted = [...(data.appointments ?? [])].sort(
+    Promise.all([
+      api.get<ActivityResponse>('/api/caregiver/dependents/activity'),
+      api.get<any[]>('/api/doctors/profile/list/active'),
+    ])
+      .then(([activityRes, doctorsRes]) => {
+        const map = new Map<string, string>();
+        doctorsRes.data.forEach((d: any) => {
+          const sysId = d.doctorSystemId ?? d.doctor_system_id;
+          if (!sysId) return;
+          const name = `Dr. ${d.firstName ?? d.first_name ?? ''} ${d.lastName ?? d.last_name ?? ''}`.trim();
+          map.set(sysId, name);
+        });
+        setDoctorMap(map);
+
+        const sorted = [...(activityRes.data.appointments ?? [])].sort(
           (a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
         );
         setAppointments(sorted);
@@ -192,7 +204,7 @@ export default function PatientProxyAppointments() {
           <Text style={styles.emptyText}>No appointments found</Text>
         </View>
       ) : (
-        visible.map(a => <ApptCard key={a.appointmentId} appt={a} />)
+        visible.map(a => <ApptCard key={a.appointmentId} appt={a} doctorMap={doctorMap} />)
       )}
     </ScrollView>
   );
