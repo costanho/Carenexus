@@ -1,6 +1,7 @@
 package com.carenexus.api.core.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.Instant;
@@ -12,6 +13,8 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Schema(description = "One row of a doctor's schedule: an APPOINTMENT row (one per appointment) or, in the legacy "
+        + "arrays only, a CONSULTATION row placed after the appointment it documents")
 public class ScheduleEntryResponse {
 
     @JsonProperty("entryId")
@@ -54,11 +57,27 @@ public class ScheduleEntryResponse {
     @JsonProperty("videoConsultationLink")
     private String videoConsultationLink;
 
+    @Schema(description = "APPOINTMENT rows: the first automatic reminder went out for the current start time")
     @JsonProperty("reminderSent")
     private Boolean reminderSent;
 
+    @Schema(description = "APPOINTMENT rows: clinic wall-clock time of the last manual reminder the doctor sent; "
+            + "null when never", example = "2026-11-19T16:05:41", nullable = true)
+    @JsonProperty("reminderSentAt")
+    private LocalDateTime reminderSentAt;
+
     @JsonProperty("notes")
     private String notes;
+
+    @Schema(description = "APPOINTMENT rows: name of the appointment's facility; null without a facility",
+            example = "CareNexus Central Clinic", nullable = true)
+    @JsonProperty("facilityName")
+    private String facilityName;
+
+    @Schema(description = "APPOINTMENT rows: the number to call for a PHONE appointment; null for other types",
+            example = "+263771234567", nullable = true)
+    @JsonProperty("contactPhone")
+    private String contactPhone;
 
     @JsonProperty("chiefComplaint")
     private String chiefComplaint;
@@ -75,8 +94,16 @@ public class ScheduleEntryResponse {
     @JsonProperty("followUpDate")
     private LocalDate followUpDate;
 
+    @Schema(description = "APPOINTMENT rows: status of the linked non-cancelled consultation (DRAFT, IN_PROGRESS, "
+            + "COMPLETED), null when there is none. CONSULTATION rows: the consultation's status", nullable = true)
     @JsonProperty("consultationStatus")
     private String consultationStatus;
+
+    @Schema(description = "APPOINTMENT rows: still SCHEDULED or RESCHEDULED although it ended more than "
+            + "appointments.needs-outcome-after-minutes ago. Always false on CONSULTATION rows")
+    @JsonProperty("needsOutcome")
+    @Builder.Default
+    private boolean needsOutcome = false;
 
     @JsonProperty("startedAt")
     private LocalDateTime startedAt;

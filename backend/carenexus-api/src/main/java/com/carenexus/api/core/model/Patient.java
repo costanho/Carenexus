@@ -48,6 +48,13 @@ public class Patient {
     @Builder.Default
     private String healthStatus = "STABLE";
 
+    /**
+     * Contact number used when users.phone is empty: a number shared with another account (a family phone) or a
+     * managed dependent's number (V43). The effective phone is users.phone, else this value.
+     */
+    @Column(name = "contact_phone", length = 20)
+    private String contactPhone;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

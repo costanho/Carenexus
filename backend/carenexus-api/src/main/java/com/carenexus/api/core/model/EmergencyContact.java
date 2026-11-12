@@ -14,6 +14,9 @@ import java.time.LocalDateTime;
 @Builder
 public class EmergencyContact {
 
+    /** Hard cap on the number of emergency contacts of one patient (the next create is a 409). */
+    public static final int MAX_PER_PATIENT = 10;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "contact_id")

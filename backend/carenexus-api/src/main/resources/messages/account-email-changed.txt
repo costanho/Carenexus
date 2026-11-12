@@ -1,0 +1,7 @@
+Subject: Your CareNexus sign-in email was changed
+
+Hello {{firstName}},
+
+The sign-in email of your CareNexus account was changed to a new address. All your sessions were signed out, and this address no longer signs in to the account.
+
+If you did not expect this change, please contact support straight away.

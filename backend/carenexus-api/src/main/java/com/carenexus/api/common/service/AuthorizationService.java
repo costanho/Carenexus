@@ -3,6 +3,7 @@ package com.carenexus.api.common.service;
 import com.carenexus.api.common.config.UserContext;
 import com.carenexus.api.common.exception.AuthorizationException;
 import com.carenexus.api.core.model.DependentAccess;
+import com.carenexus.api.core.repository.DependentAccessRepository;
 import com.carenexus.api.core.service.RelationshipService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,8 +12,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -35,6 +41,7 @@ public class AuthorizationService {
     private final UserContext userContext;
     private final AuditService auditService;
     private final RelationshipService relationshipService;
+    private final DependentAccessRepository dependentAccessRepository;
 
     // ==================== CALLER ====================
 
@@ -157,12 +164,21 @@ public class AuthorizationService {
      * Same as {@link #requirePatientAccess(String, PatientPermission)}, recording {@code resourceId} on denial.
      */
     public void requirePatientAccess(String patientSystemId, PatientPermission permission, Integer resourceId) {
+        requirePatientAccess(patientSystemId, permission, permission.getResourceType(), resourceId);
+    }
+
+    /**
+     * Same as {@link #requirePatientAccess(String, PatientPermission, Integer)}, but a denial is audited with the
+     * given {@code resourceType} instead of the permission's default one (for resources such as REMINDER whose
+     * permission names another resource type).
+     */
+    public void requirePatientAccess(String patientSystemId, PatientPermission permission, String resourceType,
+                                     Integer resourceId) {
         if (patientSystemId == null || patientSystemId.isBlank()) {
             throw new IllegalArgumentException("Patient system ID is required");
         }
         String userSystemId = currentSystemId();
         String userRole = currentRole();
-        String resourceType = permission.getResourceType();
 
         switch (userRole) {
             case PATIENT -> {
@@ -231,6 +247,65 @@ public class AuthorizationService {
                 .orElse(false);
     }
 
+    // ==================== WHO ELSE IS INVOLVED (notification fan-out, listeners, jobs) ====================
+
+    /**
+     * System ids of the caregivers whose grant for this patient is active (not revoked, not expired) and grants
+     * {@code permission} (same rule as {@link #requirePatientAccess}: FULL_ACCESS, flag, VIEW_ONLY write block,
+     * patient approval for communication permissions). Audit-free; needs no request context.
+     */
+    public List<String> caregiversWithPermission(String patientSystemId, PatientPermission permission) {
+        if (patientSystemId == null || patientSystemId.isBlank() || permission == null) {
+            return List.of();
+        }
+        return dependentAccessRepository.findAllCaregiversForDependent(patientSystemId).stream()
+                .filter(permission::isGrantedBy)
+                .map(DependentAccess::getCaregiverSystemId)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * {@link #caregiversWithPermission} for several patients with one query: patient system id to the caregivers
+     * holding {@code permission}, in grant order. Every requested patient is a key (an empty list when nobody holds
+     * the permission). Audit-free; needs no request context.
+     */
+    public Map<String, List<String>> caregiversWithPermissionByPatient(Collection<String> patientSystemIds,
+                                                                      PatientPermission permission) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        if (patientSystemIds == null || permission == null) {
+            return result;
+        }
+        for (String patientSystemId : patientSystemIds) {
+            if (patientSystemId != null && !patientSystemId.isBlank()) {
+                result.putIfAbsent(patientSystemId, new ArrayList<>());
+            }
+        }
+        if (result.isEmpty()) {
+            return result;
+        }
+        for (DependentAccess grant : dependentAccessRepository.findAllCaregiversForDependents(result.keySet())) {
+            List<String> caregivers = result.get(grant.getPatientSystemId());
+            if (caregivers != null && permission.isGrantedBy(grant)
+                    && !caregivers.contains(grant.getCaregiverSystemId())) {
+                caregivers.add(grant.getCaregiverSystemId());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * System ids of the active doctors related to this patient: active care_team doctor roles, any non-cancelled
+     * appointment, or any consultation (the same relationship {@link #requirePatientAccess} accepts for a DOCTOR).
+     * Audit-free; needs no request context.
+     */
+    public List<String> relatedDoctors(String patientSystemId) {
+        if (patientSystemId == null || patientSystemId.isBlank()) {
+            return List.of();
+        }
+        return List.copyOf(relationshipService.getRelatedDoctorsForPatient(patientSystemId));
+    }
+
     // ==================== LEGACY API (kept so existing callers compile) ====================
 
     /**
@@ -291,6 +366,7 @@ public class AuthorizationService {
         if (type.contains("PRESCRIPTION") || type.contains("MEDICATION")) return PatientPermission.MEDICATIONS;
         if (type.contains("APPOINTMENT")) return PatientPermission.APPOINTMENTS;
         if (type.contains("CONSULTATION")) return PatientPermission.CONSULTATIONS;
+        if (type.equals("INVOICE") || type.equals("PAYMENT") || type.contains("BILLING")) return PatientPermission.BILLING;
         if (type.equals("PROFILE") || type.equals("PATIENT_PROFILE")) return PatientPermission.PROFILE;
         // MEDICAL_RECORDS, MEDICAL_HISTORY, HEALTH_METRICS, COMPREHENSIVE_DATA, unknown -> records
         return PatientPermission.RECORDS;
@@ -308,6 +384,16 @@ public class AuthorizationService {
             case CONSULTATIONS -> "viewing consultations";
             case MANAGE_APPOINTMENTS -> "managing appointments";
             case MANAGE_CARE_PLAN -> "managing the care plan";
+            case BILLING -> "viewing billing";
+            case MANAGE_BILLING -> "managing billing and payments";
+            case CARE_PLANS -> "viewing care plans";
+            case HEALTH_METRICS -> "viewing health readings";
+            case MANAGE_HEALTH_METRICS -> "recording health readings";
+            case REFERRALS -> "viewing referrals";
+            case DOCUMENTS -> "viewing documents";
+            case MANAGE_DOCUMENTS -> "managing documents";
+            case AI_ALERTS -> "viewing health alerts";
+            case CARE_TEAM -> "viewing the care team";
             case MESSAGING, MESSAGE_CARE_TEAM -> "messaging the care team";
             case JOIN_CALLS -> "joining video calls";
         };

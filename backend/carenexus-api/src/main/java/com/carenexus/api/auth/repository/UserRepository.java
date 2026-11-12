@@ -16,10 +16,21 @@ public interface UserRepository extends JpaRepository<User, Integer> {
     boolean existsByRoleAndIsActiveTrue(String role);
     boolean existsByEmailIgnoreCaseAndIsActiveTrue(String email);
     boolean existsByIsActiveTrueAndPasswordHashIn(java.util.Collection<String> passwordHashes);
+    /** True when an active account uses one of the given email addresses (pass them lower-case). */
+    @Query("SELECT COUNT(u) > 0 FROM User u WHERE u.isActive = true AND LOWER(u.email) IN :emails")
+    boolean existsActiveByEmailIn(@Param("emails") java.util.Collection<String> emails);
+
     Optional<User> findByPhone(String phone);
     Optional<User> findByUserIdAndIsActiveTrue(Integer userId);
     Optional<User> findBySystemId(String systemId);
 
-    @Query("SELECT CAST(SUBSTRING(u.systemId, 5) AS Long) FROM User u WHERE u.systemId LIKE :prefix% ORDER BY u.systemId DESC LIMIT 1")
-    Long findMaxSequenceByPrefix(@Param("prefix") String prefix);
+    boolean existsBySystemId(String systemId);
+
+    /**
+     * Next value of one of the system id sequences created in V23 ({@code system_id_pat_seq}, {@code system_id_doc_seq},
+     * {@code system_id_cgv_seq}, {@code system_id_adm_seq}). Callers pass a fixed sequence name, never user input
+     * (see SystemIdGenerator).
+     */
+    @Query(value = "SELECT nextval(CAST(:sequenceName AS regclass))", nativeQuery = true)
+    long nextSystemIdSequenceValue(@Param("sequenceName") String sequenceName);
 }

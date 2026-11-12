@@ -1,0 +1,11 @@
+Subject: Confirm your CareNexus email address
+
+Hello {{firstName}},
+
+Please confirm that this is your email address by opening the link below:
+
+{{link}}
+
+The link works once and expires in {{validHours}} hours. If it has expired, you can request a new one from the sign-in page.
+
+If you did not create a CareNexus account, you can ignore this message.

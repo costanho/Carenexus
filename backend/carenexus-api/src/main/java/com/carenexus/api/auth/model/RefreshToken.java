@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "refresh_tokens")
@@ -24,6 +25,13 @@ public class RefreshToken {
 
     @Column(name = "token_hash", nullable = false, length = 255, unique = true)
     private String tokenHash;
+
+    /**
+     * The session this token belongs to. Created at login and copied to the new row on every rotation, so every
+     * token of one session shares the value and at most one of them is not revoked.
+     */
+    @Column(name = "session_id", nullable = false)
+    private UUID sessionId;
 
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
@@ -47,5 +55,9 @@ public class RefreshToken {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (sessionId == null) {
+            // A token saved without a session starts its own.
+            sessionId = UUID.randomUUID();
+        }
     }
 }

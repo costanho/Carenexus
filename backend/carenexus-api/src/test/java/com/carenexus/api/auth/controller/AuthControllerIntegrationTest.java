@@ -24,8 +24,8 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     public void setUp() {
         // Create test patient
+        // No preset id: since Hibernate 6.6 saving a new entity with an id set is a merge of a row that does not exist.
         testPatient = new User();
-        testPatient.setUserId(1);
         testPatient.setSystemId("PAT-00001");
         testPatient.setFirstName("Linda");
         testPatient.setLastName("Davis");
@@ -101,7 +101,8 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Email and password are required"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value("password: Password is required"));
     }
 
     @Test

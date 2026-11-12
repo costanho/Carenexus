@@ -1,24 +1,32 @@
 package com.carenexus.api.core.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * Notification settings of one account. Category toggles are enforced by the notification publisher, channel
+ * flags, quiet hours and the time zone by the notification fan-out.
+ */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Schema(description = "Notification settings of one account")
 public class UserSettingsResponse {
 
     @JsonProperty("settingId")
     private Integer settingId;
 
     @JsonProperty("userId")
+    @Schema(description = "Legacy field, always null; use systemId")
     private Integer userId;
 
     @JsonProperty("systemId")
+    @Schema(description = "The account the settings belong to", example = "PAT-00001")
     private String systemId;
 
     @JsonProperty("emailNotifications")
@@ -33,8 +41,17 @@ public class UserSettingsResponse {
     @JsonProperty("appointmentReminders")
     private Boolean appointmentReminders;
 
+    @JsonProperty("appointmentReminder1h")
+    private Boolean appointmentReminder1h;
+
+    @JsonProperty("appointmentChangeAlerts")
+    private Boolean appointmentChangeAlerts;
+
     @JsonProperty("prescriptionReminders")
     private Boolean prescriptionReminders;
+
+    @JsonProperty("medicationReminders")
+    private Boolean medicationReminders;
 
     @JsonProperty("labResultAlerts")
     private Boolean labResultAlerts;
@@ -45,22 +62,28 @@ public class UserSettingsResponse {
     @JsonProperty("consultationNotifications")
     private Boolean consultationNotifications;
 
-    // Notification preferences used by the proxy notification settings screen (V11 columns)
-
-    @JsonProperty("criticalAlerts")
-    private Boolean criticalAlerts;
-
-    @JsonProperty("medicationReminders")
-    private Boolean medicationReminders;
-
     @JsonProperty("vitalsAlerts")
     private Boolean vitalsAlerts;
 
-    @JsonProperty("appointmentReminder1h")
-    private Boolean appointmentReminder1h;
+    @JsonProperty("criticalAlerts")
+    @Schema(description = "Below-critical alerts of category CRITICAL; critical-priority alerts are always delivered")
+    private Boolean criticalAlerts;
 
-    @JsonProperty("appointmentChangeAlerts")
-    private Boolean appointmentChangeAlerts;
+    @JsonProperty("referralAlerts")
+    private Boolean referralAlerts;
+
+    @JsonProperty("carePlanUpdateAlerts")
+    private Boolean carePlanUpdateAlerts;
+
+    @JsonProperty("accessChangeAlerts")
+    private Boolean accessChangeAlerts;
+
+    @JsonProperty("loginAlerts")
+    private Boolean loginAlerts;
+
+    @JsonProperty("billingNotifications")
+    @Schema(description = "Invoices, payments, refunds, overdue notices and insurance-claim updates")
+    private Boolean billingNotifications;
 
     @JsonProperty("videoCallAlerts")
     private Boolean videoCallAlerts;
@@ -68,38 +91,22 @@ public class UserSettingsResponse {
     @JsonProperty("messageNotifications")
     private Boolean messageNotifications;
 
-    @JsonProperty("carePlanUpdateAlerts")
-    private Boolean carePlanUpdateAlerts;
+    @JsonProperty("quietHoursEnabled")
+    @Schema(description = "Holds non-critical email, SMS and push inside the quiet window")
+    private Boolean quietHoursEnabled;
 
-    @JsonProperty("referralAlerts")
-    private Boolean referralAlerts;
+    @JsonProperty("quietHoursStart")
+    @Schema(description = "HH:mm wall-clock time in timezone (clinic zone when null); inclusive", example = "22:00")
+    private String quietHoursStart;
 
-    @JsonProperty("loginAlerts")
-    private Boolean loginAlerts;
-
-    @JsonProperty("accessChangeAlerts")
-    private Boolean accessChangeAlerts;
-
-    @JsonProperty("weeklySummary")
-    private Boolean weeklySummary;
-
-    @JsonProperty("profileVisibility")
-    private String profileVisibility;
-
-    @JsonProperty("dataSharingEnabled")
-    private Boolean dataSharingEnabled;
-
-    @JsonProperty("twoFactorEnabled")
-    private Boolean twoFactorEnabled;
-
-    @JsonProperty("language")
-    private String language;
+    @JsonProperty("quietHoursEnd")
+    @Schema(description = "HH:mm; exclusive; earlier than the start means the window crosses midnight",
+            example = "07:00")
+    private String quietHoursEnd;
 
     @JsonProperty("timezone")
+    @Schema(description = "IANA zone id; null means the clinic time zone", example = "Africa/Nairobi")
     private String timezone;
-
-    @JsonProperty("theme")
-    private String theme;
 
     @JsonProperty("createdAt")
     private LocalDateTime createdAt;

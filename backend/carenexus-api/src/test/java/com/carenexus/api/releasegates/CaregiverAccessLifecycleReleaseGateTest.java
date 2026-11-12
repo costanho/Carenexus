@@ -318,14 +318,15 @@ class CaregiverAccessLifecycleReleaseGateTest extends CommittedIntegrationTest {
 
     @Test
     void patientsNeverSeeDraftConsultations_andResponsesCarryTheAppointmentType() throws Exception {
-        Appointment appointment = appointmentRepository.saveAndFlush(Appointment.builder()
-                .patientSystemId(patient.getSystemId()).doctorSystemId(doctor.getSystemId())
-                .scheduledAt(LocalDateTime.now().minusDays(2)).type("PHONE").status("COMPLETED").build());
+        // V35 allows one non-cancelled consultation per appointment, so each consultation has its own visit.
+        Appointment draftVisit = completedPhoneVisit(2);
+        Appointment inProgressVisit = completedPhoneVisit(3);
+        Appointment appointment = completedPhoneVisit(4);
         Consultation draft = consultationRepository.saveAndFlush(Consultation.builder()
-                .appointmentId(appointment.getAppointmentId()).patientSystemId(patient.getSystemId())
+                .appointmentId(draftVisit.getAppointmentId()).patientSystemId(patient.getSystemId())
                 .doctorSystemId(doctor.getSystemId()).chiefComplaint("Working notes").status("DRAFT").build());
         Consultation inProgress = consultationRepository.saveAndFlush(Consultation.builder()
-                .appointmentId(appointment.getAppointmentId()).patientSystemId(patient.getSystemId())
+                .appointmentId(inProgressVisit.getAppointmentId()).patientSystemId(patient.getSystemId())
                 .doctorSystemId(doctor.getSystemId()).chiefComplaint("Notes being written").status("IN_PROGRESS").build());
         consultationRepository.saveAndFlush(Consultation.builder()
                 .appointmentId(appointment.getAppointmentId()).patientSystemId(patient.getSystemId())
@@ -345,5 +346,11 @@ class CaregiverAccessLifecycleReleaseGateTest extends CommittedIntegrationTest {
         assertEquals(3, doctorView.size(), "the doctor still sees the draft and the one in progress");
         doctorView.forEach(c -> assertEquals("PHONE", c.path("appointmentType").asText()));
         assertEquals(200, doGet("/api/consultations/" + draft.getConsultationId(), doctor).getResponse().getStatus());
+    }
+
+    private Appointment completedPhoneVisit(int daysAgo) {
+        return appointmentRepository.saveAndFlush(Appointment.builder()
+                .patientSystemId(patient.getSystemId()).doctorSystemId(doctor.getSystemId())
+                .scheduledAt(LocalDateTime.now().minusDays(daysAgo)).type("PHONE").status("COMPLETED").build());
     }
 }

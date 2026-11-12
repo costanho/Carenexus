@@ -9,11 +9,16 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Display names and labels for conversation participants (contract 7.2):
+ * Display names and labels for conversation participants (contract 7.2, be-communications-hardening 3.2):
  * name = "First Last"; label: DOCTOR "Dr. First Last", PATIENT "First Last",
- * CAREGIVER "First Last (Caregiver for PatientFirst PatientLast)".
+ * CAREGIVER "First Last (Caregiver for PatientFirst PatientLast)" in a conversation about a patient.
+ * In a SUPPORT conversation (no patient, {@code patientName == null}): CAREGIVER "First Last (Caregiver)" and
+ * ADMIN "First Last (Support)". A label never contains the text "null".
  */
 public final class CommunicationLabels {
+
+    /** Suffix of an administrator's label in a SUPPORT conversation. */
+    public static final String SUPPORT_SUFFIX = " (Support)";
 
     /** A leading "Dr." / "Dr" title, any case. */
     private static final Pattern DOCTOR_TITLE = Pattern.compile("dr(\\.|\\s|$)", Pattern.CASE_INSENSITIVE);
@@ -35,12 +40,20 @@ public final class CommunicationLabels {
         return user != null && user.getRole() != null ? user.getRole().toUpperCase(Locale.ROOT) : null;
     }
 
+    /**
+     * @param patientName the conversation's patient ("First Last"); null for a SUPPORT conversation
+     */
     public static String label(String name, String role, String patientName) {
         if ("DOCTOR".equals(role)) {
             return withDoctorTitle(name);
         }
         if ("CAREGIVER".equals(role)) {
-            return name + " (Caregiver for " + patientName + ")";
+            return patientName == null || patientName.isBlank()
+                    ? name + " (Caregiver)"
+                    : name + " (Caregiver for " + patientName + ")";
+        }
+        if ("ADMIN".equals(role)) {
+            return name + SUPPORT_SUFFIX;
         }
         return name;
     }

@@ -41,6 +41,31 @@ public enum PatientPermission {
     /** Change care plans / clinical data on the patient's behalf. */
     MANAGE_CARE_PLAN("CARE_PLAN", true, DependentAccess::getCanManageCarePlan),
 
+    // ---- Billing ----
+    /** View invoices, payments and insurance claims. Caregiver needs can_view_billing. */
+    BILLING("INVOICE", false, DependentAccess::getCanViewBilling),
+    /** Pay invoices, manage payment methods and claims on the patient's behalf. Caregiver needs can_manage_billing. */
+    MANAGE_BILLING("INVOICE", true, DependentAccess::getCanManageBilling),
+
+    // ---- Care plans, health tracking, referrals, documents, AI alerts, care team ----
+    /** View care plans. Caregiver needs can_view_records or can_manage_care_plan (changes: {@link #MANAGE_CARE_PLAN}). */
+    CARE_PLANS("CARE_PLAN", false, access -> Boolean.TRUE.equals(access.getCanViewRecords())
+            || Boolean.TRUE.equals(access.getCanManageCarePlan())),
+    /** View vitals, readings and symptom logs. Caregiver needs can_view_records. */
+    HEALTH_METRICS("HEALTH_METRIC", false, DependentAccess::getCanViewRecords),
+    /** Record vitals, readings and symptoms on the patient's behalf. Caregiver needs can_manage_care_plan. */
+    MANAGE_HEALTH_METRICS("HEALTH_METRIC", true, DependentAccess::getCanManageCarePlan),
+    /** View referrals. Caregiver needs can_view_records. */
+    REFERRALS("REFERRAL", false, DependentAccess::getCanViewRecords),
+    /** View and download documents. Caregiver needs can_view_records. */
+    DOCUMENTS("DOCUMENT", false, DependentAccess::getCanViewRecords),
+    /** Upload or remove documents on the patient's behalf. Caregiver needs can_manage_care_plan. */
+    MANAGE_DOCUMENTS("DOCUMENT", true, DependentAccess::getCanManageCarePlan),
+    /** View confirmed AI alerts. Caregiver needs can_view_records. */
+    AI_ALERTS("AI_ALERT", false, DependentAccess::getCanViewRecords),
+    /** See who is on the patient's care team. Any active caregiver grant is enough. */
+    CARE_TEAM("CARE_TEAM", false, access -> Boolean.TRUE),
+
     /**
      * Deprecated alias of {@link #MESSAGING} (same rule: can_message_care_team + patient approval).
      * @deprecated use {@link #MESSAGING}

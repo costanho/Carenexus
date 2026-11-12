@@ -1,56 +1,85 @@
 package com.carenexus.api.auth.service;
 
+import com.carenexus.api.common.ratelimit.RateDecision;
+import com.carenexus.api.common.ratelimit.RateLimitProperties;
+import com.carenexus.api.common.ratelimit.RateLimiter;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
- * Small in-memory brute-force guard for /api/auth/login, keyed by email + client IP.
- * After MAX_FAILURES failed attempts inside WINDOW the key is blocked until the window
- * (measured from the first failure) has passed. A successful login clears the key.
+ * Brute-force guard for {@code POST /api/auth/login}, on the shared {@link RateLimiter}
+ * (buckets under {@code carenexus.rate-limit.buckets}):
+ * <ul>
+ *   <li>{@code auth-login-ip}: attempts from one client address, whatever the email (credential stuffing);</li>
+ *   <li>{@code auth-login-email-ip}: attempts for one email from one address (password guessing);</li>
+ *   <li>{@code auth-login-account}: attempts for one email from any address (distributed guessing). The key is the
+ *       email whether or not an account exists, so a refusal never reveals that it does.</li>
+ * </ul>
+ * Every attempt is counted by {@link #checkAllowed}, before the password is looked at, so a blocked caller is
+ * refused even with the right password until the window that started with its first attempt ends. A verified
+ * password clears the two email buckets ({@link #recordSuccess}); the address bucket is never cleared.
  *
- * Per-instance only: with several API replicas each one counts separately. Replace with a
- * shared store (Redis/Bucket4j) if the API is scaled out.
+ * Nothing is counted while {@code carenexus.rate-limit.enabled=false}. The counters live in the configured
+ * rate-limit store (in memory by default, so per API instance).
  */
 @Component
+@RequiredArgsConstructor
 public class LoginAttemptThrottle {
 
-    static final int MAX_FAILURES = 5;
-    static final Duration WINDOW = Duration.ofMinutes(15);
-    private static final int MAX_TRACKED_KEYS = 10_000;
+    public static final String BUCKET_IP = "auth-login-ip";
+    public static final String BUCKET_EMAIL_IP = "auth-login-email-ip";
+    public static final String BUCKET_ACCOUNT = "auth-login-account";
 
-    private record Attempts(long windowStartMillis, int failures) {}
+    /** Clients build their own wording from Retry-After; this text deliberately names no duration. */
+    static final String MESSAGE = "Too many sign-in attempts. Please try again later.";
 
-    private final Map<String, Attempts> attempts = new ConcurrentHashMap<>();
+    private final RateLimiter rateLimiter;
+    private final RateLimitProperties properties;
 
+    /**
+     * Counts this attempt in the three buckets, in the order above, and throws {@link TooManyLoginAttemptsException}
+     * (HTTP 429 with the real remaining seconds) for the first bucket that is exhausted. Buckets after the one that
+     * refused are not counted, so an address that is already blocked cannot lock other people's accounts.
+     */
     public void checkAllowed(String email, String ipAddress) {
-        Attempts a = attempts.get(key(email, ipAddress));
-        if (a != null && !expired(a, System.currentTimeMillis()) && a.failures() >= MAX_FAILURES) {
-            throw new TooManyLoginAttemptsException(
-                    "Too many failed sign-in attempts. Please wait 15 minutes and try again.");
+        if (!properties.isEnabled()) {
+            return;
         }
+        acquire(BUCKET_IP, ipKey(ipAddress));
+        acquire(BUCKET_EMAIL_IP, emailIpKey(email, ipAddress));
+        acquire(BUCKET_ACCOUNT, accountKey(email));
     }
 
+    /**
+     * Kept for callers of the earlier throttle. A failed attempt was already counted by {@link #checkAllowed},
+     * so there is nothing more to record.
+     */
     public void recordFailure(String email, String ipAddress) {
-        long now = System.currentTimeMillis();
-        if (attempts.size() > MAX_TRACKED_KEYS) {
-            attempts.values().removeIf(a -> expired(a, now));
-        }
-        attempts.compute(key(email, ipAddress), (k, a) ->
-                (a == null || expired(a, now)) ? new Attempts(now, 1) : new Attempts(a.windowStartMillis(), a.failures() + 1));
+        // Counted in checkAllowed.
     }
 
+    /** The password was verified: forget the attempts counted for this email (from this address and overall). */
     public void recordSuccess(String email, String ipAddress) {
-        attempts.remove(key(email, ipAddress));
+        rateLimiter.reset(BUCKET_EMAIL_IP, emailIpKey(email, ipAddress));
+        rateLimiter.reset(BUCKET_ACCOUNT, accountKey(email));
     }
 
-    private static boolean expired(Attempts a, long now) {
-        return now - a.windowStartMillis() > WINDOW.toMillis();
+    private void acquire(String bucket, String key) {
+        RateDecision decision = rateLimiter.tryAcquire(bucket, key);
+        if (!decision.allowed()) {
+            throw new TooManyLoginAttemptsException(MESSAGE, decision.retryAfterSeconds(), bucket);
+        }
     }
 
-    private static String key(String email, String ipAddress) {
-        return (email == null ? "" : email) + "|" + (ipAddress == null ? "" : ipAddress);
+    private static String ipKey(String ipAddress) {
+        return ipAddress == null ? "" : ipAddress;
+    }
+
+    private static String accountKey(String email) {
+        return email == null ? "" : email;
+    }
+
+    private static String emailIpKey(String email, String ipAddress) {
+        return accountKey(email) + "|" + ipKey(ipAddress);
     }
 }

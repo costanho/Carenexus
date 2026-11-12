@@ -1,0 +1,3 @@
+Subject: CareNexus notification
+
+CareNexus: {{title}}. Sign in to view: {{link}}

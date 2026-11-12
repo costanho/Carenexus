@@ -1,0 +1,11 @@
+Subject: Confirm your new CareNexus email address
+
+Hello {{firstName}},
+
+A request was made to use this address to sign in to CareNexus. To confirm the change, open the link below:
+
+{{link}}
+
+The link works once and expires in {{validHours}} hours. After the change you will need to sign in again with this address.
+
+If you did not ask for this change, ignore this message and your sign-in email will stay the same.

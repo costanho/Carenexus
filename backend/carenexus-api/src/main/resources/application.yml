@@ -1,9 +1,37 @@
+# CareNexus API configuration.
+#
+# Every setting the code binds is listed here with its environment override and its default, so this file is the
+# reference for operators (ApplicationYmlCoverageTest fails when a carenexus.* property or @ConfigurationProperties
+# prefix used by the code is missing). A value written as ${ENV_NAME:default} is read from the environment variable
+# ENV_NAME when it is set. Spring's relaxed binding also works for every key (for example
+# CARENEXUS_HEALTH_RANGES_HEARTRATE_HIGH=110), which is how the keys without a short variable are overridden.
+# The developer profiles (local, docker; test in src/test/resources) are at the end of the file.
+
 server:
-  port: 9000
+  port: ${SERVER_PORT:9000}
   # Behind a load balancer / reverse proxy, Tomcat's RemoteIpValve rewrites the client address from
   # X-Forwarded-For, but only when the request comes from a trusted internal proxy address.
   # The application itself never reads X-Forwarded-For directly.
   forward-headers-strategy: native
+  # In-flight requests get time to finish when the instance is stopped (rolling deploys); see
+  # spring.lifecycle.timeout-per-shutdown-phase for how long.
+  shutdown: graceful
+  # Largest request line plus headers. A bearer token and the usual headers are well below this.
+  max-http-request-header-size: ${SERVER_MAX_HTTP_REQUEST_HEADER_SIZE:8KB}
+  tomcat:
+    # Form posts are not used by the API (JSON and multipart only); keep the limit small.
+    max-http-form-post-size: ${SERVER_MAX_FORM_POST_SIZE:2MB}
+    # How much of a refused (for example too large) request body Tomcat still reads so the client sees the 413.
+    max-swallow-size: ${SERVER_MAX_SWALLOW_SIZE:2MB}
+    # Idle time allowed between connecting and sending the request line.
+    connection-timeout: ${SERVER_CONNECTION_TIMEOUT:20s}
+    # Worker threads per instance and the queue of connections waiting for one. Keep threads.max in proportion to
+    # spring.datasource.hikari.maximum-pool-size: requests beyond the pool wait up to connection-timeout for a
+    # database connection.
+    threads:
+      max: ${SERVER_MAX_THREADS:200}
+      min-spare: ${SERVER_MIN_SPARE_THREADS:10}
+    accept-count: ${SERVER_ACCEPT_COUNT:100}
 
 # The JWT signing secret has NO default here on purpose: set JWT_SECRET (>= 64 bytes, e.g.
 # `openssl rand -base64 64`). Startup fails if it is missing, too short, or a value that was ever
@@ -11,13 +39,38 @@ server:
 # JWT_SECRET from the root .env (copy .env.example).
 jwt:
   secret: ${JWT_SECRET:}
-  expiration: ${JWT_EXPIRATION:900000}  # 15 minutes in milliseconds
+  expiration: ${JWT_EXPIRATION:900000}  # access token lifetime in milliseconds (15 minutes)
 
 carenexus:
+  # Where this instance runs: development | staging | production. Startup fails when a developer profile
+  # (local, docker, test) is combined with staging or production (EnvironmentStartupChecks).
+  environment: ${CARENEXUS_ENVIRONMENT:development}
+  # Provider seams (email, SMS, push, storage, file scanning, payments, AI) ship with a working local
+  # implementation. In production a local implementation fails startup unless this is true
+  # (LocalProviderGuard); staging only logs a warning. The in-memory rate-limit store does not need it (see
+  # rate-limit below). With what ships today a production start always needs it true, whatever the AI settings:
+  # the medication-interaction checker (rules or disabled), the licence registry (manual only) and insurance claims
+  # (manual only) have no real implementation yet and are always reported as local. Setting it accepts every local
+  # seam; see the README section "What is local and what needs a real provider".
+  allow-local-providers: ${CARENEXUS_ALLOW_LOCAL_PROVIDERS:false}
+  web:
+    # Public URL of the web app, used to build links in emails and notifications. No trailing slash.
+    base-url: ${CARENEXUS_WEB_BASE_URL:http://localhost:8081}
   cors:
     # Comma-separated browser origins allowed to call the API. No wildcard.
     # Production: set CORS_ALLOWED_ORIGINS=https://app.example.com
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8081,http://localhost:19006}
+  # Optional first administrator (AuthStartupChecks): administrators cannot self-register, so when both values are
+  # set and no active administrator exists, this account is created at startup. Leave empty otherwise; remove the
+  # values once the account exists.
+  bootstrap-admin:
+    email: ${CARENEXUS_BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${CARENEXUS_BOOTSTRAP_ADMIN_PASSWORD:}
+
+  # ---- Clinic identity and booking rules ----
+  clinic:
+    # Fallback of the system setting clinic.name (Help & Support, invoices). Empty = the code default "CareNexus".
+    name: ${CLINIC_NAME:}
   # Clinic booking rules. All appointment times are wall-clock times in this zone; the JVM default
   # zone is set to the same value at startup (CarenexusApiApplication) so every LocalDateTime.now() agrees.
   scheduling:
@@ -26,6 +79,11 @@ carenexus:
     close-hour: ${SCHEDULING_CLOSE_HOUR:18}
     allow-weekends: ${SCHEDULING_ALLOW_WEEKENDS:true}
     max-advance-days: ${SCHEDULING_MAX_ADVANCE_DAYS:365}
+    # Fallback of the system setting appointments.needs-outcome-after-minutes (5-1440): a past appointment still
+    # SCHEDULED this long after its end is listed as needing an outcome.
+    needs-outcome-after-minutes: ${SCHEDULING_NEEDS_OUTCOME_AFTER_MINUTES:30}
+
+  # ---- Video calls ----
   # Managed video calls (LiveKit). Disabled unless configured: the API still starts, calls report
   # "temporarily unavailable" and the webhook returns 404. Staging/production supply LIVEKIT_* from secrets.
   livekit:
@@ -35,22 +93,258 @@ carenexus:
     api-key: ${LIVEKIT_API_KEY:}
     api-secret: ${LIVEKIT_API_SECRET:}
     webhook-enabled: ${LIVEKIT_WEBHOOK_ENABLED:false}  # must be true when enabled outside local/docker/test (LiveKitStartupChecks)
-    token-ttl-seconds: 300
-    max-participants: 6
+    token-ttl-seconds: ${LIVEKIT_TOKEN_TTL_SECONDS:300}   # lifetime of a join token
+    max-participants: ${LIVEKIT_MAX_PARTICIPANTS:6}       # per call room
   calls:
-    join-opens-minutes-before: 15
-    join-closes-minutes-after-end: 60
-    worker-enabled: ${CALLS_WORKER_ENABLED:true}
-    worker-interval-ms: 5000
-    sweeper-interval-ms: 60000
+    join-opens-minutes-before: ${CALLS_JOIN_OPENS_MINUTES_BEFORE:15}         # joining opens before the start
+    join-closes-minutes-after-end: ${CALLS_JOIN_CLOSES_MINUTES_AFTER_END:60}  # and closes after the scheduled end
+    worker-enabled: ${CALLS_WORKER_ENABLED:true}         # room create/delete job worker on this instance
+    worker-interval-ms: ${CALLS_WORKER_INTERVAL_MS:5000}
+    sweeper-interval-ms: ${CALLS_SWEEPER_INTERVAL_MS:60000}   # ends calls whose join window closed
+
+  # ---- Messaging ----
   messaging:
-    max-body-length: 4000
+    max-body-length: ${MESSAGING_MAX_BODY_LENGTH:4000}   # characters per message
     # Ends conversation memberships of caregivers whose grant expired (CaregiverAccessExpirySweeper).
     access-expiry-sweep-interval-ms: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:60000}
+
+  # ---- Background jobs (common/job/JobSupport) ----
+  # enabled=false stops every @Scheduled job on this instance (tests call sweepOnce() themselves). Only one instance
+  # runs a given job at a time (Postgres advisory lock). Every run is counted in the metrics as
+  # carenexus.jobs.runs{job, outcome=success|failure|skipped} and timed as carenexus.jobs.duration{job}.
+  # Values are milliseconds; initial-delay-ms is the wait after startup before the first run.
+  jobs:
+    enabled: ${CARENEXUS_JOBS_ENABLED:true}
+    outbound:                 # email/SMS/push outbox worker (OutboundMessageWorker)
+      interval-ms: ${JOBS_OUTBOUND_INTERVAL_MS:5000}
+    reminders:                # due manual reminders (ReminderDispatchJob)
+      interval-ms: ${JOBS_REMINDERS_INTERVAL_MS:60000}
+      initial-delay-ms: ${JOBS_REMINDERS_INITIAL_DELAY_MS:30000}
+    appointment-reminders:    # automatic appointment reminders (AppointmentReminderJob)
+      interval-ms: ${JOBS_APPOINTMENT_REMINDERS_INTERVAL_MS:60000}
+      initial-delay-ms: ${JOBS_APPOINTMENT_REMINDERS_INITIAL_DELAY_MS:60000}
+    medication-reminders:     # medication dose reminders (MedicationDoseReminderJob)
+      interval-ms: ${JOBS_MEDICATION_REMINDERS_INTERVAL_MS:60000}
+      initial-delay-ms: ${JOBS_MEDICATION_REMINDERS_INITIAL_DELAY_MS:60000}
+    medication-schedule:      # dose schedule upkeep and missed-dose marking (MedicationScheduleSweeper)
+      interval-ms: ${JOBS_MEDICATION_SCHEDULE_INTERVAL_MS:900000}
+      initial-delay-ms: ${JOBS_MEDICATION_SCHEDULE_INITIAL_DELAY_MS:60000}
+    needs-outcome-nudge:      # daily nudge to doctors about appointments without an outcome (NeedsOutcomeNudgeJob)
+      interval-ms: ${JOBS_NEEDS_OUTCOME_NUDGE_INTERVAL_MS:86400000}
+      initial-delay-ms: ${JOBS_NEEDS_OUTCOME_NUDGE_INITIAL_DELAY_MS:120000}
+    follow-up-due:            # overdue follow-up alerts (FollowUpDueJob)
+      interval-ms: ${JOBS_FOLLOW_UP_DUE_INTERVAL_MS:86400000}
+      initial-delay-ms: ${JOBS_FOLLOW_UP_DUE_INITIAL_DELAY_MS:300000}
+    prescription-expiry:      # prescriptions past their end date become EXPIRED (PrescriptionExpirySweeper)
+      interval-ms: ${JOBS_PRESCRIPTION_EXPIRY_INTERVAL_MS:3600000}
+    access-requests:          # caregiver access requests left pending too long expire (AccessRequestExpiryJob)
+      interval-ms: ${JOBS_ACCESS_REQUESTS_INTERVAL_MS:86400000}
+    access-expiry-notice:     # notice before a caregiver grant expires (AccessExpiryNoticeJob)
+      interval-ms: ${JOBS_ACCESS_EXPIRY_NOTICE_INTERVAL_MS:86400000}
+    data-export-expiry:       # personal data exports past their download window are deleted (DataExportExpirySweeper)
+      interval-ms: ${JOBS_DATA_EXPORT_EXPIRY_INTERVAL_MS:3600000}
+    retention:                # purge of expired tokens and old rows, see carenexus.retention (RetentionSweeper)
+      interval-ms: ${JOBS_RETENTION_INTERVAL_MS:3600000}
+    invoice-overdue:          # unpaid invoices past due date + grace become OVERDUE (InvoiceOverdueSweeper)
+      interval-ms: ${JOBS_INVOICE_OVERDUE_INTERVAL_MS:3600000}
+    payment-reconcile:        # pending payments are re-checked with the gateway (PaymentReconciliationSweeper)
+      interval-ms: ${JOBS_PAYMENT_RECONCILE_INTERVAL_MS:300000}
+
+  # ---- Rate limits (common/ratelimit) ----
+  # store: memory = counters per API instance (a shared store is a drop-in RateLimiter implementation). The memory
+  # store enforces every limit and starts in every environment without allow-local-providers; outside developer
+  # profiles it logs one WARN at startup because, with several API instances, each one counts separately.
+  # Buckets: limit calls per window-seconds, per key (system id, email|ip, or ip). An unknown bucket uses "default".
+  # A bucket is overridden with the relaxed name, for example CARENEXUS_RATELIMIT_BUCKETS_MESSAGESEND_LIMIT=120.
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    store: ${RATE_LIMIT_STORE:memory}
+    max-tracked-keys: ${RATE_LIMIT_MAX_TRACKED_KEYS:100000}   # memory store: keys kept before the oldest are dropped
+    buckets:
+      default:             { limit: 120, window-seconds: 60 }
+      auth-login-email-ip: { limit: 5,   window-seconds: 900 }
+      auth-login-ip:       { limit: 30,  window-seconds: 900 }
+      auth-login-account:  { limit: 20,  window-seconds: 3600 }
+      auth-register-ip:    { limit: 10,  window-seconds: 3600 }
+      auth-refresh-ip:     { limit: 120, window-seconds: 900 }
+      auth-forgot-email:   { limit: 3,   window-seconds: 3600 }
+      auth-forgot-ip:      { limit: 10,  window-seconds: 3600 }
+      auth-verify-ip:      { limit: 20,  window-seconds: 3600 }
+      auth-mfa:            { limit: 5,   window-seconds: 300 }
+      password-change:     { limit: 5,   window-seconds: 900 }
+      appointment-book:    { limit: 20,  window-seconds: 3600 }
+      caregiver-request:   { limit: 10,  window-seconds: 86400 }
+      reminder-manual:     { limit: 10,  window-seconds: 3600 }
+      document-upload:     { limit: 60,  window-seconds: 3600 }
+      payment-initiate:    { limit: 30,  window-seconds: 3600 }
+      data-export:         { limit: 3,   window-seconds: 86400 }
+      correction-request:  { limit: 10,  window-seconds: 86400 }
+      message-send:        { limit: 60,  window-seconds: 60 }      # messages sent per user
+      thread-create:       { limit: 20,  window-seconds: 3600 }    # POST /api/communications/threads per user (find-or-create included)
+
+  # ---- Accounts ----
+  auth:
+    # Sign-in is refused (403 EMAIL_NOT_VERIFIED) until the email address is confirmed. Off in developer profiles.
+    # Verification and password-reset links travel by email: with delivery.email.provider=local they stay in
+    # outbound_messages, and outside production an administrator relays them from the admin Outbox
+    # (GET /api/admin/dev/outbound-messages, DevOutboxService). Production never exposes the outbox, so it needs
+    # a real EmailSender for self-registration and password recovery to work.
+    require-verified-email: ${AUTH_REQUIRE_VERIFIED_EMAIL:true}
+    # Roles that cannot obtain a session without TOTP (comma-separated). Empty in developer profiles.
+    mfa-required-roles: ${AUTH_MFA_REQUIRED_ROLES:ADMIN}
+    # Base64 AES key (32 bytes) that encrypts TOTP secrets at rest. No default: set AUTH_MFA_ENCRYPTION_KEY
+    # (e.g. `openssl rand -base64 32`). Developer profiles carry a dev-only value that is refused elsewhere.
+    mfa-encryption-key: ${AUTH_MFA_ENCRYPTION_KEY:}
+    # Lifetimes of the one-time tokens sent by email and of the MFA sign-in challenge.
+    password-reset-ttl-minutes: ${AUTH_PASSWORD_RESET_TTL_MINUTES:45}    # 5-1440, other values fail startup
+    email-verification-ttl-hours: ${AUTH_EMAIL_VERIFICATION_TTL_HOURS:24}
+    email-change-ttl-hours: ${AUTH_EMAIL_CHANGE_TTL_HOURS:24}
+    mfa-challenge-ttl-seconds: ${AUTH_MFA_CHALLENGE_TTL_SECONDS:300}
+    # Human-verification widget on registration and password recovery. 'none' is the only value shipped; an unknown
+    # value fails startup. A real provider (captcha) is added behind the HumanVerification interface.
+    human-verification: ${AUTH_HUMAN_VERIFICATION:none}
+    # Clinician licence check on doctor sign-up. 'manual' (an administrator reviews the licence) is the only value
+    # shipped; an unknown value fails startup. A medical-council registry plugs in behind LicenseRegistryClient.
+    licence-registry: ${AUTH_LICENCE_REGISTRY:manual}
+
+  # ---- Outbound messages: one outbox, three channels (delivery module) ----
+  # provider: local = message is rendered and kept in outbound_messages, nothing leaves the machine (readable by an
+  #           administrator in the admin Outbox on developer profiles, and outside production while email is local);
+  #           disabled = rows are marked SKIPPED. Real providers plug in behind EmailSender / SmsSender / PushSender.
+  # Outcomes are counted as carenexus.outbound.messages{channel=EMAIL|SMS|PUSH, outcome=sent|retried|failed|skipped}.
+  delivery:
+    email:
+      provider: ${DELIVERY_EMAIL_PROVIDER:local}
+    sms:
+      provider: ${DELIVERY_SMS_PROVIDER:local}
+    push:
+      provider: ${DELIVERY_PUSH_PROVIDER:local}
+    max-attempts: ${DELIVERY_MAX_ATTEMPTS:5}    # send attempts before a message becomes FAILED
+    batch-size: ${DELIVERY_BATCH_SIZE:200}      # messages per worker pass (capped at 200)
+
+  # ---- File storage and scanning (storage module) ----
+  storage:
+    provider: ${STORAGE_PROVIDER:local}          # local = files under local-dir
+    local-dir: ${STORAGE_LOCAL_DIR:${java.io.tmpdir}/carenexus-storage}
+    scanner: ${STORAGE_SCANNER:local}            # local = magic-byte type check + EICAR test string
+
+  # ---- Reminders ----
+  # Fallbacks of the system settings an administrator can change (GET /api/admin/settings); a stored setting wins,
+  # and an empty value here means the code default.
+  reminders:
+    appointment-lead-hours: ${REMINDERS_APPOINTMENT_LEAD_HOURS:24}     # first appointment reminder (1-168 hours)
+    second-lead-minutes: ${REMINDERS_SECOND_LEAD_MINUTES:60}           # second appointment reminder (5-720 minutes)
+
+  # ---- Medication schedule ----
+  medication:
+    # A dose not marked taken this long after its time counts as missed.
+    missed-grace-minutes: ${MEDICATION_MISSED_GRACE_MINUTES:120}
+
+  # ---- Billing ----
+  billing:
+    provider: ${BILLING_PROVIDER:local}                    # payment gateway; local settles through a signed local callback
+    claims-provider: ${BILLING_CLAIMS_PROVIDER:manual}     # insurance claims; manual = status moved by an administrator
+    # Fallbacks of the system settings billing.default-currency, billing.tax-rate and billing.payment-terms-days.
+    default-currency: ${BILLING_DEFAULT_CURRENCY:KES}      # ISO 4217 code of new invoices
+    tax-rate: ${BILLING_TAX_RATE:0}                        # fraction 0-1 (0.16 = 16%)
+    payment-terms-days: ${BILLING_PAYMENT_TERMS_DAYS:14}   # due date = issue date + this many days
+    # What a completed consultation creates: DRAFT invoice (the doctor sends it), SENT invoice, or OFF (nothing).
+    auto-invoice: "${BILLING_AUTO_INVOICE:DRAFT}"
+    # Days after the due date before an unpaid invoice is marked OVERDUE.
+    overdue-grace-days: ${BILLING_OVERDUE_GRACE_DAYS:0}
+    local:
+      # HMAC secret of the local gateway's callback: a random value of at least 32 characters outside the developer
+      # profiles (the dev values are refused there). No default; developer profiles carry a dev-only value.
+      webhook-secret: ${BILLING_LOCAL_WEBHOOK_SECRET:}
+
+  # ---- AI risk detection and alerts ----
+  ai:
+    provider: ${AI_PROVIDER:rules}                             # risk detection: rules (rules-v1) | disabled
+    assessment-timeout-ms: ${AI_ASSESSMENT_TIMEOUT_MS:3000}    # one risk assessment gives up after this long
+    interaction-provider: ${AI_INTERACTION_PROVIDER:rules}     # medication interaction checker: rules | disabled
+    # Consecutive missed doses that raise a MISSED_MEDICATION alert.
+    missed-dose-threshold: ${AI_MISSED_DOSE_THRESHOLD:3}
+    # ANOMALY_DETECTED when a normal reading deviates from the patient's 30-day median by more than this percentage.
+    anomaly-deviation-percent: ${AI_ANOMALY_DEVIATION_PERCENT:25}
+    # Overdue follow-ups older than this many days are left alone by the follow-up-due job.
+    follow-up-lookback-days: ${AI_FOLLOW_UP_LOOKBACK_DAYS:30}
+
+  # ---- Health tracking ----
+  health:
+    wearables:
+      provider: ${HEALTH_WEARABLES_PROVIDER:disabled}
+    # Adult reference ranges used to grade vital readings (VitalRangeEvaluator). The defaults live in HealthProperties:
+    #   bp-systolic       critical-low 70   low 90   high 139  critical-high 179
+    #   bp-diastolic      critical-low 40   low 60   high 89   critical-high 119
+    #   heart-rate        critical-low 40   low 60   high 100  critical-high 130
+    #   glucose           critical-low 3.0  low 3.9  high 7.8  critical-high 13.9
+    #   spo2              critical-low 90   low 95
+    #   temperature       critical-low 35.0 low 36.0 high 37.5 critical-high 39.4
+    #   respiratory-rate  critical-low 9    low 12   high 20   critical-high 29
+    #   bmi               low 18.5 high 24.9
+    #   weight, height, steps: no range
+    # Override a bound with carenexus.health.ranges.<type>.<bound>, e.g. CARENEXUS_HEALTH_RANGES_HEARTRATE_HIGH=110.
+    # A change grades readings stored afterwards only.
+
+  # ---- Clinical terminology (ICD-10 lookup) ----
+  terminology:
+    provider: ${TERMINOLOGY_PROVIDER:bundled}
+    bundled-resource: ${TERMINOLOGY_BUNDLED_RESOURCE:terminology/icd10-subset.tsv}   # classpath resource of the bundled catalogue
+
+  # ---- Retention (purge jobs; audit_log and clinical tables are never purged) ----
+  # Account link tokens, MFA challenges and idempotency keys are removed as soon as they are used or expired.
+  retention:
+    tokens-days: ${RETENTION_TOKENS_DAYS:30}                          # refresh tokens after expiry or revocation
+    read-notifications-days: ${RETENTION_READ_NOTIFICATIONS_DAYS:180} # read notifications, from creation
+    outbound-messages-days: ${RETENTION_OUTBOUND_MESSAGES_DAYS:30}    # SENT and SKIPPED outbound messages, from sent_at
+    call-records-days: ${RETENTION_CALL_RECORDS_DAYS:30}              # finished call jobs and provider webhook events
+    export-days: ${RETENTION_EXPORT_DAYS:7}                           # download window of a personal data export
+
+  # ---- Support contact shown on the Help pages (empty = not shown) ----
+  # Fallbacks of the system settings support.contact-email / support.contact-phone. The older keys
+  # carenexus.support.email / carenexus.support.phone are still read after these when set elsewhere.
+  support:
+    contact-email: ${SUPPORT_CONTACT_EMAIL:${SUPPORT_EMAIL:}}
+    contact-phone: ${SUPPORT_CONTACT_PHONE:${SUPPORT_PHONE:}}
+
+  # ---- Metrics scrape ----
+  # Static bearer token a Prometheus server sends to /actuator/prometheus (Authorization: Bearer <token>, e.g.
+  # Prometheus "authorization.credentials_file"). At least 32 characters (openssl rand -hex 32). Empty = only an
+  # ADMIN access token can scrape, which expires after 15 minutes and needs MFA to renew, so set it for staging and
+  # production. Accepted on /actuator/prometheus only.
+  metrics:
+    scrape-token: ${METRICS_SCRAPE_TOKEN:}
 
 spring:
   application:
     name: carenexus-api
+
+  lifecycle:
+    # How long graceful shutdown waits for in-flight requests.
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+
+  # Request and response bodies use the Jackson 2 ObjectMapper (spring-boot-jackson2), which the DTOs, their
+  # @JsonDeserialize deserializers and the services are written against. Spring Boot 4 would otherwise pick Jackson 3.
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+
+  servlet:
+    multipart:
+      # Uploads (documents): one file up to 10 MB. Larger requests get 413 through the error envelope.
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:10MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:12MB}
+
+  datasource:
+    hikari:
+      # Bounded pool. Audit denials, idempotency claims and jobs briefly hold a second connection (REQUIRES_NEW),
+      # so size the maximum for the concurrent requests expected per instance plus headroom, and keep the sum over
+      # all instances below the database's max_connections.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:10000}   # wait for a free connection before failing
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:300000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1500000}             # below any database or proxy connection limit
 
   jpa:
     hibernate:
@@ -63,9 +357,10 @@ spring:
 
   # Schema migrations only. Demo users and mock clinical data live in classpath:db/seed and are
   # added by the 'local' and 'docker' profiles below; they must never reach a real environment.
-  # NOTE: a database that already applied the seed versions (2,4-8) and is then run without the
-  # seed location fails Flyway validation ("applied migration not resolved locally"). For such a
-  # database purge the demo rows and set spring.flyway.ignore-migration-patterns: "*:missing".
+  # NOTE: a database that already applied the seed scripts (V2, V4-V8, V20, V21 or R__dev_seed_*) is refused at
+  # startup outside the local/docker/test profiles (AuthStartupChecks). To reuse such a database, purge the demo
+  # rows AND delete those scripts' rows from flyway_schema_history, then set
+  # spring.flyway.ignore-migration-patterns: "*:missing"; or start from a database migrated with db/migration only.
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -80,6 +375,9 @@ springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
     path: /swagger-ui.html
+    # The Swagger UI webjar version pom.xml pins (swagger-ui.version, filled in at build time); springdoc would
+    # otherwise look for the files of the older webjar it was built with and answer 404.
+    version: '@swagger-ui.version@'
     operations-sorter: method
     tags-sorter: alpha
 
@@ -87,9 +385,27 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info
+        # /actuator/prometheus requires the scrape token (carenexus.metrics.scrape-token) or an ADMIN token
+        # (SecurityConfig); health and info are public.
+        include: health, info, prometheus
+  endpoint:
+    health:
+      # /actuator/health/liveness and /readiness for orchestrators; readiness goes DOWN while shutting down.
+      probes:
+        enabled: true
+      show-details: never
+  prometheus:
+    metrics:
+      export:
+        # Scrape format for /actuator/prometheus. Application metrics: carenexus.jobs.runs, carenexus.jobs.duration,
+        # carenexus.outbound.messages, plus the standard JVM, HTTP server, Hikari and Tomcat meters.
+        enabled: ${METRICS_PROMETHEUS_ENABLED:true}
 
 logging:
+  pattern:
+    # Every line carries the request's correlation id (X-Request-Id, also in error responses as requestId) and the
+    # caller's system id; both are empty outside a request (jobs, startup).
+    level: "%5p [req=%X{requestId:-} user=%X{systemId:-}]"
   level:
     root: INFO
     com.carenexus: INFO
@@ -124,6 +440,15 @@ carenexus:
     api-key: ${LIVEKIT_API_KEY:devkey}
     api-secret: ${LIVEKIT_API_SECRET:secret}
     webhook-enabled: true
+  # Developer conveniences: sign in without confirming the email address and without MFA.
+  # DEV ONLY secrets below are refused outside the local/docker/test profiles by their module's startup check.
+  auth:
+    require-verified-email: ${AUTH_REQUIRE_VERIFIED_EMAIL:false}
+    mfa-required-roles: ${AUTH_MFA_REQUIRED_ROLES:}
+    mfa-encryption-key: ${AUTH_MFA_ENCRYPTION_KEY:Y2FyZW5leHVzLWRldi1vbmx5LW1mYS1rZXktMzJieXQ=}
+  billing:
+    local:
+      webhook-secret: ${BILLING_LOCAL_WEBHOOK_SECRET:local-dev-only-billing-webhook-secret-NOT-FOR-PRODUCTION}
 
 springdoc:
   api-docs:
@@ -161,6 +486,15 @@ carenexus:
     api-key: ${LIVEKIT_API_KEY:devkey}
     api-secret: ${LIVEKIT_API_SECRET:secret}
     webhook-enabled: true
+  # Developer conveniences: sign in without confirming the email address and without MFA.
+  # DEV ONLY secrets below are refused outside the local/docker/test profiles by their module's startup check.
+  auth:
+    require-verified-email: ${AUTH_REQUIRE_VERIFIED_EMAIL:false}
+    mfa-required-roles: ${AUTH_MFA_REQUIRED_ROLES:}
+    mfa-encryption-key: ${AUTH_MFA_ENCRYPTION_KEY:Y2FyZW5leHVzLWRldi1vbmx5LW1mYS1rZXktMzJieXQ=}
+  billing:
+    local:
+      webhook-secret: ${BILLING_LOCAL_WEBHOOK_SECRET:local-dev-only-billing-webhook-secret-NOT-FOR-PRODUCTION}
 
 # API docs stay off in the docker profile unless SWAGGER_ENABLED=true (the image can be deployed beyond a laptop).
 springdoc:

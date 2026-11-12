@@ -33,7 +33,8 @@ public class Message {
     @Column(name = "recipient_system_id", length = 20)
     private String recipientSystemId;
 
-    @Column(name = "patient_system_id", nullable = false, length = 20)
+    /** NULL only for messages of SUPPORT threads (V65). */
+    @Column(name = "patient_system_id", length = 20)
     private String patientSystemId;
 
     @Column(name = "client_message_id", length = 64)
