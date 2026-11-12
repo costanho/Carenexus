@@ -15,8 +15,16 @@ regexes = [
   '''patient@thomas''',
   '''doctor@banda''',
   '''proxy@sarah''',
+  # Dev-only TOTP-secret encryption key (base64 of "carenexus-dev-only-mfa-key-32byt"), committed for the
+  # local, docker and test profiles. MfaStartupChecks refuses it in every other environment.
+  '''Y2FyZW5leHVzLWRldi1vbmx5LW1mYS1rZXktMzJieXQ=''',
+  # Notification dedupe-key constant (ReminderText.FIRST_REMINDER_KEY), not a credential.
+  '''APPT_REMINDER_24H''',
 ]
 paths = [
   '''(^|/)node_modules/''',
   '''(^|/)package-lock\.json$''',
+  # Backend test sources: fixture passwords, reset tokens and webhook secrets that exist only to exercise
+  # validation and startup checks against a throwaway Testcontainers database.
+  '''^backend/carenexus-api/src/test/''',
 ]
