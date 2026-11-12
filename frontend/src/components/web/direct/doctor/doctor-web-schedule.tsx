@@ -1,472 +1,313 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
-import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
-import { CallJoinButton } from '@/components/web/call/call-join-button';
-import { callStatusLabel } from '@/lib/calls/join';
-import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { type ReactNode, useCallback, useMemo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { isActiveAppointment } from '@/hooks/use-doctor-appointment-actions';
+import {
+  addClinicDays, clinicDayStart, clinicMonthStart, clinicNextMonthStart, clinicWeekStart, useDoctorSchedule,
+  type ApiAppointmentStatus, type ScheduleEntry,
+} from '@/hooks/use-doctor-schedule';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import {
+  ariaLevel, Banner, Button, Card, colors, DateField, EmptyView, ErrorView, fontSize, IconButton, LoadingView,
+  NoAccessView, Screen, space, Tabs,
+} from '@/components/web/ui';
+import type { SectionProps } from '@/lib/nav/sections';
+import { clinicToday, isAfterClinicNow, toClinicLocal } from '@/lib/time/clinic';
+import {
+  AppointmentCard, type AppointmentChange, FilterPill, StatTile, useAppointmentController,
+} from './doctor-web-appointment';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const ORANGE = '#B45309';
-const RED    = '#B91C1C';
-const PURPLE = '#6D28D9';
-const TEAL   = '#0F766E';
-
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type DateFilter   = 'today' | 'week' | 'all';
-type AppStatus    = ScheduleEntry['status'];
+/** How much of the calendar is shown. Kept in the URL as `tab`, with the anchor day as `date`. */
+type RangeView = 'day' | 'week' | 'month';
 /** ACTIVE (the default) hides cancelled appointments, like the dashboard's Today count. */
-type StatusFilter = 'ACTIVE' | 'ALL' | AppStatus;
+type StatusFilter = 'ACTIVE' | 'ALL' | ApiAppointmentStatus | 'NEEDS_OUTCOME';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const RANGE_VIEWS: readonly RangeView[] = ['day', 'week', 'month'];
+const RANGE_LABEL: Record<RangeView, string> = { day: 'Day', week: 'Week', month: 'Month' };
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
-function statusConfig(s: AppStatus) {
-  switch (s) {
-    case 'SCHEDULED':   return { bg: '#EEF2FF', color: BLUE,   label: 'Scheduled'    };
-    case 'COMPLETED':   return { bg: '#D1FAE5', color: GREEN,  label: 'Completed'    };
-    case 'CANCELLED':   return { bg: '#FEE2E2', color: RED,    label: 'Cancelled'    };
-    case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show'      };
-    case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled'  };
-    case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress'  };
-    default:            return { bg: BG,        color: GRAY,  label: String(s)      };
+const STATUS_PILLS: readonly { key: StatusFilter; label: string }[] = [
+  { key: 'ACTIVE',        label: 'Active'              },
+  { key: 'ALL',           label: 'All incl. cancelled' },
+  { key: 'SCHEDULED',     label: 'Scheduled'           },
+  { key: 'RESCHEDULED',   label: 'Rescheduled'         },
+  { key: 'NEEDS_OUTCOME', label: 'Awaiting outcome'    },
+  { key: 'COMPLETED',     label: 'Completed'           },
+  { key: 'CANCELLED',     label: 'Cancelled'           },
+  { key: 'NO_SHOW',       label: 'No Show'             },
+];
+
+// ─── Calendar helpers (clinic dates as "YYYY-MM-DD"; formatted without shifting zones) ────────────
+
+function isRealDate(value: string | undefined): value is string {
+  if (!value || !DATE_ONLY.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d));
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value;
+}
+
+function formatDate(date: string, options: Intl.DateTimeFormatOptions): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...options }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+const longDate  = (date: string) => formatDate(date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const shortDate = (date: string) => formatDate(date, { day: 'numeric', month: 'short' });
+
+/** The window of a view: `from` is its first day, `to` the day after its last day. */
+function rangeOf(view: RangeView, anchor: string): { from: string; to: string } {
+  if (view === 'week') {
+    const monday = clinicWeekStart(anchor);
+    return { from: monday, to: addClinicDays(monday, 7) };
   }
+  if (view === 'month') return { from: clinicMonthStart(anchor), to: clinicNextMonthStart(anchor) };
+  return { from: anchor, to: addClinicDays(anchor, 1) };
 }
 
-function typeConfig(t: ScheduleEntry['type']) {
-  switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
-    case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
-    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
-    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG        };
-  }
+/** The anchor of the previous (-1) or next (+1) day, week or month. */
+function shiftAnchor(view: RangeView, anchor: string, direction: -1 | 1): string {
+  if (view === 'day') return addClinicDays(anchor, direction);
+  if (view === 'week') return addClinicDays(clinicWeekStart(anchor), direction * 7);
+  return direction === 1 ? clinicNextMonthStart(anchor) : clinicMonthStart(addClinicDays(clinicMonthStart(anchor), -1));
 }
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+function rangeTitle(view: RangeView, range: { from: string; to: string }, today: string): string {
+  if (view === 'day') return range.from === today ? `Today · ${longDate(range.from)}` : longDate(range.from);
+  if (view === 'month') return formatDate(range.from, { month: 'long', year: 'numeric' });
+  const last = addClinicDays(range.to, -1);
+  return `${shortDate(range.from)} to ${shortDate(last)} ${last.slice(0, 4)}`;
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function isTodayDate(iso: string) {
-  const d   = new Date(iso);
-  const now = new Date();
-  return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-}
-
-function groupByDate(entries: ScheduleEntry[]): { label: string; items: ScheduleEntry[] }[] {
+function groupByDate(entries: ScheduleEntry[], today: string): { key: string; label: string; items: ScheduleEntry[] }[] {
   const map = new Map<string, ScheduleEntry[]>();
   for (const e of entries) {
-    const d   = new Date(e.scheduled_at);
-    const now = new Date();
-    const sameDay = d.toDateString() === now.toDateString();
-    const key = sameDay
-      ? `Today · ${now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
-      : d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(e);
+    const key = (toClinicLocal(e.scheduled_at) ?? String(e.scheduled_at)).slice(0, 10);
+    const bucket = map.get(key);
+    if (bucket) bucket.push(e);
+    else map.set(key, [e]);
   }
-  return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+  return Array.from(map.entries()).map(([key, items]) => ({
+    key,
+    label: !isRealDate(key) ? key : key === today
+      ? `Today · ${formatDate(key, { day: 'numeric', month: 'long', year: 'numeric' })}`
+      : longDate(key),
+    items,
+  }));
 }
 
-function consultLabel(c: ScheduleEntry['consultation']) {
-  if (!c) return 'No consultation';
-  if (c.status === 'DRAFT')       return 'Consultation: Draft';
-  if (c.status === 'IN_PROGRESS') return 'Consultation: In Progress';
-  if (c.status === 'CANCELLED')   return 'Consultation: Cancelled';
-  return 'Consultation: Completed';
+function matches(entry: ScheduleEntry, filter: StatusFilter): boolean {
+  switch (filter) {
+    case 'ALL':           return true;
+    case 'ACTIVE':        return entry.status !== 'CANCELLED';
+    case 'NEEDS_OUTCOME': return entry.needs_outcome;
+    default:              return entry.status === filter;
+  }
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
-function StatCard({ icon, iconBg, iconColor, label, value, testID }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number; testID?: string;
-}) {
-  return (
-    <View style={styles.statCard} testID={testID}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-// ─── Appointment Card ─────────────────────────────────────────────────────────
-
-function AppCard({ entry, onMessage, messaging }: {
-  entry:      ScheduleEntry;
-  /** Opens the private conversation with this patient; omitted when Messages is not available. */
-  onMessage?: (entry: ScheduleEntry) => void;
-  messaging?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const sc    = statusConfig(entry.status);
-  const tc    = typeConfig(entry.type);
-  const today = isTodayDate(entry.scheduled_at);
-
-  return (
-    <View style={[styles.apptCard, today && styles.apptCardToday]}>
-      {/* Time column */}
-      <View style={styles.apptTimeCol}>
-        {today && <View style={styles.todayDot} />}
-        <Text style={styles.apptTime}>{formatTime(entry.scheduled_at)}</Text>
-        <Text style={styles.apptDate}>{formatDate(entry.scheduled_at)}</Text>
-        <Text style={styles.apptDur}>{entry.duration_minutes} min</Text>
-      </View>
-
-      {/* Colour accent */}
-      <View style={[styles.apptAccent, { backgroundColor: tc.color }]} />
-
-      {/* Details */}
-      <View style={styles.apptBody}>
-        <View style={styles.apptTopRow}>
-          <Text style={styles.apptPatient}>{entry.patient_name}</Text>
-          <View style={styles.badgeRow}>
-            <View style={[styles.badge, { backgroundColor: tc.bg }]}>
-              <Ionicons name={tc.icon} size={11} color={tc.color} />
-              <Text style={[styles.badgeText, { color: tc.color }]}>{tc.label}</Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: sc.bg }]}>
-              <Text style={[styles.badgeText, { color: sc.color }]}>{sc.label}</Text>
-            </View>
-          </View>
-        </View>
-
-        {!!entry.reason_for_visit && (
-          <Text style={styles.apptReason} numberOfLines={2}>{entry.reason_for_visit}</Text>
-        )}
-
-        <View style={styles.apptFooter}>
-          <View style={styles.metaPill}>
-            <Ionicons
-              name={entry.consultation ? 'document-text-outline' : 'document-outline'}
-              size={12}
-              color={entry.consultation ? BLUE : GRAY}
-            />
-            <Text style={[styles.metaText, { color: entry.consultation ? BLUE : GRAY }]}>
-              {consultLabel(entry.consultation)}
-            </Text>
-          </View>
-
-          {!!entry.facility_name && (
-            <View style={styles.metaPill}>
-              <Ionicons name="business-outline" size={12} color={GRAY} />
-              <Text style={styles.metaText} numberOfLines={1}>{entry.facility_name}</Text>
-            </View>
-          )}
-
-          <CallJoinButton
-            info={doctorCallJoin(entry)}
-            withName={entry.patient_name}
-            style={styles.metaPill}
-            textStyle={[styles.metaText, { color: BLUE }]}
-            iconColor={BLUE}
-            iconSize={12}
-          />
-
-          {!!onMessage && (
-            <TouchableOpacity
-              style={[styles.metaPill, messaging && { opacity: 0.5 }]}
-              activeOpacity={0.8}
-              disabled={messaging}
-              onPress={() => onMessage(entry)}
-              accessibilityRole="button"
-              accessibilityLabel={`Message ${entry.patient_name}`}
-              accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
-            >
-              <Ionicons name="chatbubble-ellipses-outline" size={12} color={BLUE} />
-              <Text style={[styles.metaText, { color: BLUE }]}>Message patient</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.viewBtn}
-            activeOpacity={0.8}
-            onPress={() => setExpanded(v => !v)}
-            accessibilityRole="button"
-            accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
-            accessibilityState={{ expanded }}
-          >
-            <Text style={styles.viewBtnText}>{expanded ? 'Hide Details' : 'View Details'}</Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={BLUE} />
-          </TouchableOpacity>
-        </View>
-
-        {expanded && (
-          <View style={styles.detailsPanel}>
-            {([
-              ['Patient ID',  entry.patient_system_id],
-              ['Appointment', `#${entry.appointment_id}`],
-              ['Reason',      entry.reason_for_visit ?? '—'],
-              ['Notes',       entry.notes ?? '—'],
-              ...(entry.type === 'VIDEO' ? [['Video call', callStatusLabel(entry.call_status)]] : []),
-            ] as [string, string][]).map(([label, value]) => (
-              <View key={label} style={styles.detailLine}>
-                <Text style={styles.detailLabel}>{label}</Text>
-                <Text style={styles.detailValue} selectable>{value}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function DoctorWebSchedule({ onOpenThread }: {
-  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+/**
+ * The doctor's calendar: every appointment of a day, a week or a month (GET /api/doctors/schedule/window), grouped
+ * by day, with the same row actions as the Appointments screen.
+ *
+ * URL params: `tab` (day | week | month), `date` (a day inside the range, default today at the clinic) and
+ * `status`. Rendered with `SectionProps`; the older `onOpenThread` prop keeps working.
+ */
+export default function DoctorWebSchedule(props: Partial<SectionProps> & {
+  /** Switch to Messages with this thread open (legacy wiring; `openThread` of SectionProps wins). */
   onOpenThread?: (threadId: number) => void;
 } = {}) {
-  const { entries, loading, error, refetch } = useDoctorSchedule();
-  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
-  const [dateFilter,   setDateFilter]   = useState<DateFilter>('today');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
+  const nav = useSectionNav();
+  const params = props.params ?? nav.params;
+  const navigate = props.navigate ?? nav.navigate;
+  const openThread = props.openThread ?? props.onOpenThread ?? (nav.hasSection('messages') ? nav.openThread : undefined);
+  const { setParams } = nav;
 
-  const todayStart = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0);          return d; }, []);
-  const todayEnd   = useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999);      return d; }, []);
-  const weekEnd    = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(23, 59, 59, 999); return d; }, []);
+  const today = clinicToday();
+  const view: RangeView = (RANGE_VIEWS as readonly string[]).includes(params.tab ?? '') ? (params.tab as RangeView) : 'day';
+  const anchor = isRealDate(params.date) ? params.date : today;
+  const requestedStatus = (params.status ?? '').toUpperCase().replace(/-/g, '_');
+  const statusFilter: StatusFilter = STATUS_PILLS.some(p => p.key === requestedStatus) ? (requestedStatus as StatusFilter) : 'ACTIVE';
+
+  const range = rangeOf(view, anchor);
+  const includesToday = range.from <= today && today < range.to;
+
+  const list = useDoctorSchedule({
+    source: 'window', from: clinicDayStart(range.from), to: clinicDayStart(range.to), order: 'asc',
+    pageSize: 100, pagesPerLoad: 5,
+  });
+  const { updateEntry } = list;
+
+  const onChanged = useCallback((updated: ScheduleEntry, change: AppointmentChange) => {
+    const day = (toClinicLocal(updated.scheduled_at) ?? '').slice(0, 10);
+    // An appointment moved out of the range on screen leaves it; everything else is updated in place.
+    const outside = change === 'rescheduled' && !!day && (day < range.from || day >= range.to);
+    updateEntry(updated.appointment_id, outside ? null : updated);
+  }, [updateEntry, range.from, range.to]);
+
+  const controller = useAppointmentController({ navigate, onOpenThread: openThread, onChanged });
 
   const stats = useMemo(() => ({
-    total:     entries.length,
     // Same rule as the dashboard's "Today's Appointments": cancelled appointments do not count.
-    today:     entries.filter(e => {
-      const d = new Date(e.scheduled_at);
-      return d >= todayStart && d <= todayEnd && e.status !== 'CANCELLED';
-    }).length,
-    completed: entries.filter(e => e.status === 'COMPLETED').length,
-    upcoming:  entries.filter(e => e.status === 'SCHEDULED' || e.status === 'IN_PROGRESS').length,
-  }), [entries, todayStart, todayEnd]);
+    active:       list.entries.filter(e => e.status !== 'CANCELLED').length,
+    completed:    list.entries.filter(e => e.status === 'COMPLETED').length,
+    upcoming:     list.entries.filter(e => isActiveAppointment(e) && isAfterClinicNow(e.scheduled_at)).length,
+    needsOutcome: list.entries.filter(e => e.needs_outcome).length,
+  }), [list.entries]);
 
-  const filtered = useMemo(() => {
-    return entries
-      .filter(e => {
-        const d = new Date(e.scheduled_at);
-        if (dateFilter === 'today') return d >= todayStart && d <= todayEnd;
-        if (dateFilter === 'week')  return d >= todayStart && d <= weekEnd;
-        return true;
-      })
-      .filter(e => statusFilter === 'ALL'
-        || (statusFilter === 'ACTIVE' ? e.status !== 'CANCELLED' : e.status === statusFilter))
-      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
-  }, [entries, dateFilter, statusFilter, todayStart, todayEnd, weekEnd]);
+  const filtered = useMemo(() => list.entries
+    .filter(e => matches(e, statusFilter))
+    .slice()
+    .sort((a, b) => String(a.scheduled_at).localeCompare(String(b.scheduled_at)) || a.appointment_id - b.appointment_id),
+  [list.entries, statusFilter]);
+  const groups = useMemo(() => groupByDate(filtered, today), [filtered, today]);
 
-  const groups = useMemo(() => groupByDate(filtered), [filtered]);
+  const goTo = (date: string) => setParams({ date: date === today ? undefined : date });
+  const selectStatus = (key: StatusFilter) => setParams({ status: key === 'ACTIVE' ? undefined : key.toLowerCase().replace(/_/g, '-') });
 
-  const dateFilters: { key: DateFilter; label: string }[] = [
-    { key: 'today', label: 'Today'     },
-    { key: 'week',  label: 'This Week' },
-    { key: 'all',   label: 'All Time'  },
-  ];
+  const firstStat = view === 'day'
+    ? (includesToday ? 'Today' : 'This day')
+    : view === 'week' ? (includesToday ? 'This week' : 'Week') : (includesToday ? 'This month' : 'Month');
+  const loaded = !(list.loading && list.entries.length === 0) && !(list.error && list.entries.length === 0);
+  const feedbackOnRow = !!controller.feedback && filtered.some(e => e.appointment_id === controller.feedback?.appointmentId);
 
-  const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'ACTIVE',      label: 'Active'      },
-    { key: 'ALL',         label: 'All incl. cancelled' },
-    { key: 'SCHEDULED',   label: 'Scheduled'   },
-    { key: 'IN_PROGRESS', label: 'In Progress' },
-    { key: 'COMPLETED',   label: 'Completed'   },
-    { key: 'CANCELLED',   label: 'Cancelled'   },
-    { key: 'NO_SHOW',     label: 'No Show'     },
-    { key: 'RESCHEDULED', label: 'Rescheduled' },
-  ];
-
-  if (loading && entries.length === 0) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-  }
-
-  if (error && entries.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={48} color={RED} />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
+  let body: ReactNode;
+  if (list.loading && list.entries.length === 0) {
+    body = <LoadingView label="Loading schedule…" compact />;
+  } else if (list.error && list.entries.length === 0) {
+    body = list.errorStatus === 403
+      ? <NoAccessView compact />
+      : <ErrorView message={list.error} onRetry={list.refetch} compact />;
+  } else if (groups.length === 0) {
+    body = list.entries.length === 0 ? (
+      <EmptyView
+        icon="calendar-clear-outline"
+        title={view === 'day' ? 'No appointments on this day' : `No appointments in this ${view}`}
+        sub="Choose another date, or check your availability if patients should be able to book you here."
+      />
+    ) : (
+      <EmptyView icon="calendar-outline" title="No appointments found" sub="Try adjusting your date range or status filter" />
+    );
+  } else {
+    body = (
+      <View style={styles.list} aria-busy={list.refreshing || list.loadingMore}>
+        {groups.map(g => (
+          <View key={g.key} style={styles.group}>
+            <Text style={styles.groupLabel} accessibilityRole="header" {...ariaLevel(2)}>{g.label}</Text>
+            <View style={styles.groupItems} role="list" aria-label={`Appointments on ${g.label}`}>
+              {g.items.map(e => (
+                <View key={e.appointment_id} role="listitem" style={styles.listItem}>
+                  {/* Level 3: each card sits under its day's level-2 heading. */}
+                  <AppointmentCard entry={e} controller={controller} headingLevel={3} />
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <Screen
+      title="My Schedule"
+      subtitle="Manage your appointments and consultations"
+      theme={props.theme}
+      role="doctor"
+      actions={(
+        <>
+          {nav.hasSection('availability') && (
+            <Button label="Edit availability" icon="time-outline" variant="secondary" size="sm" onPress={() => navigate('availability')} />
+          )}
+          <Button label="Refresh" icon="refresh-outline" variant="secondary" size="sm" onPress={list.refetch} loading={list.refreshing} />
+        </>
+      )}
+    >
+      <Tabs
+        label="Calendar range"
+        tabs={RANGE_VIEWS.map(key => ({ key, label: RANGE_LABEL[key] }))}
+        active={view}
+        onChange={key => setParams({ tab: key === 'day' ? undefined : key })}
+      />
 
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">My Schedule</Text>
-          <Text style={styles.pageSub}>Manage your appointments and consultations</Text>
+      <Card style={styles.rangeCard}>
+        <View style={styles.rangeRow}>
+          <IconButton label={`Previous ${view}`} icon="chevron-back" variant="secondary" onPress={() => goTo(shiftAnchor(view, anchor, -1))} />
+          <Text style={styles.rangeTitle} role="status" aria-live="polite">{rangeTitle(view, range, today)}</Text>
+          <IconButton label={`Next ${view}`} icon="chevron-forward" variant="secondary" onPress={() => goTo(shiftAnchor(view, anchor, 1))} />
+          {!includesToday && <Button label="Today" variant="ghost" size="sm" accessibilityLabel="Today, go back to today" onPress={() => goTo(today)} />}
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.dateField}>
+          <DateField label="Go to date" value={anchor} onChange={value => { if (isRealDate(value)) goTo(value); }} />
+        </View>
+        <Text style={styles.note}>Times are clinic time (CAT).</Text>
+      </Card>
 
-      {/* Stats Row */}
       <View style={styles.statsRow}>
-        <StatCard icon="calendar-outline"         iconBg="#EEF2FF" iconColor={BLUE}  label="Total"     value={stats.total}     />
-        <StatCard icon="today-outline"            iconBg="#D1FAE5" iconColor={GREEN} label="Today"     value={stats.today}     testID="schedule-stat-today" />
-        <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed" value={stats.completed} />
-        <StatCard icon="time-outline"             iconBg="#EEF2FF" iconColor={BLUE}  label="Upcoming"  value={stats.upcoming}  />
+        <StatTile icon="today-outline" label={firstStat} value={loaded ? stats.active : null} testID="schedule-stat-today" />
+        <StatTile icon="checkmark-circle-outline" label="Completed" value={loaded ? stats.completed : null} />
+        <StatTile icon="time-outline" label="Upcoming" value={loaded ? stats.upcoming : null} />
+        <StatTile
+          icon="hourglass-outline" label="Awaiting outcome" value={loaded ? stats.needsOutcome : null}
+          onPress={() => selectStatus('NEEDS_OUTCOME')} hint="Review"
+        />
       </View>
 
-      {/* Filters */}
-      <View style={styles.filterCard}>
-        <View style={styles.dateTabs}>
-          {dateFilters.map(f => (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.dateTab, dateFilter === f.key && styles.dateTabActive]}
-              onPress={() => setDateFilter(f.key)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityState={{ selected: dateFilter === f.key }}
-            >
-              <Text style={[styles.dateTabText, dateFilter === f.key && styles.dateTabTextActive]}>{f.label}</Text>
-            </TouchableOpacity>
+      <Card>
+        <View style={styles.pillRow} role="group" aria-label="Status">
+          {STATUS_PILLS.map(p => (
+            <FilterPill key={p.key} label={p.label} selected={statusFilter === p.key} onPress={() => selectStatus(p.key)} />
           ))}
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }} contentContainerStyle={{ gap: 8 }}>
-          {statusFilters.map(f => (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.pill, statusFilter === f.key && styles.pillActive]}
-              onPress={() => setStatusFilter(f.key)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityState={{ selected: statusFilter === f.key }}
-            >
-              <Text style={[styles.pillText, statusFilter === f.key && styles.pillTextActive]}>{f.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+      </Card>
 
-      {/* Result count */}
-      <Text style={styles.resultCount}>{filtered.length} appointment{filtered.length !== 1 ? 's' : ''}</Text>
+      {!!controller.feedback && !feedbackOnRow && (
+        <Banner tone={controller.feedback.tone} text={controller.feedback.text} onDismiss={controller.dismissFeedback} />
+      )}
+      {!!list.error && list.entries.length > 0 && (
+        <Banner tone="danger" text={list.error} action={{ label: 'Retry', onPress: list.refetch }} />
+      )}
 
-      {/* Appointment groups */}
-      {groups.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="calendar-outline" size={56} color={BORDER} />
-          <Text style={styles.emptyTitle}>No appointments found</Text>
-          <Text style={styles.emptySub}>Try adjusting your date range or status filter</Text>
-        </View>
-      ) : (
-        <View style={styles.list}>
-          {groups.map(g => (
-            <View key={g.label} style={styles.group}>
-              <Text style={styles.groupLabel}>{g.label}</Text>
-              {g.items.map(e => (
-                <AppCard
-                  key={e.appointment_id}
-                  entry={e}
-                  onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
-                  messaging={pendingPatient === e.patient_system_id}
-                />
-              ))}
-            </View>
-          ))}
+      {loaded && (
+        <View style={styles.countRow}>
+          <Text style={styles.count} role="status" aria-live="polite">
+            {filtered.length} appointment{filtered.length !== 1 ? 's' : ''}
+          </Text>
+          {list.hasMore && (
+            <Text style={styles.note}>The first {list.entries.length} of {list.total} appointments in this range are loaded.</Text>
+          )}
         </View>
       )}
-    </ScrollView>
+
+      {body}
+
+      {list.hasMore && list.entries.length > 0 && (
+        <View style={styles.footer}>
+          <Button label="Load more" icon="chevron-down" variant="secondary" onPress={list.loadMore} loading={list.loadingMore} />
+        </View>
+      )}
+    </Screen>
   );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:     { flex: 1, backgroundColor: BG },
-  container:  { padding: 24, paddingBottom: 48 },
-  center:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  rangeCard:  { gap: space.md },
+  rangeRow:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  rangeTitle: { flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0, fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  dateField:  { maxWidth: 240, width: '100%' },
+  note:       { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
-  },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  pillRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
 
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 110,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 16, gap: 6,
-  },
-  statIconBg: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 28, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 12, color: GRAY },
+  countRow: { gap: 2 },
+  count:    { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '500' },
 
-  filterCard: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 16, marginBottom: 16,
-  },
-  dateTabs:       { flexDirection: 'row', gap: 6 },
-  dateTab:        { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: BORDER },
-  dateTabActive:  { backgroundColor: BLUE, borderColor: BLUE },
-  dateTabText:    { fontSize: 14, fontWeight: '500', color: GRAY },
-  dateTabTextActive: { color: WHITE },
-  pill:           { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillActive:     { backgroundColor: '#EEF2FF', borderColor: BLUE },
-  pillText:       { fontSize: 13, color: GRAY, fontWeight: '500' },
-  pillTextActive: { color: BLUE },
-
-  resultCount: { fontSize: 13, color: GRAY, marginBottom: 12, fontWeight: '500' },
-
-  list:       { gap: 20 },
-  group:      { gap: 10 },
-  groupLabel: { fontSize: 11, fontWeight: '700', color: GRAY, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 },
-
-  apptCard: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, padding: 16, flexDirection: 'row', gap: 14,
-  },
-  apptCardToday: { borderColor: BLUE, borderWidth: 1.5 },
-
-  apptTimeCol: { width: 82, gap: 2 },
-  todayDot:    { width: 8, height: 8, borderRadius: 4, backgroundColor: BLUE, marginBottom: 4 },
-  apptTime:    { fontSize: 14, fontWeight: '700', color: TEXT },
-  apptDate:    { fontSize: 11, color: GRAY },
-  apptDur:     { fontSize: 11, color: GRAY, marginTop: 2 },
-  apptAccent:  { width: 3, borderRadius: 2, alignSelf: 'stretch' },
-
-  apptBody:    { flex: 1, gap: 6 },
-  apptTopRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6 },
-  apptPatient: { fontSize: 16, fontWeight: '700', color: TEXT, flex: 1 },
-  badgeRow:    { flexDirection: 'row', gap: 6, flexShrink: 0 },
-  badge:       { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  badgeText:   { fontSize: 11, fontWeight: '600' },
-  apptReason:  { fontSize: 13, color: GRAY, lineHeight: 18 },
-
-  apptFooter:  { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  metaPill:    { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: BG, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
-  metaText:    { fontSize: 11, color: GRAY, fontWeight: '500' },
-  viewBtn:     { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' as any },
-  viewBtnText: { fontSize: 13, color: BLUE, fontWeight: '500' },
-  detailsPanel: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: BORDER, gap: 4 },
-  detailLine:   { flexDirection: 'row', gap: 12 },
-  detailLabel:  { width: 100, fontSize: 12, color: GRAY, fontWeight: '600' },
-  detailValue:  { flex: 1, fontSize: 12, color: TEXT },
-
-  emptyState:  { alignItems: 'center', gap: 8, paddingVertical: 64 },
-  emptyTitle:  { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:    { fontSize: 14, color: GRAY, textAlign: 'center' },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  list:       { gap: space.xl, minWidth: 0 },
+  group:      { gap: space.sm, minWidth: 0 },
+  groupLabel: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textMuted, letterSpacing: 1, textTransform: 'uppercase' },
+  groupItems: { gap: space.md, minWidth: 0 },
+  listItem:   { minWidth: 0 },
+  footer:     { alignItems: 'center' },
 });

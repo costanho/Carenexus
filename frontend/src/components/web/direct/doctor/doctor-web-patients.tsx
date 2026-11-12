@@ -1,500 +1,405 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View, useWindowDimensions,
-} from 'react-native';
+  ariaLevel, Button, Card, colors, decorative, fontSize, Icon, type IoniconsName, PagedList, PHONE_BREAKPOINT, radius,
+  ROLE_THEME, Screen, SelectField, type SelectOption, space, STATUS_TONES, StatusBadge, statusTone, TextField, webOnly,
+} from '@/components/web/ui';
 import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
-import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
+import type { HealthStatusResult } from '@/hooks/use-doctor-patient-detail';
+import {
+  type DoctorPatientDto, type DoctorPatientSummary, HEALTH_STATUSES, type HealthStatus, PATIENT_GENDERS,
+  PATIENT_QUERY_MAX, PATIENT_SORTS, type PatientGender, type PatientSort, patientFullName, toStringList,
+  useDoctorPatientSearch,
+} from '@/hooks/use-doctor-patients';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import type { SectionProps } from '@/lib/nav/sections';
+import { DoctorPatientPanel, focusSymptomParam, type PatientDetailTab } from './patient-detail';
+import {
+  ageText, GENDER_LABEL, genderLabel, HEALTH_STATUS_LABEL, healthStatusLabel, initialsOf, lastVisitText,
+  nextAppointmentText, PATIENT_SORT_LABEL, plural,
+} from './patient-detail/format';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const ORANGE = '#B45309';
-const RED    = '#B91C1C';
-const TEAL   = '#0F766E';
+// Doctor > Patients. The list is searched, filtered, sorted and paged by the server
+// (GET /api/doctors/patients/search); a card opens the patient detail panel, which is bound to the `patient`
+// URL param so a refresh, the Back button and notification links keep it open.
+//
+// URL params of this section: `patient` (PAT id of the open panel), `tab` (panel tab), `id` (on tab=vitals: the
+// symptom a HEALTH_TRACKING notification points at), `status`, `gender` and `sort` (list filters). The search
+// text stays out of the URL: it is typed patient data.
 
-type IoniconsName    = React.ComponentProps<typeof Ionicons>['name'];
-type HealthFilter    = 'ALL' | 'STABLE' | 'MONITOR' | 'CRITICAL';
-type GenderFilter    = 'ALL' | 'MALE' | 'FEMALE' | 'OTHER';
+type HealthFilter = HealthStatus | 'ALL';
+type GenderFilter = PatientGender | 'ALL';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const HEALTH_OPTIONS: readonly SelectOption<HealthFilter>[] = [
+  { value: 'ALL', label: 'All statuses' },
+  ...HEALTH_STATUSES.map(s => ({ value: s, label: HEALTH_STATUS_LABEL[s] })),
+];
+const GENDER_OPTIONS: readonly SelectOption<GenderFilter>[] = [
+  { value: 'ALL', label: 'All genders' },
+  ...PATIENT_GENDERS.map(g => ({ value: g, label: GENDER_LABEL[g] })),
+];
+const SORT_OPTIONS: readonly SelectOption<PatientSort>[] = PATIENT_SORTS.map(s => ({ value: s, label: PATIENT_SORT_LABEL[s] }));
 
-function healthConfig(h: DoctorPatient['health_status']) {
-  switch (h) {
-    case 'STABLE':   return { bg: '#D1FAE5', color: GREEN,  icon: 'checkmark-circle-outline'  as IoniconsName, label: 'Stable'   };
-    case 'MONITOR':  return { bg: '#FEF3C7', color: ORANGE, icon: 'alert-circle-outline'      as IoniconsName, label: 'Monitor'  };
-    case 'CRITICAL': return { bg: '#FEE2E2', color: RED,    icon: 'close-circle-outline'      as IoniconsName, label: 'Critical' };
-    default:         return { bg: '#F3F4F6', color: LGRAY,  icon: 'help-circle-outline'       as IoniconsName, label: 'Unknown'  };
-  }
+const DEFAULT_SORT: PatientSort = 'name';
+
+function oneOf<T extends string>(value: string | undefined, allowed: readonly T[]): T | null {
+  const wanted = (value ?? '').trim();
+  return allowed.find(a => a === wanted || a.toUpperCase() === wanted.toUpperCase()) ?? null;
 }
 
-function calcAge(dob: string | null): string {
-  if (!dob) return '—';
-  const years = Math.floor((Date.now() - new Date(dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-  return `${years} yrs`;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return 'Never';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function formatMemberSince(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
-}
-
-const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
-function avatarColor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
-
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-// ─── Patient Card ─────────────────────────────────────────────────────────────
-
-function PatientCard({ patient, onMessage, messaging }: {
-  patient:    DoctorPatient;
-  /** Opens the private conversation with this patient; omitted when Messages is not available. */
-  onMessage?: (patient: DoctorPatient) => void;
-  messaging?: boolean;
-}) {
-  const hc = healthConfig(patient.health_status);
-  const ac = avatarColor(patient.full_name);
-  const age = calcAge(patient.date_of_birth);
-
-  return (
-    <View style={styles.patientCard}>
-      {/* Card top — avatar, name, health + blood type */}
-      <View style={styles.cardTop}>
-        <View style={[styles.avatar, { backgroundColor: ac }]}>
-          <Text style={styles.avatarText}>{initials(patient.full_name)}</Text>
-        </View>
-
-        <View style={styles.cardTopInfo}>
-          <Text style={styles.patientName}>{patient.full_name}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaText}>{age}</Text>
-            {!!patient.gender && (
-              <>
-                <View style={styles.dot} />
-                <Text style={styles.metaText}>
-                  {patient.gender.charAt(0) + patient.gender.slice(1).toLowerCase()}
-                </Text>
-              </>
-            )}
-            {!!patient.patient_created_at && (
-              <>
-                <View style={styles.dot} />
-                <Text style={styles.metaText}>Since {formatMemberSince(patient.patient_created_at)}</Text>
-              </>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.cardBadgeCol}>
-          <View style={[styles.badge, { backgroundColor: hc.bg }]}>
-            <Ionicons name={hc.icon} size={11} color={hc.color} />
-            <Text style={[styles.badgeText, { color: hc.color }]}>{hc.label}</Text>
-          </View>
-          {!!patient.blood_type && (
-            <View style={[styles.badge, { backgroundColor: '#EEF2FF' }]}>
-              <Ionicons name="water-outline" size={11} color={BLUE} />
-              <Text style={[styles.badgeText, { color: BLUE }]}>{patient.blood_type}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Divider */}
-      <View style={styles.sep} />
-
-      {/* Contact row */}
-      <View style={styles.contactRow}>
-        {!!patient.email && (
-          <View style={styles.contactItem}>
-            <Ionicons name="mail-outline" size={13} color={LGRAY} />
-            <Text style={styles.contactText} numberOfLines={1}>{patient.email}</Text>
-          </View>
-        )}
-        {!!patient.phone && (
-          <View style={styles.contactItem}>
-            <Ionicons name="call-outline" size={13} color={LGRAY} />
-            <Text style={styles.contactText}>{patient.phone}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Allergies */}
-      {patient.allergies.length > 0 && (
-        <View style={styles.chipSection}>
-          <View style={styles.chipLabelRow}>
-            <Ionicons name="warning-outline" size={12} color={RED} />
-            <Text style={[styles.chipLabel, { color: RED }]}>Allergies</Text>
-          </View>
-          <View style={styles.chipRow}>
-            {patient.allergies.map(a => (
-              <View key={a} style={[styles.chip, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
-                <Text style={[styles.chipText, { color: RED }]}>{a}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Chronic conditions */}
-      {patient.chronic_conditions.length > 0 && (
-        <View style={styles.chipSection}>
-          <View style={styles.chipLabelRow}>
-            <Ionicons name="heart-outline" size={12} color={ORANGE} />
-            <Text style={[styles.chipLabel, { color: ORANGE }]}>Chronic Conditions</Text>
-          </View>
-          <View style={styles.chipRow}>
-            {patient.chronic_conditions.map(c => (
-              <View key={c} style={[styles.chip, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
-                <Text style={[styles.chipText, { color: ORANGE }]}>{c}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Footer — visit stats */}
-      <View style={styles.cardFooter}>
-        <View style={styles.footerStat}>
-          <Ionicons name="calendar-number-outline" size={14} color={BLUE} />
-          <Text style={styles.footerStatNum}>{patient.appointment_count}</Text>
-          <Text style={styles.footerStatLabel}>visit{patient.appointment_count !== 1 ? 's' : ''}</Text>
-        </View>
-        <View style={styles.footerDivider} />
-        <View style={styles.footerStat}>
-          <Ionicons name="time-outline" size={14} color={GRAY} />
-          <Text style={styles.footerStatLabel}>
-            Last seen: <Text style={styles.footerStatNum}>{formatDate(patient.last_appointment_at)}</Text>
-          </Text>
-        </View>
-
-        {!!patient.patient_system_id && (
-          <Text style={styles.viewBtnText} selectable accessibilityLabel={`Patient ID ${patient.patient_system_id}`}>
-            {patient.patient_system_id}
-          </Text>
-        )}
-      </View>
-
-      {!!onMessage && !!patient.patient_system_id && (
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={[styles.messageBtn, messaging && { opacity: 0.5 }]}
-            activeOpacity={0.8}
-            disabled={messaging}
-            onPress={() => onMessage(patient)}
-            accessibilityRole="button"
-            accessibilityLabel={`Message ${patient.full_name}`}
-            accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
-          >
-            <Ionicons name="chatbubble-ellipses-outline" size={14} color={BLUE} />
-            <Text style={styles.messageBtnText}>{messaging ? 'Opening…' : 'Message patient'}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function DoctorWebPatients({ onOpenThread }: {
-  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+export type DoctorWebPatientsProps = Partial<SectionProps> & {
+  /** Switch to Messages with this thread open. Default: the dashboard's own `openThread`. */
   onOpenThread?: (threadId: number) => void;
-} = {}) {
-  const { patients, loading, error, refetch } = useDoctorPatients();
-  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
-  const { width } = useWindowDimensions();
-  const twoCol = width >= 1100;
+  /**
+   * Tabs added to the patient detail panel after the dashboard's own ones (History, Care team, Vitals, Alerts,
+   * Care plans, Documents, Referrals, Reminders).
+   */
+  extraTabs?: readonly PatientDetailTab[];
+};
 
-  const [healthFilter, setHealthFilter] = useState<HealthFilter>('ALL');
-  const [genderFilter, setGenderFilter] = useState<GenderFilter>('ALL');
+export default function DoctorWebPatients(props: DoctorWebPatientsProps = {}) {
+  const nav = useSectionNav();
+  const params     = props.params ?? nav.params;
+  const openThread = props.onOpenThread ?? props.openThread ?? nav.openThread;
+  const { setParams } = nav;
+  const { width } = useWindowDimensions();
+  const phone = width < PHONE_BREAKPOINT;
+
+  const health: HealthFilter = oneOf(params.status, HEALTH_STATUSES) ?? 'ALL';
+  const gender: GenderFilter = oneOf(params.gender, PATIENT_GENDERS) ?? 'ALL';
+  const sort:   PatientSort  = oneOf(params.sort, PATIENT_SORTS) ?? DEFAULT_SORT;
   const [search, setSearch] = useState('');
 
-  const stats = useMemo(() => ({
-    total:    patients.length,
-    stable:   patients.filter(p => p.health_status === 'STABLE').length,
-    monitor:  patients.filter(p => p.health_status === 'MONITOR').length,
-    critical: patients.filter(p => p.health_status === 'CRITICAL').length,
-  }), [patients]);
+  const list = useDoctorPatientSearch({ query: search, healthStatus: health, gender, sort });
+  const { refetch, setItems } = list;
+  const { messagePatient, pendingPatient } = useDoctorMessagePatient(openThread);
 
-  const filtered = useMemo(() => (
-    patients
-      .filter(p => healthFilter === 'ALL' || p.health_status === healthFilter)
-      .filter(p => genderFilter === 'ALL' || p.gender === genderFilter)
-      .filter(p => !search || p.full_name.toLowerCase().includes(search.toLowerCase())
-        || p.email?.toLowerCase().includes(search.toLowerCase()))
-  ), [patients, healthFilter, genderFilter, search]);
+  const filtered = search.trim() !== '' || health !== 'ALL' || gender !== 'ALL';
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setParams({ status: undefined, gender: undefined });
+  }, [setParams]);
 
-  const healthFilters: { key: HealthFilter; label: string; color: string }[] = [
-    { key: 'ALL',      label: 'All',      color: BLUE   },
-    { key: 'STABLE',   label: 'Stable',   color: GREEN  },
-    { key: 'MONITOR',  label: 'Monitor',  color: ORANGE },
-    { key: 'CRITICAL', label: 'Critical', color: RED    },
-  ];
+  const selectedPatient = (params.patient ?? '').trim() || null;
+  const openPatient = useCallback(
+    (patientSystemId: string) => setParams({ patient: patientSystemId, tab: undefined, id: undefined }),
+    [setParams],
+  );
+  const closePatient = useCallback(
+    () => setParams({ patient: undefined, tab: undefined, id: undefined }),
+    [setParams],
+  );
 
-  const genderFilters: { key: GenderFilter; label: string }[] = [
-    { key: 'ALL',    label: 'All Genders' },
-    { key: 'FEMALE', label: 'Female'      },
-    { key: 'MALE',   label: 'Male'        },
-    { key: 'OTHER',  label: 'Other'       },
-  ];
+  const onHealthStatusChanged = useCallback((result: HealthStatusResult) => {
+    if (!result.changed) return;
+    // Show the new status on the card at once, then reload: the summary counts changed, and with a status
+    // filter or the status sort the row may no longer belong where it is.
+    setItems(rows => rows.map(r => (
+      r.patientSystemId === result.patientSystemId ? { ...r, healthStatus: result.healthStatus } : r
+    )));
+    refetch();
+  }, [refetch, setItems]);
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-  }
+  // The doctor removed themselves from the patient's care team and can no longer see them.
+  const onAccessLost = useCallback(() => {
+    closePatient();
+    refetch();
+  }, [closePatient, refetch]);
 
-  if (error) {
-    return (
-      <View style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={52} color={RED} />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
+  const filters = (
+    <View style={styles.filters}>
+      <View style={styles.searchField}>
+        <TextField
+          label="Search patients"
+          value={search}
+          onChange={setSearch}
+          placeholder="Name, email, phone or patient ID"
+          maxLength={PATIENT_QUERY_MAX}
+          autoCapitalize="none"
+          autoComplete="off"
+          inputMode="search"
+        />
       </View>
-    );
-  }
+      <View style={styles.selectField}>
+        <SelectField<HealthFilter>
+          label="Health status"
+          value={health}
+          onChange={value => setParams({ status: value === 'ALL' ? undefined : value })}
+          options={HEALTH_OPTIONS}
+        />
+      </View>
+      <View style={styles.selectField}>
+        <SelectField<GenderFilter>
+          label="Gender"
+          value={gender}
+          onChange={value => setParams({ gender: value === 'ALL' ? undefined : value })}
+          options={GENDER_OPTIONS}
+        />
+      </View>
+      <View style={styles.selectField}>
+        <SelectField<PatientSort>
+          label="Sort by"
+          value={sort}
+          onChange={value => setParams({ sort: value === DEFAULT_SORT ? undefined : value })}
+          options={SORT_OPTIONS}
+        />
+      </View>
+      {filtered ? (
+        <Button label="Clear filters" variant="ghost" icon="close-circle-outline" onPress={clearFilters} style={styles.clear} />
+      ) : null}
+    </View>
+  );
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">My Patients</Text>
-          <Text style={styles.pageSub}>Patients who have had appointments with you</Text>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats Row */}
-      <View style={styles.statsRow}>
-        <StatCard icon="people-outline"           iconBg="#EEF2FF" iconColor={BLUE}   label="Total"    value={stats.total}    />
-        <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN}  label="Stable"   value={stats.stable}   />
-        <StatCard icon="alert-circle-outline"     iconBg="#FEF3C7" iconColor={ORANGE} label="Monitor"  value={stats.monitor}  />
-        <StatCard icon="close-circle-outline"     iconBg="#FEE2E2" iconColor={RED}    label="Critical" value={stats.critical} />
-      </View>
-
-      {/* Filter Card */}
-      <View style={styles.filterCard}>
-        <View style={styles.filterRow}>
-          {/* Health status pills */}
-          <View style={styles.filterGroup}>
-            {healthFilters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[
-                  styles.pill,
-                  healthFilter === f.key && { backgroundColor: f.color + '18', borderColor: f.color },
-                ]}
-                onPress={() => setHealthFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, healthFilter === f.key && { color: f.color, fontWeight: '600' }]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Gender pills */}
-          <View style={[styles.filterGroup, { marginLeft: 8 }]}>
-            {genderFilters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, genderFilter === f.key && styles.pillActive]}
-                onPress={() => setGenderFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, genderFilter === f.key && styles.pillActiveText]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Search */}
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={15} color={LGRAY} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by name or email…"
-              accessibilityLabel="Search patients by name or email"
-              placeholderTextColor={LGRAY}
-              value={search}
-              onChangeText={setSearch}
-            />
-            {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
-                <Ionicons name="close-circle" size={15} color={LGRAY} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </View>
-
-      {/* Result count */}
-      <Text style={styles.resultCount}>{filtered.length} patient{filtered.length !== 1 ? 's' : ''}</Text>
-
-      {/* Patient grid */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="people-outline" size={60} color={BORDER} />
-          <Text style={styles.emptyTitle}>No patients found</Text>
-          <Text style={styles.emptySub}>Try adjusting your filters or search</Text>
-        </View>
-      ) : (
-        <View style={[styles.grid, twoCol && styles.gridTwo]}>
-          {filtered.map(p => (
-            <View key={p.patient_system_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
-              <PatientCard
-                patient={p}
-                onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
-                messaging={pendingPatient === p.patient_system_id}
-              />
-            </View>
-          ))}
-        </View>
+    <Screen
+      title="My Patients"
+      subtitle="Patients on your care team, or with an appointment or consultation with you"
+      theme={props.theme ?? ROLE_THEME.doctor}
+      actions={(
+        <Button
+          label="Refresh"
+          variant="secondary"
+          icon="refresh-outline"
+          onPress={refetch}
+          loading={list.refreshing}
+          accessibilityLabel="Refresh the patient list"
+        />
       )}
-    </ScrollView>
+    >
+      <SummaryRow summary={list.summary} />
+
+      <PagedList
+        state={list}
+        label="Patients"
+        header={filters}
+        keyOf={p => p.patientSystemId}
+        noAccessMessage="Your account cannot view a patient list."
+        empty={filtered
+          ? {
+              icon: 'search-outline',
+              title: 'No patients match',
+              sub: 'Try a different search, or clear the filters to see all your patients.',
+              action: { label: 'Clear filters', onPress: clearFilters },
+            }
+          : {
+              icon: 'people-outline',
+              title: 'No patients yet',
+              sub: 'Patients appear here once they are on your care team or have an appointment or consultation with you.',
+            }}
+        renderItem={patient => (
+          <PatientCard
+            patient={patient}
+            stacked={phone}
+            onOpen={() => openPatient(patient.patientSystemId)}
+            onMessage={() => { void messagePatient(patient.patientSystemId); }}
+            messaging={pendingPatient === patient.patientSystemId}
+          />
+        )}
+      />
+
+      <DoctorPatientPanel
+        patientSystemId={selectedPatient}
+        onClose={closePatient}
+        extraTabs={props.extraTabs}
+        onOpenThread={openThread}
+        onHealthStatusChanged={onHealthStatusChanged}
+        focusSymptomId={focusSymptomParam(params.tab, params.id)}
+        onAccessLost={onAccessLost}
+        // A new appointment changes the card's next appointment.
+        onBooked={refetch}
+      />
+    </Screen>
+  );
+}
+
+// ─── Summary counts ───────────────────────────────────────────────────────────
+
+function SummaryRow({ summary }: { summary: DoctorPatientSummary | null }) {
+  const cards: { label: string; value: number | null; icon: IoniconsName; fg: string; bg: string }[] = [
+    { label: 'Total',    value: summary?.total ?? null,    icon: 'people-outline',           fg: ROLE_THEME.doctor.accent,   bg: ROLE_THEME.doctor.accentBg },
+    { label: 'Stable',   value: summary?.stable ?? null,   icon: 'checkmark-circle-outline', fg: STATUS_TONES.success.fg,    bg: STATUS_TONES.success.bg },
+    { label: 'Monitor',  value: summary?.monitor ?? null,  icon: 'alert-circle-outline',     fg: STATUS_TONES.warning.fg,    bg: STATUS_TONES.warning.bg },
+    { label: 'Critical', value: summary?.critical ?? null, icon: 'warning',                  fg: STATUS_TONES.danger.fg,     bg: STATUS_TONES.danger.bg },
+  ];
+  return (
+    <View style={styles.stats} role="group" aria-label="Patients by health status">
+      {cards.map(card => (
+        <View key={card.label} style={styles.stat}>
+          <View style={[styles.statIcon, { backgroundColor: card.bg }]}>
+            <Icon name={card.icon} size={20} color={card.fg} />
+          </View>
+          <Text style={styles.statValue}>{card.value === null ? '—' : card.value}</Text>
+          <Text style={styles.statLabel}>{card.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Patient card ─────────────────────────────────────────────────────────────
+
+/** Elements inside a card that handle their own clicks; a click on them does not also open the detail panel. */
+const INTERACTIVE = 'button, a, input, select, textarea, [role="button"], [role="link"]';
+
+function PatientCard({ patient, stacked, onOpen, onMessage, messaging }: {
+  patient:   DoctorPatientDto;
+  /** Phone layout: the appointment facts go under the identity instead of beside it. */
+  stacked:   boolean;
+  onOpen:    () => void;
+  onMessage: () => void;
+  messaging: boolean;
+}) {
+  const name       = patientFullName(patient);
+  const facts      = [ageText(patient.dateOfBirth), genderLabel(patient.gender), patient.bloodType ? `Blood type ${patient.bloodType}` : null].filter(Boolean);
+  const allergies  = toStringList(patient.allergies);
+  const conditions = toStringList(patient.chronicConditions);
+  const next       = nextAppointmentText(patient.nextAppointmentAt, patient.nextAppointmentType);
+  const lastVisit  = lastVisitText(patient.lastVisitAt);
+  const visits     = patient.completedVisits ?? 0;
+
+  // Pointer convenience only: anywhere on the card opens the panel. Keyboard and screen-reader users use the
+  // "View details" button, so the card itself is not a control and holds no nested buttons.
+  const onCardClick = (event: { target?: unknown }) => {
+    const target = event.target as { closest?: (selector: string) => unknown } | null | undefined;
+    if (target?.closest?.(INTERACTIVE)) return;
+    if (typeof window !== 'undefined' && window.getSelection?.()?.toString()) return; // selecting the id or email
+    onOpen();
+  };
+
+  return (
+    <View style={styles.cardHit} {...webOnly({ onClick: onCardClick })}>
+      <Card style={[styles.card, stacked && styles.cardStacked]}>
+        <View style={styles.cardMain}>
+          <View style={styles.identity}>
+            <View style={styles.avatar} {...decorative}>
+              <Text style={styles.avatarText}>{initialsOf(name)}</Text>
+            </View>
+            <View style={styles.identityText}>
+              <Text style={styles.name} accessibilityRole="header" {...ariaLevel(2)}>{name}</Text>
+              {facts.length > 0 ? <Text style={styles.meta}>{facts.join(' · ')}</Text> : null}
+              <Text style={styles.patientId} selectable accessibilityLabel={`Patient ID ${patient.patientSystemId}`}>
+                {patient.patientSystemId}
+              </Text>
+            </View>
+            <StatusBadge label={healthStatusLabel(patient.healthStatus)} tone={statusTone('health', patient.healthStatus)} />
+          </View>
+
+          {patient.email || patient.phone ? (
+            <View style={styles.contactRow}>
+              {patient.email ? <IconLine icon="mail-outline" text={patient.email} selectable /> : null}
+              {patient.phone ? <IconLine icon="call-outline" text={patient.phone} selectable /> : null}
+            </View>
+          ) : null}
+
+          {allergies.length > 0 ? (
+            <IconLine icon="warning-outline" tone="danger" text={`Allergies: ${allergies.join(', ')}`} />
+          ) : null}
+          {conditions.length > 0 ? (
+            <IconLine icon="heart-outline" tone="warning" text={`Chronic conditions: ${conditions.join(', ')}`} />
+          ) : null}
+        </View>
+
+        <View style={[styles.cardSide, stacked && styles.cardSideStacked]}>
+          <Fact label="Next appointment" value={next} emptyText="No upcoming appointment" />
+          <Fact label="Last visit" value={lastVisit} emptyText="No completed visits yet" />
+          <Fact label="Completed visits" value={plural(visits, 'visit')} />
+          <View style={styles.cardActions}>
+            <Button
+              label="View details"
+              variant="secondary"
+              size="sm"
+              icon="person-circle-outline"
+              onPress={onOpen}
+              accessibilityLabel={`View details for ${name}`}
+            />
+            <Button
+              label="Message"
+              variant="ghost"
+              size="sm"
+              icon="chatbubble-ellipses-outline"
+              onPress={onMessage}
+              loading={messaging}
+              accessibilityLabel={`Message ${name}`}
+            />
+          </View>
+        </View>
+      </Card>
+    </View>
+  );
+}
+
+function IconLine({ icon, text, tone, selectable = false }: {
+  icon: IoniconsName;
+  text: string;
+  /** Colours the icon and the text; the words themselves say what the line is about. */
+  tone?: 'danger' | 'warning';
+  selectable?: boolean;
+}) {
+  const fg = tone ? STATUS_TONES[tone].fg : null;
+  return (
+    <View style={styles.iconLine}>
+      <Icon name={icon} size={14} color={fg ?? colors.textMuted} style={styles.iconLineIcon} />
+      <Text style={[styles.iconLineText, fg ? { color: fg, fontWeight: '600' } : null]} selectable={selectable}>{text}</Text>
+    </View>
+  );
+}
+
+function Fact({ label, value, emptyText }: { label: string; value: string | null; emptyText?: string }) {
+  return (
+    <View style={styles.fact}>
+      <Text style={styles.factLabel}>{label}</Text>
+      <Text style={[styles.factValue, !value && styles.factEmpty]}>{value ?? emptyText ?? 'Not provided'}</Text>
+    </View>
   );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  stat: {
+    flexGrow: 1, flexShrink: 1, flexBasis: 130, minWidth: 0, gap: space.xs, padding: space.md,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg,
   },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  statIcon:  { width: 38, height: 38, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  statValue: { fontSize: 26, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.xs, color: colors.textMuted },
 
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 20, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 110,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 14, gap: 5,
+  filters: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: space.md, padding: space.lg,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg,
   },
-  statIconBg: { width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 26, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 12, color: GRAY },
+  searchField: { flexGrow: 2, flexShrink: 1, flexBasis: 240, minWidth: 0 },
+  // Two selects share a row at 375 px (311 px inside the card): 2 x 140 + the gap.
+  selectField: { flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 },
+  clear:       { alignSelf: 'flex-end' },
 
-  filterCard:  { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16, marginBottom: 16 },
-  filterRow:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  filterGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  pill:        { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillActive:  { backgroundColor: '#EEF2FF', borderColor: BLUE },
-  pillText:    { fontSize: 13, color: GRAY, fontWeight: '500' },
-  pillActiveText: { color: BLUE },
-  searchBox:  {
-    flex: 1, minWidth: 220,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: BG,
+  cardHit:     { minWidth: 0, cursor: 'pointer' } as never,
+  card:        { flexDirection: 'row', flexWrap: 'wrap', gap: space.lg },
+  cardStacked: { flexDirection: 'column', flexWrap: 'nowrap', gap: space.md },
+  cardMain:    { flexGrow: 3, flexShrink: 1, flexBasis: 320, minWidth: 0, gap: space.sm },
+  cardSide:    { flexGrow: 2, flexShrink: 1, flexBasis: 260, minWidth: 0, gap: space.sm },
+  cardSideStacked: { flexGrow: 0, flexBasis: 'auto', paddingTop: space.md, borderTopWidth: 1, borderTopColor: colors.border },
+
+  identity:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.md },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    backgroundColor: ROLE_THEME.doctor.accentBg,
   },
-  searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
+  avatarText:   { color: ROLE_THEME.doctor.accent, fontSize: fontSize.lg, fontWeight: '700' },
+  identityText: { flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0, gap: 2 },
+  name:         { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  meta:         { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19 },
+  patientId:    { fontSize: fontSize.xs, fontWeight: '600', color: colors.textMuted, alignSelf: 'flex-start' },
 
-  resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 16 },
+  contactRow:   { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.lg, rowGap: space.xs },
+  iconLine:     { flexDirection: 'row', alignItems: 'flex-start', gap: space.xs, minWidth: 0, maxWidth: '100%' },
+  iconLineIcon: { marginTop: 2, flexShrink: 0 },
+  iconLineText: { flexShrink: 1, minWidth: 0, fontSize: fontSize.sm, lineHeight: 19, color: colors.text },
 
-  grid:        { gap: 14 },
-  gridTwo:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
-  gridItemOne: { width: '100%' },
-  gridItemTwo: { width: '49%', marginBottom: 14, flexShrink: 0 },
-
-  // Patient Card
-  patientCard: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, overflow: 'hidden',
-  },
-  cardTop:     { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 18 },
-  avatar:      { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarText:  { color: WHITE, fontSize: 18, fontWeight: '700' },
-  cardTopInfo: { flex: 1 },
-  patientName: { fontSize: 17, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  metaRow:     { flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
-  metaText:    { fontSize: 12, color: GRAY },
-  dot:         { width: 3, height: 3, borderRadius: 2, backgroundColor: LGRAY },
-  cardBadgeCol:{ gap: 5, alignItems: 'flex-end' },
-  badge:       { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  badgeText:   { fontSize: 11, fontWeight: '600' },
-
-  sep: { height: 1, backgroundColor: BORDER, marginHorizontal: 18 },
-
-  contactRow:  { flexDirection: 'row', gap: 16, paddingHorizontal: 18, paddingVertical: 12, flexWrap: 'wrap' },
-  contactItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  contactText: { fontSize: 12, color: GRAY },
-
-  chipSection:   { paddingHorizontal: 18, paddingBottom: 10 },
-  chipLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
-  chipLabel:     { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  chipRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip:          { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
-  chipText:      { fontSize: 11, fontWeight: '600' },
-
-  cardFooter:    {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 18, paddingVertical: 14,
-    borderTopWidth: 1, borderTopColor: BORDER,
-    backgroundColor: BG,
-  },
-  footerStat:    { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  footerStatNum: { fontSize: 13, fontWeight: '700', color: TEXT },
-  footerStatLabel: { fontSize: 12, color: GRAY },
-  footerDivider: { width: 1, height: 16, backgroundColor: BORDER },
-  viewBtnText:   { fontSize: 12, color: GRAY, fontWeight: '500', marginLeft: 'auto' as any },
-  cardActions:   { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
-  messageBtn:    {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BLUE, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: WHITE,
-  },
-  messageBtnText: { fontSize: 13, color: BLUE, fontWeight: '600' },
-
-  emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:   { fontSize: 14, color: GRAY },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  fact:        { flexDirection: 'row', flexWrap: 'wrap', columnGap: space.sm, rowGap: 2 },
+  factLabel:   { width: 130, maxWidth: '100%', fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19 },
+  factValue:   { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0, fontSize: fontSize.sm, fontWeight: '600', color: colors.text, lineHeight: 19 },
+  factEmpty:   { fontWeight: '400', color: colors.textSubtle },
+  cardActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: space.xs },
 });

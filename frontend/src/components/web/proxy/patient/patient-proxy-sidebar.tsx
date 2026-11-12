@@ -1,10 +1,15 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
-import { useUnreadCounts } from '@/hooks/use-notifications';
-import { SoonPill } from './proxy-states';
-
+import { decorative } from '@/components/web/ui/a11y';
+import { Icon } from '@/components/web/ui/icon';
+import type { CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { onSignedOut } from '@/lib/auth/auth.events';
+import { navGroups, navItemLabel, type IoniconsName, type SectionDef } from '@/lib/nav/sections';
+import {
+  rememberNavFocus, useNavBadges, useNavFocusRestore, useSidebarScrollMemory,
+} from '../../layout/shell-support';
+import { useDependents } from '../../sections/proxy-dependents';
+import { registry } from '../../sections/proxy.sections';
 
 const PURPLE      = '#7C3AED';
 const PURPLE_BG   = '#F5F3FF';
@@ -13,24 +18,14 @@ const GRAY        = '#5B6472';
 const GRAY_LABEL  = '#636A75';
 const WHITE       = '#FFFFFF';
 const BORDER      = '#E5E7EB';
+const RED         = '#B91C1C';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type NavItem      = { key: string; label: string; icon: IoniconsName; comingSoon?: boolean };
-
-const careItems: NavItem[] = [
-  { key: 'appointments',       label: 'Appointments',        icon: 'calendar-outline' },
-  { key: 'medications',        label: 'Medications',         icon: 'medkit-outline' },
-  { key: 'messages',           label: 'Messages',            icon: 'chatbox-outline' },
-  { key: 'notifications',      label: 'Notifications',       icon: 'notifications-outline' },
-  { key: 'care-plans',         label: 'Care Plans',          icon: 'document-text-outline', comingSoon: true },
-  { key: 'documents-results',  label: 'Documents & Results', icon: 'document-outline' },
-  { key: 'health-summary',     label: 'Health Summary',      icon: 'download-outline' },
-];
-
-const accountItems: NavItem[] = [
-  { key: 'profile-settings',      label: 'Profile & Settings',    icon: 'settings-outline' },
-  { key: 'notification-settings', label: 'Notification Settings', icon: 'options-outline' },
-];
+// react-native-web ignores accessibilityState, so the active item is announced through aria-current and the
+// "+N more" toggle through aria-expanded. Decorative parts (icons, initials, status dots) use `decorative`,
+// which hides them on web (aria-hidden) and on native alike.
+const CURRENT_PAGE = { 'aria-current': 'page' } as object;
+// The whole sidebar is the caregiver's navigation landmark (on phones it sits inside the menu drawer).
+const NAV_LANDMARK = { role: 'navigation', 'aria-label': 'Caregiver navigation' } as object;
 
 // White initials need 4.5:1 against every avatar colour.
 const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
@@ -42,14 +37,29 @@ function avatarColor(name: string) {
 function initials(name: string) {
   return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
-function healthDotColor(status: string | null) {
-  switch (status) {
-    case 'STABLE':   return '#22C55E';
-    case 'MONITOR':  return '#B45309';
-    case 'CRITICAL': return '#B91C1C';
-    default:         return '#6B7280';
-  }
+
+/**
+ * Health status indicator. The decorative dot on the avatar uses a status palette of its own (bright, well
+ * separated in lightness; the darker text shades made MONITOR and CRITICAL look alike), and colour is never
+ * the only cue: the full sidebar shows the status word, the icon rail a different icon shape per level, and
+ * both are in the accessible name.
+ *
+ * `text` is the shade for anything that has to be read on a light surface: the status word, and the rail
+ * icon on its white disc (7:1 or better; the bright amber dot colour is only 2.15:1 on white, below the 3:1
+ * a graphic needs).
+ */
+interface HealthLook { label: string; dot: string; text: string; icon: IoniconsName }
+const HEALTH: Record<string, HealthLook> = {
+  STABLE:   { label: 'Stable',   dot: '#16A34A', text: '#166534', icon: 'checkmark-circle' },
+  MONITOR:  { label: 'Monitor',  dot: '#F59E0B', text: '#92400E', icon: 'alert-circle' },
+  CRITICAL: { label: 'Critical', dot: '#DC2626', text: '#991B1B', icon: 'warning' },
+};
+// 4.4:1 on the sidebar background, above the 3:1 a graphic needs (the lighter gray was 2.3:1).
+const HEALTH_UNKNOWN_DOT = '#6B7280';
+function healthLook(status: string | null): HealthLook | null {
+  return status ? HEALTH[status] ?? null : null;
 }
+
 function accessLabel(level: string) {
   switch (level) {
     case 'FULL_ACCESS': return 'Full Access';
@@ -60,26 +70,30 @@ function accessLabel(level: string) {
   }
 }
 
-function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: { item: NavItem; active?: boolean; collapsed?: boolean; onPress?: () => void; badge?: number }) {
-  const disabled = !!item.comingSoon;
+// A navigation mounts a fresh sidebar; whether "+N more" was opened carries over. Cleared on sign-out.
+let lovedOnesExpanded = false;
+onSignedOut(() => { lovedOnesExpanded = false; });
+
+function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: { item: SectionDef; active?: boolean; collapsed?: boolean; onPress?: () => void; badge?: number }) {
+  const ref = useNavFocusRestore(item.key);
   return (
     <TouchableOpacity
-      style={[styles.navItem, active && styles.navItemActive, disabled && styles.navItemDisabled]}
+      ref={ref as never}
+      style={[styles.navItem, active && styles.navItemActive]}
       activeOpacity={0.7}
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
+      onPress={() => { rememberNavFocus(item.key); onPress?.(); }}
       accessibilityRole="button"
-      accessibilityLabel={disabled ? `${item.label}, coming soon` : badge > 0 ? `${item.label}, ${badge} unread` : item.label}
-      accessibilityState={{ selected: !!active, disabled }}
+      accessibilityLabel={navItemLabel(item, badge)}
+      accessibilityState={{ selected: !!active }}
+      {...(active ? CURRENT_PAGE : null)}
     >
-      <View>
-        <Ionicons name={item.icon} size={18} color={active ? WHITE : GRAY} importantForAccessibility="no" />
+      <View {...decorative}>
+        <Icon name={item.icon} size={18} color={active ? WHITE : GRAY} />
         {collapsed && badge > 0 && <View style={styles.badgeDot} />}
       </View>
       {/* The collapsed rail shows icons only; the label stays the accessible name. */}
       {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}{' '}</Text>}
-      {!collapsed && disabled && <SoonPill />}
-      {!collapsed && !disabled && badge > 0 && (
+      {!collapsed && badge > 0 && (
         <View style={[styles.badge, active && styles.badgeActive]}>
           <Text style={[styles.badgeText, active && styles.badgeTextActive]}>{badge > 99 ? '99+' : badge}</Text>
         </View>
@@ -90,6 +104,7 @@ function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: { item:
 
 export interface PatientProxySidebarProps {
   collapsed?:        boolean;
+  /** Key of the section being shown. */
   activeKey?:        string;
   onNavigate?:       (key: string) => void;
   onSelectPatient?:  (dep: CaregiverDependent) => void;
@@ -97,18 +112,25 @@ export interface PatientProxySidebarProps {
 
 const SHOW_LIMIT = 3;
 
-export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard', onNavigate, onSelectPatient }: PatientProxySidebarProps) {
-  const { dependents, loading, error } = useCaregiverDependents();
-  const [expanded, setExpanded] = useState(false);
-  // The top navbar bell polls the counts; the sidebar only reads them.
-  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
+/**
+ * Caregiver navigation. Every item comes from the section registry (components/web/sections/proxy.sections.tsx);
+ * the loved-ones list above them opens a linked patient's profile. The list is the shared one loaded by the
+ * caregiver shell (components/web/sections/proxy-dependents.tsx), so a navigation does not request it again.
+ */
+export function PatientProxySidebar({ collapsed = false, activeKey = registry.homeKey, onNavigate, onSelectPatient }: PatientProxySidebarProps) {
+  const { dependents, loading, error, refetch } = useDependents();
+  const [expanded, setExpandedState] = useState(lovedOnesExpanded);
+  const setExpanded = (next: boolean) => { lovedOnesExpanded = next; setExpandedState(next); };
+  const badges = useNavBadges();
+  const scroll = useSidebarScrollMemory('proxy');
+  const { home, groups } = useMemo(() => navGroups(registry), []);
 
   return (
-    <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
+    <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]} {...NAV_LANDMARK}>
       {/* Logo */}
       <View style={styles.logoSection}>
-        <View style={styles.logoIconWrapper}>
-          <Ionicons name="heart-outline" size={20} color={PURPLE} />
+        <View style={styles.logoIconWrapper} {...decorative}>
+          <Icon name="heart-outline" size={20} color={PURPLE} />
         </View>
         {!collapsed && (
           <View>
@@ -121,13 +143,13 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
         )}
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Dashboard */}
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} {...scroll}>
+        {/* Home */}
         <SidebarNavItem
-          item={{ key: 'dashboard', label: 'Dashboard', icon: 'home-outline' }}
-          active={activeKey === 'dashboard'}
+          item={home}
+          active={activeKey === home.key}
           collapsed={collapsed}
-          onPress={() => onNavigate?.('dashboard')}
+          onPress={() => onNavigate?.(home.key)}
         />
 
         {/* My Loved Ones */}
@@ -136,53 +158,75 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
             <Text style={styles.sectionLabel}>MY LOVED ONES</Text>
 
             {loading ? (
-              <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 12 }} />
+              <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 12 }} accessibilityLabel="Loading loved ones" />
             ) : error ? (
-              <Text style={[styles.emptyText, { color: '#B91C1C' }]}>{error}</Text>
+              <View style={styles.errorRow} accessibilityRole="alert">
+                <Text style={[styles.emptyText, styles.errorText]}>{error}</Text>
+                <TouchableOpacity
+                  onPress={refetch}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  // Starts with the visible word; says what is retried.
+                  accessibilityLabel="Retry loading loved ones"
+                  style={styles.retryBtn}
+                >
+                  <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
             ) : dependents.length === 0 ? (
               <Text style={styles.emptyText}>No linked patients yet.</Text>
             ) : (
               <>
-                {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep) => {
-                  const name     = dep.patientName ?? 'Unknown';
-                  const dotColor = healthDotColor(dep.patientHealthStatus);
-                  const label    = accessLabel(dep.accessLevel);
-                  const rel      = dep.relationship
-                    ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
-                    : '';
-                  return (
-                    <TouchableOpacity
-                      key={dep.accessId}
-                      style={styles.lovedOneRow}
-                      activeOpacity={0.7}
-                      onPress={() => onSelectPatient?.(dep)}
-                      accessibilityRole="button"
-                      // Named by its visible text (name, relationship, access); the initials are decorative.
-                    >
-                      <View style={styles.avatarWrapper} importantForAccessibility="no-hide-descendants">
-                        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
-                          <Text style={styles.avatarInitials}>{initials(name)}</Text>
-                        </View>
-                        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                <View role="list" aria-label="My loved ones">
+                  {(expanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep) => {
+                    const name   = dep.patientName ?? 'Unknown';
+                    const health = healthLook(dep.patientHealthStatus);
+                    const label  = accessLabel(dep.accessLevel);
+                    const rel    = dep.relationship
+                      ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                      : '';
+                    return (
+                      <View key={dep.accessId} role="listitem">
+                        <TouchableOpacity
+                          style={styles.lovedOneRow}
+                          activeOpacity={0.7}
+                          onPress={() => onSelectPatient?.(dep)}
+                          accessibilityRole="button"
+                          // Named by its visible text (name, relationship, access, health status); the initials and dot are decorative.
+                        >
+                          <View style={styles.avatarWrapper} {...decorative}>
+                            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor(name) }]}>
+                              <Text style={styles.avatarInitials}>{initials(name)}</Text>
+                            </View>
+                            <View style={[styles.dot, { backgroundColor: health?.dot ?? HEALTH_UNKNOWN_DOT }]} />
+                          </View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.lovedOneName} numberOfLines={1}>{name}{' '}</Text>
+                            <Text style={styles.lovedOneRel} numberOfLines={1}>{rel}{rel ? ' ' : ''}</Text>
+                            <View style={styles.lovedOneMeta}>
+                              <Text style={styles.lovedOneAccess}>{label}{health ? ' ' : ''}</Text>
+                              {health && (
+                                <View style={styles.healthTag}>
+                                  <Icon name={health.icon} size={12} color={health.text} />
+                                  <Text style={[styles.healthText, { color: health.text }]}>{health.label}</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        </TouchableOpacity>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.lovedOneName} numberOfLines={1}>{name}{' '}</Text>
-                        <Text style={styles.lovedOneRel} numberOfLines={1}>{rel}{rel ? ' ' : ''}</Text>
-                        <Text style={styles.lovedOneAccess}>{label}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+                    );
+                  })}
+                </View>
                 {dependents.length > SHOW_LIMIT && (
                   <TouchableOpacity
                     style={styles.expandBtn}
                     activeOpacity={0.7}
-                    onPress={() => setExpanded(e => !e)}
+                    onPress={() => setExpanded(!expanded)}
                     accessibilityRole="button"
-                    accessibilityState={{ expanded }}
                     aria-expanded={expanded}
                   >
-                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={PURPLE} />
+                    <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={PURPLE} />
                     <Text style={styles.expandText}>
                       {expanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
                     </Text>
@@ -197,62 +241,63 @@ export function PatientProxySidebar({ collapsed = false, activeKey = 'dashboard'
               onPress={() => onNavigate?.('add-dependent')}
               accessibilityRole="button"
             >
-              <Ionicons name="add" size={16} color={PURPLE} importantForAccessibility="no" />
+              <Icon name="add" size={16} color={PURPLE} />
               <Text style={styles.addBtnText}>Add Another Loved One</Text>
             </TouchableOpacity>
           </>
         )}
 
-        {/* Collapsed: dot indicators only */}
+        {/* Collapsed: avatars with a health icon */}
         {collapsed && (
-          <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }}>
+          <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }} role="list" aria-label="My loved ones">
             {dependents.map((dep) => {
-              const name     = dep.patientName ?? '?';
-              const dotColor = healthDotColor(dep.patientHealthStatus);
+              const name   = dep.patientName ?? '?';
+              const health = healthLook(dep.patientHealthStatus);
               return (
-                <TouchableOpacity
-                  key={dep.accessId}
-                  activeOpacity={0.7}
-                  style={{ position: 'relative' }}
-                  onPress={() => onSelectPatient?.(dep)}
-                  accessibilityRole="button"
-                  // Starts with the visible initials (WCAG 2.5.3 Label in Name).
-                  accessibilityLabel={`${initials(name)}: open profile for ${name}`}
-                >
-                  <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-                    <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
-                  </View>
-                  <View style={[styles.collapsedDot, { backgroundColor: dotColor }]} />
-                </TouchableOpacity>
+                <View key={dep.accessId} role="listitem">
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    style={{ position: 'relative' }}
+                    onPress={() => onSelectPatient?.(dep)}
+                    accessibilityRole="button"
+                    // Starts with the visible initials (WCAG 2.5.3 Label in Name); the health status is spoken, not colour only.
+                    accessibilityLabel={`${initials(name)}: open profile for ${name}${health ? `, health status ${health.label}` : ''}`}
+                  >
+                    <View style={[styles.collapsedAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+                      <Text style={{ color: WHITE, fontSize: 11, fontWeight: '700' }}>{initials(name)}</Text>
+                    </View>
+                    {health ? (
+                      <View style={styles.collapsedHealth} {...decorative}>
+                        <Icon name={health.icon} size={13} color={health.text} />
+                      </View>
+                    ) : (
+                      <View style={[styles.collapsedDot, { backgroundColor: HEALTH_UNKNOWN_DOT }]} {...decorative} />
+                    )}
+                  </TouchableOpacity>
+                </View>
               );
             })}
           </View>
         )}
 
-        {/* Care Coordination */}
-        <Text style={styles.sectionLabel}>{collapsed ? '' : 'CARE COORDINATION'}</Text>
-        {careItems.map((item) => (
-          <SidebarNavItem
-            key={item.key}
-            item={item}
-            active={activeKey === item.key}
-            collapsed={collapsed}
-            onPress={() => onNavigate?.(item.key)}
-            badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
-          />
-        ))}
-
-        {/* Account */}
-        {!collapsed && <Text style={styles.sectionLabel}>ACCOUNT</Text>}
-        {collapsed && <View style={styles.sectionDivider} />}
-        {accountItems.map((item) => (
-          <SidebarNavItem
-            key={item.key}
-            item={item}
-            active={activeKey === item.key}
-            collapsed={collapsed}
-            onPress={() => onNavigate?.(item.key)}
-          />
+        {/* Groups */}
+        {groups.map((group, gi) => (
+          <View key={group.title}>
+            {!collapsed
+              ? <Text style={styles.sectionLabel}>{group.title}</Text>
+              : gi === 0 ? <View style={styles.sectionSpacer} /> : <View style={styles.sectionDivider} />
+            }
+            {group.items.map(item => (
+              <SidebarNavItem
+                key={item.key}
+                item={item}
+                active={activeKey === item.key}
+                collapsed={collapsed}
+                onPress={() => onNavigate?.(item.key)}
+                badge={item.badge ? badges[item.badge] : 0}
+              />
+            ))}
+          </View>
         ))}
 
         <View style={{ height: 24 }} />
@@ -307,6 +352,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     textTransform: 'uppercase',
   },
+  sectionSpacer: { height: 28 },
   sectionDivider: {
     height: 1,
     backgroundColor: BORDER,
@@ -324,7 +370,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   navItemActive: { backgroundColor: PURPLE },
-  navItemDisabled: { opacity: 0.55 },
   badge:           { marginLeft: 'auto', minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: PURPLE, alignItems: 'center', justifyContent: 'center' },
   badgeActive:     { backgroundColor: WHITE },
   badgeText:       { color: WHITE, fontSize: 11, fontWeight: '700' },
@@ -360,12 +405,23 @@ const styles = StyleSheet.create({
   },
   lovedOneName:   { fontSize: 14, fontWeight: '600', color: TEXT },
   lovedOneRel:    { fontSize: 11, color: PURPLE, fontWeight: '500', marginTop: 1 },
-  lovedOneAccess: { fontSize: 11, color: GRAY, marginTop: 1 },
+  lovedOneMeta:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2, marginTop: 1 },
+  lovedOneAccess: { fontSize: 11, color: GRAY },
+  healthTag:      { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  healthText:     { fontSize: 11, fontWeight: '700' },
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: WHITE, fontSize: 14, fontWeight: '700' },
   emptyText:      { fontSize: 12, color: GRAY_LABEL, paddingHorizontal: 10, paddingVertical: 8 },
+  errorRow:       { paddingBottom: 4 },
+  errorText:      { color: RED, paddingBottom: 2 },
+  retryBtn:       { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4 },
+  retryText:      { fontSize: 12, color: PURPLE, fontWeight: '600' },
   collapsedAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: BORDER },
   collapsedDot:    { width: 9, height: 9, borderRadius: 5, borderWidth: 2, borderColor: PURPLE_BG, position: 'absolute', bottom: 0, right: 0 },
+  collapsedHealth: {
+    position: 'absolute', bottom: -3, right: -4, width: 16, height: 16, borderRadius: 8,
+    backgroundColor: WHITE, alignItems: 'center', justifyContent: 'center',
+  },
 
   expandBtn: {
     flexDirection: 'row',

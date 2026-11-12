@@ -1,108 +1,126 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/auth/auth.interceptor';
-import { apiErrorMessage } from '@/hooks/use-appointments';
-import { useCurrentUser } from './use-current-user';
-import type { AccessLevel, CaregiverDependent } from './use-caregiver-dependents';
+import { useCallback } from 'react';
+import { apiError } from '@/lib/api/errors';
+import {
+  listAccessRequests,
+  listCaregiverAccess,
+  listCaregiverActivity,
+  listConsents,
+} from '@/lib/caregiver-access/api';
+import type {
+  AccessFlags,
+  AccessRequestStatus,
+  CaregiverAccess,
+  CaregiverAccessRequest,
+  CaregiverActivityEntry,
+  ConsentRecord,
+} from '@/lib/caregiver-access/types';
+import { usePaged, type PagedState } from './use-paged';
+import { useResource } from './use-resource';
+
+// The patient's caregiver access (My Proxies): grants, access requests, a caregiver's activity and the consent
+// ledger. The API client and the types live in '@/lib/caregiver-access'; they are re-exported here because the
+// screen and older imports take them from this hook file.
+
+export {
+  approveAccessRequest,
+  declineAccessRequest,
+  grantCaregiverAccess,
+  revokeCaregiverAccess,
+  updateCaregiverAccess,
+} from '@/lib/caregiver-access/api';
+export type {
+  AccessFlags,
+  AccessLevel,
+  AccessRequestStatus,
+  ApproveAccessRequestBody,
+  CaregiverAccess,
+  CaregiverAccessRequest,
+  CaregiverActivityEntry,
+  ConsentRecord,
+  ConsentScope,
+  DeclineAccessRequestBody,
+  GrantCaregiverAccessBody,
+  UpdateCaregiverAccessBody,
+} from '@/lib/caregiver-access/types';
+
+/** Any subset of the twelve permission flags, as sent in a grant or an update. */
+export type CaregiverPermissionFlags = Partial<AccessFlags>;
 
 /**
- * A caregiver grant as the patient sees it (GET /api/patients/me/caregiver-access). Same backend DTO as the
- * caregiver's view, plus the caregiver's name and email.
- *
- * canMessageCareTeam / canJoinCalls are requests; messagingAllowed / joinCallsAllowed are what is in effect now
- * (the patient approved and the grant is active). pendingApproval: a request is waiting for the patient.
+ * Error text for this screen: the backend message for a 4xx, the rate-limit wording for a 429, a connection
+ * hint when the server could not be reached, and `fallback` for a server fault.
  */
-export interface CaregiverAccess extends CaregiverDependent {
-  caregiverName:  string | null;
-  caregiverEmail: string | null;
-}
-
-export interface CaregiverPermissionFlags {
-  canViewRecords?:          boolean;
-  canViewAppointments?:     boolean;
-  canViewMedications?:      boolean;
-  canViewLabResults?:       boolean;
-  canViewImaging?:          boolean;
-  canViewConsultations?:    boolean;
-  canScheduleAppointments?: boolean;
-  canManageCarePlan?:       boolean;
-  /** Turning this on (as the patient) approves messaging. */
-  canMessageCareTeam?:      boolean;
-  /** Turning this on (as the patient) approves joining video calls. */
-  canJoinCalls?:            boolean;
-}
-
-export interface GrantCaregiverAccessBody extends CaregiverPermissionFlags {
-  caregiverEmail: string;
-  relationship:   string;
-  accessLevel?:   AccessLevel;
-  /** "YYYY-MM-DD" (end of that day) or null for no expiry. */
-  expiresAt?:     string | null;
-}
-
-export interface UpdateCaregiverAccessBody extends CaregiverPermissionFlags {
-  accessLevel?: AccessLevel;
-  /** "YYYY-MM-DD"; "" removes the expiry; omit to leave unchanged. */
-  expiresAt?:   string;
-}
-
-const BASE = '/api/patients/me/caregiver-access';
-
-export async function grantCaregiverAccess(body: GrantCaregiverAccessBody): Promise<CaregiverAccess> {
-  const { data } = await api.post<CaregiverAccess>(BASE, body);
-  return data;
-}
-
-export async function updateCaregiverAccess(accessId: number, body: UpdateCaregiverAccessBody): Promise<CaregiverAccess> {
-  const { data } = await api.patch<CaregiverAccess>(`${BASE}/${accessId}`, body);
-  return data;
-}
-
-export async function revokeCaregiverAccess(accessId: number): Promise<void> {
-  await api.delete(`${BASE}/${accessId}`);
-}
-
-/** Error text for this screen: the backend message for 4xx, a connection hint when there is no response. */
 export function caregiverAccessErrorMessage(err: unknown, fallback: string): string {
-  const response = (err as any)?.response;
-  if (!response) return 'Unable to reach the server. Please check your connection.';
-  if (response.status >= 500) return fallback;
-  return apiErrorMessage(err, fallback);
+  const failure = apiError(err, fallback);
+  return failure.status >= 500 ? fallback : failure.message;
 }
 
-interface State {
-  grants:  CaregiverAccess[];
-  loading: boolean;
-  error:   string | null;
-  refetch: () => void;
+/**
+ * True when a failed change means the row on screen is out of date: the grant or request no longer exists, is no
+ * longer the caller's, or is in another state (revoked, already answered, cancelled, expired). The screen then
+ * loads its lists again instead of leaving a row that cannot be acted on.
+ */
+export function isStaleAccessError(status: number | null | undefined): boolean {
+  return status === 403 || status === 404 || status === 409;
+}
+
+export interface CaregiverAccessState {
+  grants:      CaregiverAccess[];
+  /** True until the first load finishes. */
+  loading:     boolean;
+  /** True while `refetch` reloads grants that are already on screen. */
+  refreshing:  boolean;
+  error:       string | null;
+  /** HTTP status of the failure (0 = no response), or null. */
+  errorStatus: number | null;
+  refetch:     () => void;
+  /** Applies the result of a change (an updated or removed grant) without another request. */
+  setGrants:   (next: (prev: CaregiverAccess[]) => CaregiverAccess[]) => void;
 }
 
 /** The signed-in patient's caregiver grants (active and expired, not revoked), newest first. */
-export function useCaregiverAccess(): State {
-  const { user } = useCurrentUser();
-  const [grants,  setGrants]  = useState<CaregiverAccess[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [tick,    setTick]    = useState(0);
+export function useCaregiverAccess(): CaregiverAccessState {
+  const { data, loading, refreshing, error, errorStatus, refetch, setData } = useResource(
+    listCaregiverAccess, [], { errorMessage: 'Failed to load your caregivers.' },
+  );
+  const setGrants = useCallback(
+    (next: (prev: CaregiverAccess[]) => CaregiverAccess[]) => setData(prev => next(prev ?? [])),
+    [setData],
+  );
+  return { grants: data ?? [], loading, refreshing, error, errorStatus, refetch, setGrants };
+}
 
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    setLoading(true);
-    api.get<CaregiverAccess[]>(BASE)
-      .then(({ data }) => {
-        if (cancelled) return;
-        setGrants(Array.isArray(data) ? data : []);
-        setError(null);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(caregiverAccessErrorMessage(err, 'Failed to load your caregivers.'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [user?.system_id, tick]);
+/**
+ * Access requests addressed to the signed-in patient, newest first. The screen lists the pending ones;
+ * pass null to list every status.
+ */
+export function useAccessRequests(
+  status: AccessRequestStatus | null = 'PENDING',
+): PagedState<CaregiverAccessRequest> {
+  return usePaged<CaregiverAccessRequest>(
+    (page, size) => listAccessRequests(status, page, size),
+    [status],
+    { keyOf: r => r.requestId, errorMessage: 'Failed to load access requests.' },
+  );
+}
 
-  const refetch = useCallback(() => setTick(t => t + 1), []);
-  return { grants, loading, error, refetch };
+/** What the caregiver of one grant viewed or did, newest first. Nothing is requested until `enabled`. */
+export function useCaregiverActivity(accessId: number, enabled = true): PagedState<CaregiverActivityEntry> {
+  return usePaged<CaregiverActivityEntry>(
+    (page, size) => listCaregiverActivity(accessId, page, size),
+    [accessId],
+    { enabled, pageSize: 10, keyOf: e => e.auditId, errorMessage: 'Failed to load this caregiver\'s activity.' },
+  );
+}
+
+/**
+ * The consent ledger, newest first: every recorded step of one grant, or of all grants (revoked ones included)
+ * when `accessId` is null. Nothing is requested until `enabled`.
+ */
+export function useConsentHistory(accessId: number | null, enabled = true): PagedState<ConsentRecord> {
+  return usePaged<ConsentRecord>(
+    (page, size) => listConsents(accessId, page, size),
+    [accessId],
+    { enabled, pageSize: 10, keyOf: c => c.consentId, errorMessage: 'Failed to load the consent history.' },
+  );
 }

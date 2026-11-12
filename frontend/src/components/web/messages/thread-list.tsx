@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { initials, shortTime, threadTitle } from '@/lib/communications/format';
 import type { MessagingMode, Thread } from '@/lib/communications/types';
+import { isClosedSupportThread, isSupportThread, supportThreadTitle } from '@/lib/support/format';
 import {
   Avatar, BORDER, CountBadge, Empty, ErrorBlock, GRAY, LIGHT, Loading, RED, RED_BG, TEXT, UrgentTag, WHITE,
   avatarColor, useTheme,
@@ -50,9 +51,9 @@ export function ThreadList({
             onPress={onNew}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Start a new conversation"
+            accessibilityLabel="New conversation"
           >
-            <Ionicons name="create-outline" size={15} color={WHITE} importantForAccessibility="no" />
+            <Ionicons aria-hidden name="create-outline" size={15} color={WHITE} importantForAccessibility="no" />
             <Text style={styles.newBtnText}>New conversation</Text>
           </TouchableOpacity>
         )}
@@ -99,16 +100,18 @@ function ThreadRow({ thread, mode, mySystemId, selected, archived, onPress, onAr
   onPress: () => void; onArchive: () => void;
 }) {
   const { accent, accentBg } = useTheme();
-  const title   = threadTitle(thread, mySystemId);
+  // A support conversation is with the CareNexus support team: it has no patient and is never urgent.
+  const support = isSupportThread(thread);
+  const title   = support ? supportThreadTitle(thread, mySystemId) : threadTitle(thread, mySystemId);
   const unread  = thread.unreadCount > 0;
-  const urgent  = thread.hasUrgentUnread;
+  const urgent  = thread.hasUrgentUnread && !support;
   const last    = thread.lastMessage;
   const sender  = last ? (last.senderSystemId === mySystemId ? 'You' : last.senderLabel) : '';
-  const typeLbl = thread.type === 'CARE_TEAM' ? 'Care team' : 'Private';
-  const showPatient = mode !== 'PATIENT';
+  const typeLbl = support ? 'Support' : thread.type === 'CARE_TEAM' ? 'Care team' : 'Private';
+  const showPatient = mode !== 'PATIENT' && !support && !!thread.patientName;
 
   const time    = shortTime(thread.lastMessageAt ?? thread.createdAt);
-  const meta    = `${typeLbl}${showPatient ? ` · ${thread.patientName}` : ''}`;
+  const meta    = `${typeLbl}${showPatient ? ` · ${thread.patientName}` : ''}${isClosedSupportThread(thread) ? ' · Closed' : ''}`;
   const preview = last ? `${sender}: ${last.preview}` : 'No messages yet';
   // Same order as the visible text, so the visible label is part of the accessible name
   // (WCAG 2.5.3); the unread count is spelled out at the end.
@@ -133,7 +136,9 @@ function ThreadRow({ thread, mode, mySystemId, selected, archived, onPress, onAr
       {/* The avatar sits outside the button so its initials are not part of the button's visible label. */}
       <TouchableWithoutFeedback onPress={onPress} accessible={false} focusable={false}>
         <View style={styles.avatarCell}>
-          <Avatar text={thread.type === 'CARE_TEAM' ? 'CT' : initials(title)} color={thread.type === 'CARE_TEAM' ? accent : avatarColor(title)} />
+          {support
+            ? <Avatar text="" icon="help-buoy-outline" color={accent} />
+            : <Avatar text={thread.type === 'CARE_TEAM' ? 'CT' : initials(title)} color={thread.type === 'CARE_TEAM' ? accent : avatarColor(title)} />}
         </View>
       </TouchableWithoutFeedback>
       <TouchableOpacity
@@ -143,6 +148,8 @@ function ThreadRow({ thread, mode, mySystemId, selected, archived, onPress, onAr
         accessibilityRole="button"
         accessibilityLabel={a11y}
         accessibilityState={{ selected }}
+        // react-native-web drops accessibilityState.selected; the open conversation is marked as current.
+        {...(selected ? ({ 'aria-current': 'true' } as object) : null)}
       >
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>
@@ -167,7 +174,7 @@ function ThreadRow({ thread, mode, mySystemId, selected, archived, onPress, onAr
         accessibilityRole="button"
         accessibilityLabel={archived ? `Move ${title} to inbox` : `Archive ${title}`}
       >
-        <Ionicons name={archived ? 'arrow-undo-outline' : 'archive-outline'} size={16} color={LIGHT} importantForAccessibility="no" />
+        <Ionicons aria-hidden name={archived ? 'arrow-undo-outline' : 'archive-outline'} size={16} color={LIGHT} importantForAccessibility="no" />
       </TouchableOpacity>
     </View>
   );

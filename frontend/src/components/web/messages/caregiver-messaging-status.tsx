@@ -39,7 +39,7 @@ export function CaregiverMessagingStatus({ patientSystemId }: { patientSystemId?
           : d.accessStatus && d.accessStatus !== 'ACTIVE' ? 'inactive' : 'off';
         return (
           <View key={d.accessId} role="listitem" style={styles.row}>
-            <Ionicons
+            <Ionicons aria-hidden
               name={s === 'allowed' ? 'chatbubbles-outline' : s === 'pending' ? 'time-outline' : 'lock-closed-outline'}
               size={15}
               color={s === 'allowed' ? GRAY : AMBER}

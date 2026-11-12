@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
+import { accessibleName, ariaLevel, decorative } from '@/components/web/ui/a11y';
 
 // Small shared building blocks for the call screens (no LiveKit imports here).
 
@@ -65,7 +66,8 @@ export function CallButton(props: {
       onPress={props.onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      // The accessible name starts with the visible label; extra context ("Admit Grace Moyo") follows it.
+      accessibilityLabel={accessibleName(props.label, props.accessibilityLabel)}
       accessibilityState={{ disabled: !!disabled, busy: !!props.busy }}
       aria-busy={!!props.busy}
       style={[
@@ -76,8 +78,8 @@ export function CallButton(props: {
       ]}
     >
       {props.busy
-        ? <ActivityIndicator size="small" color={fg} accessibilityLabel="Please wait" />
-        : props.icon ? <Ionicons name={props.icon} size={16} color={fg} /> : null}
+        ? <View {...decorative}><ActivityIndicator size="small" color={fg} /></View>
+        : props.icon ? <Ionicons aria-hidden name={props.icon} size={16} color={fg} /> : null}
       <Text style={[styles.btnText, { color: fg }]}>{props.label}</Text>
     </TouchableOpacity>
   );
@@ -102,7 +104,7 @@ export function Notice(props: {
       accessibilityRole={tone === 'error' ? 'alert' : undefined}
       accessibilityLiveRegion="polite"
     >
-      <Ionicons name={props.icon ?? palette.icon} size={18} color={palette.fg} style={{ marginTop: 1 }} />
+      <Ionicons aria-hidden name={props.icon ?? palette.icon} size={18} color={palette.fg} style={{ marginTop: 1 }} />
       <View style={{ flex: 1, gap: 2 }}>
         {props.title ? <Text style={[styles.noticeTitle, { color: palette.fg }]}>{props.title}</Text> : null}
         {typeof props.children === 'string'
@@ -123,11 +125,12 @@ export function CenteredMessage(props: {
   body?:    string;
   children?: React.ReactNode;
 }) {
+  // Shown instead of the whole call screen (loading failed, call ended), so its title is the page heading.
   return (
     <View style={styles.centered}>
       <Card style={styles.centeredCard}>
-        <Ionicons name={props.icon} size={36} color={C.indigo} />
-        <Text style={styles.centeredTitle} accessibilityRole="header">{props.title}</Text>
+        <Ionicons aria-hidden name={props.icon} size={36} color={C.indigo} />
+        <Text style={styles.centeredTitle} accessibilityRole="header" {...ariaLevel(1)}>{props.title}</Text>
         {props.body ? <Text style={styles.centeredBody}>{props.body}</Text> : null}
         {props.children}
       </Card>

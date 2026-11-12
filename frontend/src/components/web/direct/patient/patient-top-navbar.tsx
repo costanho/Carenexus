@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { useCurrentUser } from '@/hooks/use-current-user';
+import { decorative, Icon } from '@/components/web/ui';
 import { useLogout } from '@/hooks/use-logout';
+import { MENU_FOCUS_KEY, bellProps, useNavFocusRestore, useShellUser } from '../../layout/shell-support';
 import { NotificationBell } from '../../notifications/notification-bell';
 
 const TEXT  = '#111827';
@@ -11,19 +11,28 @@ const RED   = '#B91C1C';
 
 interface Props {
   showMenuButton?: boolean;
+  /** Whether the navigation drawer the menu button opens is open (announced as the button's expanded state). */
+  menuExpanded?: boolean;
   onMenuPress?: () => void;
   onProfilePress?: () => void;
-  /** Open the messages section on a thread (from a notification). */
+  /** Open the messages section on a thread (from a conversation message notification). */
   onOpenThread?: (threadId: number) => void;
-  /** Opens the caregiver access screen (from a caregiver approval notification). */
-  onOpenCaregiverAccess?: () => void;
+  /**
+   * Follows the in-app link of every other notification (`followActionUrl`, CONTRACTS 7.1), caregiver access
+   * requests included; false when there is nothing to open.
+   */
+  onNotificationLink?: (actionUrl: string | null | undefined) => boolean;
 }
 
-export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, onOpenThread, onOpenCaregiverAccess }: Props) {
+const BELL_THEME = { accent: '#0F766E', accentBg: '#E8F5F4' };
+
+export function PatientTopNavbar({ showMenuButton, menuExpanded = false, onMenuPress, onProfilePress, onOpenThread, onNotificationLink }: Props) {
   const { width } = useWindowDimensions();
-  const { user, loading: userLoading } = useCurrentUser();
+  const { user, loading: userLoading } = useShellUser();
   const { handleLogout, loading } = useLogout();
   const isSmall = width < 768;
+  // After a navigation started in the phone drawer, the menu button of the new copy takes focus back.
+  const menuRef = useNavFocusRestore(MENU_FOCUS_KEY);
 
   const firstName = user?.first_name ?? (userLoading ? '...' : 'there');
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '';
@@ -35,13 +44,16 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
       <View style={styles.left}>
         {showMenuButton && (
           <TouchableOpacity
+            ref={menuRef as never}
             onPress={onMenuPress}
             style={styles.menuBtn}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Open menu"
+            aria-expanded={menuExpanded}
+            aria-haspopup="dialog"
           >
-            <Ionicons name="menu-outline" size={26} color={TEXT} />
+            <Icon name="menu-outline" size={26} color={TEXT} />
           </TouchableOpacity>
         )}
         {/* Shrinks (and truncates) instead of running under the bell on a phone. */}
@@ -55,7 +67,9 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
 
       <View style={styles.right}>
         {onOpenThread && (
-          <NotificationBell theme={{ accent: '#0F766E', accentBg: '#E8F5F4' }} onOpenThread={onOpenThread} onOpenCaregiverAccess={onOpenCaregiverAccess} />
+          <NotificationBell
+            {...bellProps({ theme: BELL_THEME, onOpenThread, onNavigate: onNotificationLink })}
+          />
         )}
 
         {/* Profile */}
@@ -68,12 +82,13 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
           // The visible name must be part of the accessible name (WCAG 2.5.3 Label in Name).
           accessibilityLabel={showName ? `${fullName}, open profile and settings` : 'Open profile and settings'}
         >
+          {/* The picture and the initial are decoration: the button is named by its label. */}
           {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.avatar} />
+            <Image source={{ uri: avatarUri }} style={styles.avatar} {...decorative} />
           ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
+            <View style={[styles.avatar, styles.avatarFallback]} {...decorative}>
               {showName
-                ? <Ionicons name="person" size={16} color={WHITE} importantForAccessibility="no" />
+                ? <Icon name="person" size={16} color={WHITE} />
                 : <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>}
             </View>
           )}
@@ -89,16 +104,17 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, 
           activeOpacity={0.7}
           disabled={loading}
           accessibilityRole="button"
-          accessibilityLabel="Sign out"
+          accessibilityLabel={loading ? 'Signing out' : 'Sign out'}
           accessibilityState={{ disabled: loading }}
+          aria-busy={loading}
         >
-          <Ionicons
+          <Icon
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
             size={18}
             color={RED}
           />
           {!isSmall && (
-            <Text style={styles.logoutText}>{loading ? '…' : 'Sign Out'}</Text>
+            <Text style={styles.logoutText} {...(loading ? decorative : null)}>{loading ? '…' : 'Sign Out'}</Text>
           )}
         </TouchableOpacity>
       </View>

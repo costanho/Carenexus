@@ -4,23 +4,43 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { apiErrorMessage } from '@/hooks/use-appointments';
 import { useMessageRecipients } from '@/hooks/use-message-recipients';
 import { addThreadMembers, removeThreadMember } from '@/lib/communications/api';
-import { initials, roleLabel } from '@/lib/communications/format';
-import type { Thread, ThreadMember } from '@/lib/communications/types';
+import { initials } from '@/lib/communications/format';
+import type { MemberRole, Thread, ThreadMember } from '@/lib/communications/types';
+import { memberRoleLabel } from '@/lib/support/format';
 import { confirmAction } from '@/lib/ui/dialogs';
+import { ariaLevel } from '@/components/web/ui/a11y';
 import { Avatar, BORDER, GRAY, LIGHT, Loading, RED, TEXT, WHITE, avatarColor, useTheme } from './ui';
 
 interface Props {
   thread:     Thread;
   mySystemId: string | null;
+  /** The viewer's role: a member role, or the login role ('doctor', 'proxy', 'patient'). */
   myRole:     string;
   onChanged:  (thread: Thread | null) => void;
   /** Called after the current user leaves the conversation. */
   onLeft:     () => void;
+  /** Level of the "Members" heading: one below the conversation title. Default 3. */
+  headingLevel?: 2 | 3;
 }
 
-/** Members panel for a conversation: list, add (care team), remove, leave. */
-export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }: Props) {
+/**
+ * Member role for a role string from either source: the messaging mode ('DOCTOR') or the login
+ * role stored at sign-in, which is lower case and calls a caregiver 'proxy'.
+ */
+export function toMemberRole(role: string | null | undefined): MemberRole | null {
+  const value = (role ?? '').trim().toUpperCase();
+  if (value === 'PROXY' || value === 'CAREGIVER') return 'CAREGIVER';
+  if (value === 'DOCTOR' || value === 'PATIENT') return value;
+  return null;
+}
+
+/**
+ * Members panel for a conversation: list, add (care team), remove, leave.
+ * Private and support conversations only list their members; nobody can be added, removed or leave.
+ */
+export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft, headingLevel = 3 }: Props) {
   const { accent, accentBg } = useTheme();
+  const viewerRole = toMemberRole(myRole);
   const careTeam  = thread.type === 'CARE_TEAM';
   const canManage = careTeam && thread.canManageMembers;
   const [adding,   setAdding]   = useState(false);
@@ -77,13 +97,13 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
 
   function canRemove(m: ThreadMember): boolean {
     if (!careTeam || m.role === 'PATIENT') return false;
-    if (m.systemId === mySystemId) return myRole === 'DOCTOR' || myRole === 'CAREGIVER';
+    if (m.systemId === mySystemId) return viewerRole === 'DOCTOR' || viewerRole === 'CAREGIVER';
     return canManage;
   }
 
   return (
-    <View style={styles.wrap} accessibilityLabel="Conversation members">
-      <Text style={styles.heading} accessibilityRole="header">Members ({thread.members.length})</Text>
+    <View style={styles.wrap} role="group" accessibilityLabel="Conversation members">
+      <Text style={styles.heading} accessibilityRole="header" {...ariaLevel(headingLevel)}>Members ({thread.members.length})</Text>
       {thread.members.map(m => {
         const self = m.systemId === mySystemId;
         return (
@@ -91,7 +111,7 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
             <Avatar text={initials(m.name)} color={avatarColor(m.name)} size={28} />
             <View style={styles.memberBody}>
               <Text style={styles.memberName} numberOfLines={1}>{m.label}{self ? ' (you)' : ''}</Text>
-              <Text style={styles.memberRole}>{roleLabel(m.role)}</Text>
+              <Text style={styles.memberRole}>{memberRoleLabel(m.role)}</Text>
             </View>
             {canRemove(m) && (
               <TouchableOpacity
@@ -115,7 +135,7 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
           accessibilityRole="button"
           accessibilityLabel="Add people to this conversation"
         >
-          <Ionicons name="person-add-outline" size={14} color={accent} importantForAccessibility="no" />
+          <Ionicons aria-hidden name="person-add-outline" size={14} color={accent} importantForAccessibility="no" />
           <Text style={[styles.addLinkText, { color: accent }]}>Add people</Text>
         </TouchableOpacity>
       )}
@@ -127,7 +147,7 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
           ) : candidates.length === 0 ? (
             <Text style={styles.note}>Everyone who can join this conversation is already in it.</Text>
           ) : (
-            <View accessibilityRole="list">
+            <View accessibilityRole="list" accessibilityLabel="People you can add">
               {candidates.map(r => {
                 const on = selected.includes(r.systemId);
                 return (
@@ -140,7 +160,7 @@ export function MemberManager({ thread, mySystemId, myRole, onChanged, onLeft }:
                     accessibilityState={{ checked: on }}
                     aria-checked={on}
                   >
-                    <Ionicons name={on ? 'checkbox' : 'square-outline'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
+                    <Ionicons aria-hidden name={on ? 'checkbox' : 'square-outline'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
                     <Text style={styles.memberName} numberOfLines={1}>{r.label}</Text>
                   </TouchableOpacity>
                   </View>

@@ -1,6 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
 import {
   caregiverErrorMessage,
@@ -8,12 +7,17 @@ import {
   useCaregiverDependents,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import type { SectionProps } from '@/lib/nav/sections';
+import { ariaLevel, decorative, Icon, NoAccessView, UiThemeProvider } from '@/components/web/ui';
+import { effectivePermission } from '@/lib/caregiver/permissions';
+import { DependentFilter, scopeDependents } from './dependent-records';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
-import { ariaLevel } from '@/components/web/direct/patient/a11y';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
+const GRAY_DARK = '#4B5563';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
@@ -39,13 +43,34 @@ function healthColor(s: string | null) {
   if (s === 'STABLE')   return { color: GREEN,  bg: '#D1FAE5' };
   if (s === 'MONITOR')  return { color: ORANGE, bg: '#FEF3C7' };
   if (s === 'CRITICAL') return { color: RED,    bg: '#FEE2E2' };
-  return { color: GRAY, bg: '#F3F4F6' };
+  // Unknown: a darker gray, 6.9:1 on its fill (the lighter one was 4.4:1).
+  return { color: GRAY_DARK, bg: '#F3F4F6' };
 }
 
+/** Shown for a list the response did not carry: never "None recorded", which would claim there is nothing. */
+const NOT_AVAILABLE = 'Not available: it may not be recorded, or not shared with you';
+
 interface ProfileExtras {
-  allergies:         string[];
-  conditions:        string[];
+  /**
+   * null when the response carries no value. The server sends these as null to a caller without "View medical
+   * records", so a null is never shown as "None recorded" (an empty list is only "[]" from the server).
+   */
+  allergies:         string[] | null;
+  conditions:        string[] | null;
   emergencyContacts: { contactId: number; name: string; relationship: string | null; phone: string | null; isPrimary: boolean | null }[];
+}
+
+/**
+ * A stored list (a JSON array string), or null when the field is absent (redacted or never recorded) or cannot be
+ * read. Only a real "[]" gives an empty list, so nothing but a recorded empty list reads as "None recorded".
+ */
+function parseNullableList(raw: unknown): string[] | null {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    return Array.isArray(JSON.parse(raw)) ? parseList(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 function usePatientExtras(patientSystemId: string) {
@@ -61,8 +86,8 @@ function usePatientExtras(patientSystemId: string) {
       .then(({ data }) => {
         if (cancelled) return;
         setExtras({
-          allergies:         parseList(data?.allergies),
-          conditions:        parseList(data?.chronicConditions),
+          allergies:         parseNullableList(data?.allergies),
+          conditions:        parseNullableList(data?.chronicConditions),
           emergencyContacts: Array.isArray(data?.emergencyContacts) ? data.emergencyContacts : [],
         });
         setError(null);
@@ -75,24 +100,56 @@ function usePatientExtras(patientSystemId: string) {
   return { extras, loading, error, refetch: () => setTick(t => t + 1) };
 }
 
-function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
+/**
+ * A titled block of a loved one's health card (same heading as Chronic Conditions, Allergies and Emergency
+ * Contacts). A `vitalsSlot` renders its content inside one, so its heading matches the rest of the card.
+ * The block titles are level 3, nested under the loved one's level-2 name, so on a page with several loved
+ * ones a screen-reader user moving by heading can tell whose block they are in.
+ */
+export function HealthSummarySection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(3)}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+/**
+ * Renders the vitals of one loved one inside their health card, between the header and the health profile.
+ * It owns the whole block, heading included (use `HealthSummarySection`), and returns null to show nothing,
+ * for example when health measurements are not shared with the caregiver.
+ */
+export type HealthSummaryVitalsSlot = (dependent: CaregiverDependent) => ReactNode;
+
+export interface PatientProxyHealthSummaryProps extends Partial<SectionProps> {
+  /** Latest vitals per loved one. Without it the card has no vitals block. */
+  vitalsSlot?: HealthSummaryVitalsSlot;
+}
+
+function PatientHealthCard({ dep, vitalsSlot }: { dep: CaregiverDependent; vitalsSlot?: HealthSummaryVitalsSlot }) {
   const name   = dep.patientName ?? 'Unknown';
   const age    = calcAge(dep.patientDateOfBirth);
   const { color, bg } = healthColor(dep.patientHealthStatus);
   const { extras, loading, error, refetch } = usePatientExtras(dep.patientSystemId);
+  // Conditions and allergies need "View medical records" (the server leaves them out otherwise). Without it the
+  // card says they are not shared, as the profile screen does, instead of reading the missing values as "none".
+  const canViewRecords = effectivePermission(dep, 'canViewRecords');
+  const firstName = name.split(' ')[0] || name;
 
   return (
     <View style={styles.card}>
       {/* Patient header */}
       <View style={styles.patHeader}>
-        <View style={styles.avatarWrap}>
+        {/* The initials and the status dot repeat the name and the status word: hidden from assistive technology. */}
+        <View style={styles.avatarWrap} {...decorative}>
           <View style={[styles.avatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
             <Text style={{ color: WHITE, fontSize: 22, fontWeight: '700' }}>{initials(name)}</Text>
           </View>
           <View style={[styles.statusDot, { backgroundColor: color }]} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.patName}>{name}</Text>
+          <Text style={styles.patName} accessibilityRole="header" {...ariaLevel(2)}>{name}</Text>
           <View style={styles.patMetaRow}>
             {age !== null && <Text style={styles.patMeta}>{age} yrs</Text>}
             {dep.patientGender && <Text style={styles.patMeta}>{dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()}</Text>}
@@ -105,16 +162,13 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         </View>
         <View style={[styles.statusBadge, { backgroundColor: bg }]}>
           <Text style={[styles.statusText, { color }]}>
-            {dep.patientHealthStatus ?? 'Unknown'}
+            {dep.patientHealthStatus ?? (canViewRecords ? 'Unknown' : 'Not shared')}
           </Text>
         </View>
       </View>
 
-      {/* Vitals: no vitals store exists yet */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Latest Vitals</Text>
-        <Text style={styles.noneText}>No vitals recorded</Text>
-      </View>
+      {/* Vitals come from the screen that owns health measurements; nothing is shown without it. */}
+      {vitalsSlot ? vitalsSlot(dep) : null}
 
       {loading ? (
         <LoadingState compact label="Loading health profile" />
@@ -122,10 +176,22 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
         <ErrorState compact message={error} onRetry={refetch} />
       ) : extras ? (
         <>
+          {!canViewRecords ? (
+            <HealthSummarySection title="Chronic Conditions and Allergies">
+              <NoAccessView
+                compact
+                message="Health details are not shared with you"
+                sub={`Allergies and chronic conditions need "View medical records". Only ${firstName} can add it to your access.`}
+              />
+            </HealthSummarySection>
+          ) : (
+          <>
           {/* Conditions */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Chronic Conditions</Text>
-            {extras.conditions.length === 0 ? (
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(3)}>Chronic Conditions</Text>
+            {extras.conditions === null ? (
+              <Text style={styles.noneText}>{NOT_AVAILABLE}</Text>
+            ) : extras.conditions.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (
               <View style={styles.condRow}>
@@ -138,30 +204,34 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
 
           {/* Allergies */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Allergies & Contraindications</Text>
-            {extras.allergies.length === 0 ? (
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(3)}>Allergies & Contraindications</Text>
+            {extras.allergies === null ? (
+              <Text style={styles.noneText}>{NOT_AVAILABLE}</Text>
+            ) : extras.allergies.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (
               <View style={{ gap: 6 }}>
                 {extras.allergies.map(a => (
                   <View key={a} style={styles.allergyRow}>
-                    <Ionicons name="warning-outline" size={14} color={RED} importantForAccessibility="no" />
+                    <Icon name="warning-outline" size={14} color={RED} />
                     <Text style={styles.allergyText}>{a}</Text>
                   </View>
                 ))}
               </View>
             )}
           </View>
+          </>
+          )}
 
           {/* Emergency contacts */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(2)}>Emergency Contacts</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header" {...ariaLevel(3)}>Emergency Contacts</Text>
             {extras.emergencyContacts.length === 0 ? (
               <Text style={styles.noneText}>None recorded</Text>
             ) : (
               extras.emergencyContacts.map(ec => (
                 <View key={ec.contactId} style={styles.emergencyCard}>
-                  <Ionicons name="call-outline" size={18} color={RED} importantForAccessibility="no" />
+                  <Icon name="call-outline" size={18} color={RED} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.emergencyTitle}>{ec.isPrimary ? 'Primary contact' : 'Contact'}</Text>
                     <Text style={styles.emergencyName}>
@@ -179,13 +249,24 @@ function PatientHealthCard({ dep }: { dep: CaregiverDependent }) {
   );
 }
 
-export default function PatientProxyHealthSummary() {
+/**
+ * Caregiver "Health Summary": one health card per loved one. The `patient` URL param
+ * (`?section=health-summary&patient=<PAT id>`) shows one loved one only, so a link from their profile opens
+ * their card.
+ */
+export default function PatientProxyHealthSummary({ params: paramsProp, vitalsSlot }: PatientProxyHealthSummaryProps = {}) {
+  // The registry may render this screen without props; the dashboard's navigation is then read from context.
+  const nav = useSectionNav();
+  const params = paramsProp ?? nav.params;
+  const { setParams } = nav;
   const { dependents, loading, error, refetch } = useCaregiverDependents();
+  const scope = useMemo(() => scopeDependents(dependents, params.patient), [dependents, params.patient]);
+  const selectPatient = (patientSystemId: string | null) => setParams({ patient: patientSystemId ?? undefined });
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} focusable>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle} accessibilityRole="header">Health Summary</Text>
+        <Text style={styles.pageTitle} accessibilityRole="header" {...ariaLevel(1)}>Health Summary</Text>
         <Text style={styles.pageSub}>Health overview for your linked patients</Text>
       </View>
 
@@ -195,8 +276,34 @@ export default function PatientProxyHealthSummary() {
         <ErrorState message={error} onRetry={refetch} />
       ) : dependents.length === 0 ? (
         <EmptyState icon="heart-outline" title="No linked patients" />
+      ) : scope.unknown ? (
+        <View style={styles.unknown}>
+          <EmptyState
+            icon="person-outline"
+            title="This person is not one of your linked patients"
+            sub="The link may be out of date, or your access to them has ended."
+          />
+          <TouchableOpacity
+            style={styles.showAllBtn}
+            onPress={() => selectPatient(null)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Text style={styles.showAllText}>Show all linked patients</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
-        dependents.map(dep => <PatientHealthCard key={dep.accessId} dep={dep} />)
+        <>
+          <UiThemeProvider role="proxy">
+            <DependentFilter
+              label="Show health summary for"
+              dependents={dependents}
+              selectedId={scope.selectedId}
+              onChange={selectPatient}
+            />
+          </UiThemeProvider>
+          {scope.dependents.map(dep => <PatientHealthCard key={dep.accessId} dep={dep} vitalsSlot={vitalsSlot} />)}
+        </>
       )}
     </ScrollView>
   );
@@ -208,6 +315,10 @@ const styles = StyleSheet.create({
   pageHeader: { marginBottom: 4, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
+
+  unknown:     { alignItems: 'center' },
+  showAllBtn:  { borderWidth: 1, borderColor: PURPLE, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: WHITE },
+  showAllText: { fontSize: 13, color: PURPLE, fontWeight: '600' },
 
   card:        { backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 20 },
   patHeader:   { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
@@ -237,6 +348,7 @@ const styles = StyleSheet.create({
   emergencyCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FEF2F2', borderRadius: 10, borderWidth: 1, borderColor: '#FECACA', padding: 14 },
   emergencyTitle:{ fontSize: 11, fontWeight: '600', color: RED, marginBottom: 2 },
   emergencyName: { fontSize: 14, fontWeight: '700', color: TEXT },
-  emergencyPhone:{ fontSize: 13, color: GRAY, marginTop: 2 },
+  // Darker than GRAY: 4.5:1 or more on the pale red card (GRAY was 4.4:1).
+  emergencyPhone:{ fontSize: 13, color: GRAY_DARK, marginTop: 2 },
 
 });

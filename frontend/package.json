@@ -25,6 +25,7 @@
     "expo-system-ui": "~56.0.5",
     "expo-web-browser": "~56.0.5",
     "livekit-client": "2.23.0",
+    "qrcode-generator": "2.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.77.0",
@@ -41,6 +42,8 @@
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.64.1",
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~56.0.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -49,7 +52,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint",
+    "lint": "eslint . --max-warnings 0",
     "e2e:build": "EXPO_PUBLIC_API_URL=${E2E_API_URL:-http://localhost:9000} expo export --platform web --output-dir dist",
     "e2e:serve": "node e2e/static-server.mjs dist 8081",
     "e2e": "playwright test",

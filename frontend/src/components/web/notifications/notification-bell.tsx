@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useUnreadCounts } from '@/hooks/use-notifications';
-import type { AppNotification } from '@/lib/communications/types';
 import { DEFAULT_THEME, type MessagesTheme } from '../messages/ui';
 import { NotificationList } from './notification-list';
 
@@ -12,6 +11,11 @@ interface Props {
   onOpenThread: (threadId: number) => void;
   /** Patient only: open the caregiver access screen from an approval request. */
   onOpenCaregiverAccess?: () => void;
+  /**
+   * Follows the in-app link of every other notification (the dashboards pass `followActionUrl`). Returning
+   * false means the link was not followed (another dashboard's link, an unknown section): the panel stays open.
+   */
+  onNavigate?: (actionUrl: string | null | undefined) => boolean | void;
   /** Optional dark style (e.g. on a dark navbar). */
   iconColor?:   string;
 }
@@ -23,8 +27,11 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
     .filter(el => el.getAttribute('aria-disabled') !== 'true' && el.getClientRects().length > 0);
 }
 
-/** Top-navbar bell: unread badge (polled every 30 s while active) and a dropdown list. */
-export function NotificationBell({ theme = DEFAULT_THEME, onOpenThread, onOpenCaregiverAccess, iconColor = '#374151' }: Props) {
+/**
+ * Top-navbar bell: unread badge (polled every 30 s while active) and a dropdown preview that renders and opens
+ * notifications exactly like the full-page list.
+ */
+export function NotificationBell({ theme = DEFAULT_THEME, onOpenThread, onOpenCaregiverAccess, onNavigate, iconColor = '#374151' }: Props) {
   const { width } = useWindowDimensions();
   const { unreadCount } = useUnreadCounts();
   const [open, setOpen] = useState(false);
@@ -89,8 +96,24 @@ export function NotificationBell({ theme = DEFAULT_THEME, onOpenThread, onOpenCa
     };
   }, [open]);
 
-  function activated(item: AppNotification) {
-    close(!(item.type === 'MESSAGE' && item.threadId != null));
+  // The panel closes when a notification opens something. An informational one (no link) is only marked
+  // read, so the panel stays open and the person can carry on reading.
+  function openThread(threadId: number) {
+    close(false); // Messages takes focus for the conversation
+    onOpenThread(threadId);
+  }
+
+  function openCaregiverAccess() {
+    close(true);
+    onOpenCaregiverAccess?.();
+  }
+
+  function navigate(actionUrl: string | null | undefined): boolean | void {
+    const followed = onNavigate?.(actionUrl);
+    // The new section takes focus when it mounts; the bell has it until then, and keeps it when the link
+    // points at the section that is already open.
+    if (followed !== false) close(true);
+    return followed;
   }
 
   const label = unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications';
@@ -107,9 +130,9 @@ export function NotificationBell({ theme = DEFAULT_THEME, onOpenThread, onOpenCa
         accessibilityState={{ expanded: open }}
         aria-expanded={open}
       >
-        <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={21} color={iconColor} importantForAccessibility="no" />
+        <Ionicons aria-hidden name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={21} color={iconColor} importantForAccessibility="no" />
         {unreadCount > 0 && (
-          <View style={styles.badge} importantForAccessibility="no-hide-descendants">
+          <View aria-hidden style={styles.badge} importantForAccessibility="no-hide-descendants">
             <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
           </View>
         )}
@@ -139,9 +162,9 @@ export function NotificationBell({ theme = DEFAULT_THEME, onOpenThread, onOpenCa
             <NotificationList
               compact
               theme={theme}
-              onActivated={activated}
-              onOpenThread={onOpenThread}
-              onOpenCaregiverAccess={onOpenCaregiverAccess}
+              onOpenThread={openThread}
+              onOpenCaregiverAccess={onOpenCaregiverAccess ? openCaregiverAccess : undefined}
+              onNavigate={onNavigate ? navigate : undefined}
               onClose={() => close(true)}
             />
           </View>

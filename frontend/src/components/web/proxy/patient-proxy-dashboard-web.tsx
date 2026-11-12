@@ -1,126 +1,89 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useIsFocused } from 'expo-router';
+import { useCallback } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { SectionNavContext, useSectionNav } from '@/hooks/use-section-nav';
+import { ROLE_THEME } from '@/lib/nav/sections';
 import { NavDrawer } from '../layout/nav-drawer';
-import { PatientProxySidebar }  from './patient/patient-proxy-sidebar';
+import { SectionHost } from '../layout/section-host';
+import { MENU_FOCUS_KEY, rememberNavFocus, useNotificationActions, useShellLayout } from '../layout/shell-support';
+import { DependentsLoader } from '../sections/proxy-dependents';
+import { openPatientProfile, registry } from '../sections/proxy.sections';
+import { PatientProxySidebar } from './patient/patient-proxy-sidebar';
 import { PatientProxyTopNavbar } from './patient/patient-proxy-topnavbar';
-import { PatientProxyMainDashboard } from './patient/patient-proxy-main-dashboard';
 
-const ProxyAppointments         = lazy(() => import('./patient/patient-proxy-appointments'));
-const ProxyMedications          = lazy(() => import('./patient/patient-proxy-medications'));
-const ProxyMessages             = lazy(() => import('./patient/patient-proxy-messages'));
-const ProxyCarePlans            = lazy(() => import('./patient/patient-proxy-care-plans'));
-const ProxyDocuments            = lazy(() => import('./patient/patient-proxy-documents'));
-const ProxyHealthSummary        = lazy(() => import('./patient/patient-proxy-health-summary'));
-const ProxyProfileSettings      = lazy(() => import('./patient/patient-proxy-profile-settings'));
-const ProxyNotificationSettings = lazy(() => import('./patient/patient-proxy-notification-settings'));
-const ProxyAddDependent         = lazy(() => import('./patient/patient-proxy-web-add-dependent'));
-const ProxyPatientProfile       = lazy(() => import('./patient/patient-proxy-web-profile'));
-const NotificationList          = lazy(() => import('../notifications/notification-list').then(m => ({ default: m.NotificationList })));
+const THEME = ROLE_THEME.proxy;
 
-const PROXY_THEME = { accent: '#7C3AED', accentBg: '#F5F3FF' };
-
-function Loader() {
-  return (
-    <View style={styles.loader}>
-      <ActivityIndicator size="large" color="#7C3AED" />
-    </View>
-  );
+/**
+ * Caregiver (proxy) dashboard shell (web). Which section is shown comes from the URL
+ * (`/dashboard/proxy?section=<key>&patient=<PAT id>`) and what a section is comes from the registry in
+ * components/web/sections/proxy.sections.tsx; this file only lays out the sidebar, top bar and content.
+ */
+export function PatientProxyDashboardWeb() {
+  // Opening a section adds a history entry, and the router keeps the previous screen mounted underneath for
+  // Back. Only the screen in front renders the dashboard, so hidden copies hold no data and do not poll.
+  const focused = useIsFocused();
+  if (!focused) return <View style={styles.container} />;
+  return <ProxyShell />;
 }
 
-export function PatientProxyDashboardWeb() {
-  const { width } = useWindowDimensions();
-  const isCollapsed = width < 1024;
-  // Phones: the sidebar becomes a drawer behind a menu button, so pages get the full width.
-  const isSmall = width < 768;
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
-  // Wider than a phone the drawer is not shown; close it so it does not pop open again on the way back.
-  useEffect(() => { if (!isSmall) setDrawerOpen(false); }, [isSmall]);
-  const [activeKey, setActiveKey]               = useState('dashboard');
-  const [navKey,    setNavKey]                  = useState(0);
-  const [selectedDependent, setSelectedDependent] = useState<CaregiverDependent | null>(null);
-  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
+function ProxyShell() {
+  const nav = useSectionNav(registry);
+  const layout = useShellLayout();
+  const notifications = useNotificationActions(nav);
+  const { navigate } = nav;
+  const { closeDrawer } = layout;
 
-  function navigate(key: string) {
-    setNavKey(k => k + 1);
-    setActiveKey(key);
-  }
-
-  const openThread = useCallback((threadId: number) => {
-    setOpenThreadId(threadId);
-    setActiveKey('messages');
-  }, []);
-  const clearOpenThread = useCallback(() => setOpenThreadId(null), []);
-
-  function selectPatient(dep: CaregiverDependent) {
-    setSelectedDependent(dep);
-    navigate('patient-profile');
-  }
-
-  function renderContent() {
-    switch (activeKey) {
-      case 'appointments':
-        return <Suspense fallback={<Loader />}><ProxyAppointments key={navKey} /></Suspense>;
-      case 'medications':
-        return <Suspense fallback={<Loader />}><ProxyMedications /></Suspense>;
-      case 'messages':
-        return <Suspense fallback={<Loader />}><ProxyMessages openThreadId={openThreadId} onOpenThreadHandled={clearOpenThread} /></Suspense>;
-      case 'care-plans':
-        return <Suspense fallback={<Loader />}><ProxyCarePlans /></Suspense>;
-      case 'documents-results':
-        return <Suspense fallback={<Loader />}><ProxyDocuments /></Suspense>;
-      case 'health-summary':
-        return <Suspense fallback={<Loader />}><ProxyHealthSummary /></Suspense>;
-      case 'profile-settings':
-        return <Suspense fallback={<Loader />}><ProxyProfileSettings onNavigate={navigate} onSelectPatient={selectPatient} /></Suspense>;
-      case 'notifications':
-        return <Suspense fallback={<Loader />}><NotificationList theme={PROXY_THEME} onOpenThread={openThread} /></Suspense>;
-      case 'notification-settings':
-        return <Suspense fallback={<Loader />}><ProxyNotificationSettings /></Suspense>;
-      case 'add-dependent':
-        return <Suspense fallback={<Loader />}><ProxyAddDependent onDone={() => navigate('dashboard')} onCancel={() => navigate('dashboard')} /></Suspense>;
-      case 'patient-profile':
-        return selectedDependent
-          ? <Suspense fallback={<Loader />}><ProxyPatientProfile dependent={selectedDependent} onBack={() => navigate('dashboard')} onNavigate={navigate} onOpenThread={openThread} /></Suspense>
-          : <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
-      default:
-        return <PatientProxyMainDashboard onNavigate={navigate} onSelectPatient={selectPatient} onOpenThread={openThread} />;
-    }
-  }
+  const selectPatient = useCallback((dep: CaregiverDependent) => openPatientProfile(navigate, dep), [navigate]);
+  const navigateFromDrawer = useCallback((key: string) => {
+    closeDrawer();
+    // The drawer is closed in the copy the navigation mounts, so focus goes back to its menu button.
+    rememberNavFocus(MENU_FOCUS_KEY);
+    navigate(key);
+  }, [closeDrawer, navigate]);
+  const selectPatientFromDrawer = useCallback((dep: CaregiverDependent) => {
+    closeDrawer();
+    rememberNavFocus(MENU_FOCUS_KEY);
+    openPatientProfile(navigate, dep);
+  }, [closeDrawer, navigate]);
 
   return (
-    <View style={styles.container}>
-      {!isSmall && (
-        <PatientProxySidebar
-          collapsed={isCollapsed}
-          activeKey={activeKey}
-          onNavigate={navigate}
-          onSelectPatient={selectPatient}
-        />
-      )}
-      <View style={styles.main}>
-        <PatientProxyTopNavbar
-          onNavigate={navigate}
-          onOpenThread={openThread}
-          onMenuPress={isSmall ? () => setDrawerOpen(true) : undefined}
-        />
-        {renderContent()}
+    <SectionNavContext.Provider value={nav}>
+      {/* Loads the linked patients for the sidebar (both the rail and the drawer read the same list). */}
+      <DependentsLoader />
+      <View style={styles.container}>
+        {!layout.isSmall && (
+          <PatientProxySidebar
+            collapsed={layout.isCollapsed}
+            activeKey={nav.section}
+            onNavigate={navigate}
+            onSelectPatient={selectPatient}
+          />
+        )}
+        <View style={styles.main}>
+          <PatientProxyTopNavbar
+            onNavigate={navigate}
+            onOpenThread={notifications.onOpenThread}
+            onNotificationLink={notifications.onNavigate}
+            onMenuPress={layout.isSmall ? layout.openDrawer : undefined}
+          />
+          <SectionHost nav={nav} theme={THEME} />
+        </View>
+        {/* Phones: the sidebar is a drawer behind the menu button, so pages get the full width. */}
+        <NavDrawer open={layout.drawerOpen} onClose={closeDrawer}>
+          <PatientProxySidebar
+            collapsed={false}
+            activeKey={nav.section}
+            onNavigate={navigateFromDrawer}
+            onSelectPatient={selectPatientFromDrawer}
+          />
+        </NavDrawer>
       </View>
-      <NavDrawer open={isSmall && drawerOpen} onClose={closeDrawer}>
-        <PatientProxySidebar
-          collapsed={false}
-          activeKey={activeKey}
-          onNavigate={key => { setDrawerOpen(false); navigate(key); }}
-          onSelectPatient={dep => { setDrawerOpen(false); selectPatient(dep); }}
-        />
-      </NavDrawer>
-    </View>
+    </SectionNavContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#F9FAFB' },
   main:      { flex: 1, flexDirection: 'column', minWidth: 0 },
-  loader:    { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
