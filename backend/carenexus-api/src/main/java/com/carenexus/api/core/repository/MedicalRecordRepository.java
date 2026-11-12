@@ -15,5 +15,6 @@ public interface MedicalRecordRepository extends JpaRepository<MedicalRecord, In
     List<MedicalRecord> findByPatientSystemIdAndRecordTypeAndIsDeletedFalse(String patientSystemId, String recordType);
     List<MedicalRecord> findByDoctorSystemIdAndRecordTypeAndIsDeletedFalse(String doctorSystemId, String recordType);
     List<MedicalRecord> findByConsultationIdAndIsDeletedFalse(Integer consultationId);
+    List<MedicalRecord> findByDoctorSystemIdAndPatientSystemIdAndIsDeletedFalse(String doctorSystemId, String patientSystemId);
     Optional<MedicalRecord> findByRecordIdAndIsDeletedFalse(Integer recordId);
 }

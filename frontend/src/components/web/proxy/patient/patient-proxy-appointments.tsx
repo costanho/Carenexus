@@ -1,7 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCaregiverActivity, useCaregiverDependents, type CaregiverAppointment } from '@/hooks/use-caregiver-dependents';
+import { useDoctors } from '@/hooks/use-doctors';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { describeCallJoin } from '@/lib/calls/join';
+import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -9,32 +13,12 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
-const GREEN  = '#10B981';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const RED    = '#B91C1C';
 
-type ApptStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-type ApptType   = 'IN_PERSON' | 'VIDEO' | 'PHONE';
+type Appointment = CaregiverAppointment;
 
-interface Appointment {
-  appointmentId:          number;
-  patientSystemId:        string | null;
-  patientName:            string | null;
-  doctorSystemId:         string | null;
-  scheduledAt:            string;
-  durationMinutes:        number;
-  type:                   ApptType;
-  status:                 ApptStatus;
-  reasonForVisit:         string | null;
-  videoConsultationLink:  string | null;
-  notes:                  string | null;
-}
-
-interface ActivityResponse {
-  appointments:  Appointment[];
-  consultations: unknown[];
-}
-
-function statusColor(s: ApptStatus) {
+function statusColor(s: string) {
   if (s === 'SCHEDULED')  return { bg: '#EDE9FE', text: PURPLE };
   if (s === 'COMPLETED')  return { bg: '#D1FAE5', text: GREEN };
   if (s === 'CANCELLED')  return { bg: '#FEE2E2', text: RED };
@@ -49,11 +33,10 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
 }
 
-function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<string, string> }) {
+function ApptCard({ appt, doctorName, canJoinCalls }: { appt: Appointment; doctorName: string | null; canJoinCalls: boolean }) {
   const { bg, text } = statusColor(appt.status);
   const isVideo    = appt.type === 'VIDEO';
   const isUpcoming = appt.status === 'SCHEDULED';
-  const doctorName = appt.doctorSystemId ? (doctorMap.get(appt.doctorSystemId) ?? appt.doctorSystemId) : '—';
 
   return (
     <View style={[styles.card, isUpcoming && styles.cardUpcoming]}>
@@ -63,7 +46,7 @@ function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<strin
           <Text style={styles.cardSub}>{appt.patientName ?? appt.patientSystemId ?? '—'}</Text>
         </View>
         <View style={[styles.badge, { backgroundColor: bg }]}>
-          <Text style={[styles.badgeText, { color: text }]}>{appt.status.replace('_', ' ')}</Text>
+          <Text style={[styles.badgeText, { color: text }]}>{appt.status.replace(/_/g, ' ')}</Text>
         </View>
       </View>
 
@@ -74,16 +57,22 @@ function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<strin
         </View>
         <View style={styles.detail}>
           <Ionicons name="time-outline" size={14} color={GRAY} />
-          <Text style={styles.detailText}>{formatTime(appt.scheduledAt)} · {appt.durationMinutes} min</Text>
+          <Text style={styles.detailText}>
+            {formatTime(appt.scheduledAt)}{appt.durationMinutes ? ` · ${appt.durationMinutes} min` : ''}
+          </Text>
         </View>
         <View style={styles.detail}>
-          <Ionicons name={isVideo ? 'videocam-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
-          <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>{isVideo ? 'Video Call' : 'In Person'}</Text>
+          <Ionicons name={isVideo ? 'videocam-outline' : appt.type === 'PHONE' ? 'call-outline' : 'business-outline'} size={14} color={isVideo ? PURPLE : GRAY} />
+          <Text style={[styles.detailText, isVideo && { color: PURPLE }]}>
+            {isVideo ? 'Video Call' : appt.type === 'PHONE' ? 'Phone Call' : 'In Person'}
+          </Text>
         </View>
-        <View style={styles.detail}>
-          <Ionicons name="person-outline" size={14} color={GRAY} />
-          <Text style={styles.detailText}>{doctorName}</Text>
-        </View>
+        {doctorName && (
+          <View style={styles.detail}>
+            <Ionicons name="person-outline" size={14} color={GRAY} />
+            <Text style={styles.detailText}>{doctorName}</Text>
+          </View>
+        )}
       </View>
 
       {appt.notes && (
@@ -92,11 +81,15 @@ function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<strin
         </View>
       )}
 
-      {isUpcoming && isVideo && appt.videoConsultationLink && (
-        <TouchableOpacity style={styles.joinBtn} activeOpacity={0.8}>
-          <Ionicons name="videocam-outline" size={15} color={WHITE} />
-          <Text style={styles.joinBtnText}>Join Video Call</Text>
-        </TouchableOpacity>
+      {canJoinCalls && (
+        <CallJoinButton
+          info={describeCallJoin(appt, false)}
+          withName={appt.patientName}
+          style={styles.joinBtn}
+          textStyle={styles.joinBtnText}
+          iconSize={15}
+          iconColor={WHITE}
+        />
       )}
     </View>
   );
@@ -105,37 +98,23 @@ function ApptCard({ appt, doctorMap }: { appt: Appointment; doctorMap: Map<strin
 type Filter = 'all' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
 
 export default function PatientProxyAppointments() {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctorMap,    setDoctorMap]    = useState<Map<string, string>>(new Map());
-  const [loading, setLoading]           = useState(true);
-  const [error,   setError]             = useState<string | null>(null);
-  const [filter,  setFilter]            = useState<Filter>('all');
+  const { appointments: raw, loading, error, refetch } = useCaregiverActivity();
+  const { doctors } = useDoctors();
+  const { dependents } = useCaregiverDependents();
+  const callAllowed = useMemo(
+    () => new Set(dependents.filter(d => d.joinCallsAllowed).map(d => d.patientSystemId)),
+    [dependents],
+  );
+  const [filter,  setFilter] = useState<Filter>('all');
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api.get<ActivityResponse>('/api/caregiver/dependents/activity'),
-      api.get<any[]>('/api/doctors/profile/list/active'),
-    ])
-      .then(([activityRes, doctorsRes]) => {
-        const map = new Map<string, string>();
-        doctorsRes.data.forEach((d: any) => {
-          const sysId = d.doctorSystemId ?? d.doctor_system_id;
-          if (!sysId) return;
-          const name = `Dr. ${d.firstName ?? d.first_name ?? ''} ${d.lastName ?? d.last_name ?? ''}`.trim();
-          map.set(sysId, name);
-        });
-        setDoctorMap(map);
-
-        const sorted = [...(activityRes.data.appointments ?? [])].sort(
-          (a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
-        );
-        setAppointments(sorted);
-        setError(null);
-      })
-      .catch(() => setError('Failed to load appointments.'))
-      .finally(() => setLoading(false));
-  }, []);
+  const appointments = useMemo(
+    () => [...raw].sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
+    [raw],
+  );
+  const doctorNames = useMemo(
+    () => new Map(doctors.map(d => [d.doctor_system_id, d.full_name])),
+    [doctors],
+  );
 
   const filters: { key: Filter; label: string }[] = [
     { key: 'all',       label: 'All' },
@@ -152,59 +131,61 @@ export default function PatientProxyAppointments() {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       {/* Page header */}
       <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.pageTitle}>Appointments</Text>
-          <Text style={styles.pageSub}>Manage appointments for your linked patients</Text>
+        <View style={styles.pageHeaderText}>
+          <Text style={styles.pageTitle} accessibilityRole="header">Appointments</Text>
+          <Text style={styles.pageSub}>Appointments for your linked patients</Text>
         </View>
-        <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.8}>
-          <Ionicons name="add" size={16} color={WHITE} />
-          <Text style={styles.primaryBtnText}>Schedule Appointment</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Stat pills */}
-      <View style={styles.statsRow}>
-        {[
-          { label: 'Total',    value: appointments.length, bg: '#F5F3FF', color: PURPLE },
-          { label: 'Upcoming', value: upcoming,            bg: '#EDE9FE', color: PURPLE },
-          { label: 'Done',     value: completed,           bg: '#D1FAE5', color: GREEN  },
-        ].map(s => (
-          <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
-            <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Filter tabs */}
-      <View style={styles.filterRow}>
-        {filters.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
-            activeOpacity={0.7}
-            onPress={() => setFilter(f.key)}
-          >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* List */}
       {loading ? (
-        <ActivityIndicator size="large" color={PURPLE} style={{ marginTop: 60 }} />
+        <LoadingState label="Loading appointments" />
       ) : error ? (
-        <View style={styles.empty}>
-          <Ionicons name="alert-circle-outline" size={40} color={RED} />
-          <Text style={styles.emptyText}>{error}</Text>
-        </View>
-      ) : visible.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="calendar-outline" size={40} color={BORDER} />
-          <Text style={styles.emptyText}>No appointments found</Text>
-        </View>
+        <ErrorState message={error} onRetry={refetch} />
       ) : (
-        visible.map(a => <ApptCard key={a.appointmentId} appt={a} doctorMap={doctorMap} />)
+        <>
+          {/* Stat pills */}
+          <View style={styles.statsRow}>
+            {[
+              { label: 'Total',    value: appointments.length, bg: '#F5F3FF', color: PURPLE },
+              { label: 'Upcoming', value: upcoming,            bg: '#EDE9FE', color: PURPLE },
+              { label: 'Done',     value: completed,           bg: '#D1FAE5', color: GREEN  },
+            ].map(s => (
+              <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
+                <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
+                <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Filter tabs */}
+          <View style={styles.filterRow}>
+            {filters.map(f => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+                activeOpacity={0.7}
+                onPress={() => setFilter(f.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: filter === f.key }}
+              >
+                <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {visible.length === 0 ? (
+            <EmptyState icon="calendar-outline" title="No appointments found" />
+          ) : (
+            visible.map(a => (
+              <ApptCard
+                key={a.appointmentId}
+                appt={a}
+                doctorName={a.doctorSystemId ? doctorNames.get(a.doctorSystemId) ?? null : null}
+                canJoinCalls={!!a.patientSystemId && callAllowed.has(a.patientSystemId)}
+              />
+            ))
+          )}
+        </>
       )}
     </ScrollView>
   );
@@ -214,14 +195,13 @@ const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 24, paddingBottom: 48, gap: 16 },
 
-  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
 
-  primaryBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  primaryBtnText: { fontSize: 13, color: WHITE, fontWeight: '600' },
 
-  statsRow: { flexDirection: 'row', gap: 12 },
+  statsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   statPill: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
   statVal:  { fontSize: 24, fontWeight: '700' },
   statLabel:{ fontSize: 12, fontWeight: '500', marginTop: 2 },
@@ -251,6 +231,4 @@ const styles = StyleSheet.create({
   joinBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10, alignSelf: 'flex-start' },
   joinBtnText: { fontSize: 13, color: WHITE, fontWeight: '600' },
 
-  empty:     { alignItems: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: GRAY },
 });

@@ -168,9 +168,11 @@ public class LabResultController {
     @PostMapping("/{id}/review")
     public ResponseEntity<LabResultResponse> reviewLabResult(
             @PathVariable Integer id,
-            @RequestParam String reviewedBy,
+            @RequestParam(required = false) String reviewedBy,
             @RequestParam String status) {
-        LabResultResponse response = labResultService.reviewLabResult(id, reviewedBy, status);
+        // reviewedBy is accepted for backwards compatibility but ignored: the reviewer is always the
+        // authenticated doctor (taken from the JWT inside the service).
+        LabResultResponse response = labResultService.reviewLabResult(id, status);
         return ResponseEntity.ok(response);
     }
 

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'expo-router';
+import { useRouter, useIsFocused } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -15,11 +15,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { login, logout } from '@/lib/auth/auth.service';
 import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const PURPLE = '#7C3AED';
 const INDIGO = '#4F46E5';
 const WHITE  = '#FFFFFF';
@@ -27,7 +29,7 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -39,6 +41,7 @@ const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: 
 
 export default function LoginMobile() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -58,20 +61,13 @@ export default function LoginMobile() {
   });
 
   async function onSubmit(data: LoginFormData) {
+    if (loading) return; // Return on the password field and the button share this handler
     setAuthError('');
     setLoading(true);
     try {
-      console.log('🔐 Login attempt:', { email: data.email, selectedRole: role });
-      const response = await login({ ...data, role });
-      console.log('✅ Full response:', JSON.stringify(response, null, 2));
-      console.log('Response type:', typeof response);
-      console.log('Response keys:', Object.keys(response));
-      const { user } = response;
-      console.log('User extracted:', user);
-      console.log('User role:', user?.role, 'Selected role:', role, 'Match:', user?.role === role);
+      const { user } = await login({ ...data, role });
 
       if (!user) {
-        console.error('❌ No user in response!');
         setAuthError('Login failed: no user data returned');
         return;
       }
@@ -79,21 +75,14 @@ export default function LoginMobile() {
       if (user.role !== role) {
         await logout();
         const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };
-        const msg = `This account is registered as a ${labels[user.role]}. Please select the correct role.`;
-        console.error('Role mismatch:', msg);
-        setAuthError(msg);
+        setAuthError(`This account is registered as a ${labels[user.role]}. Please select the correct role.`);
         return;
       }
 
-      console.log('✅ Role check passed');
-      console.log('🚀 About to navigate to:', ROLE_HOME[user.role]);
-      await router.replace(ROLE_HOME[user.role] as any);
-      console.log('✅ Navigation complete');
+      router.replace(ROLE_HOME[user.role] as any);
     } catch (err: any) {
-      console.error('❌ Login failed:', err);
-      console.error('Error stack:', err?.stack);
-      const msg = err?.response?.data?.message ?? err?.message ?? 'Invalid email or password.';
-      console.error('📌 Error message:', msg);
+      const msg = err?.response?.data?.message
+        ?? (err?.response ? 'Invalid email or password.' : 'Unable to reach the server. Check your connection and try again.');
       setAuthError(msg);
     } finally {
       setLoading(false);
@@ -105,6 +94,8 @@ export default function LoginMobile() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {/* Only while this screen is in front: it stays mounted under the dashboard after sign-up/sign-in */}
+      {isFocused && <StatusBar style="light" />}
       {/* Branded header strip */}
       <View style={[styles.header, {
         backgroundColor: active.color,
@@ -122,7 +113,7 @@ export default function LoginMobile() {
             <Text style={{ color: 'rgba(255,255,255,0.75)' }}>Nexus</Text>
           </Text>
         </View>
-        <Text style={[styles.headerTitle, { fontSize: s(26) }]}>Welcome back</Text>
+        <Text style={[styles.headerTitle, { fontSize: s(26) }]} accessibilityRole="header">Welcome back</Text>
         <Text style={[styles.headerSub, { fontSize: s(13) }]}>Sign in to continue to your dashboard</Text>
       </View>
 
@@ -139,7 +130,7 @@ export default function LoginMobile() {
         {/* Role selector */}
         <View style={{ gap: s(8) }}>
           <Text style={[styles.label, { fontSize: s(13) }]}>I am a</Text>
-          <View style={[styles.roleRow, { gap: s(10) }]}>
+          <View style={[styles.roleRow, { gap: s(10) }]} accessibilityRole="radiogroup" accessibilityLabel="I am a">
             {roles.map(r => {
               const on = role === r.key;
               return (
@@ -152,6 +143,9 @@ export default function LoginMobile() {
                   ]}
                   onPress={() => setRole(r.key)}
                   activeOpacity={0.8}
+                  accessibilityRole="radio"
+                  accessibilityLabel={r.label}
+                  accessibilityState={{ selected: on, checked: on }}
                 >
                   <Ionicons name={r.icon} size={s(22)} color={on ? r.color : GRAY} />
                   <Text style={[styles.roleLabel, { fontSize: s(11) }, on && { color: r.color, fontWeight: '700' }]}>
@@ -186,6 +180,7 @@ export default function LoginMobile() {
                 <Ionicons name="mail-outline" size={s(18)} color={GRAY} style={{ marginRight: s(10) }} />
                 <TextInput
                   style={[styles.input, { fontSize: s(14) }]}
+                  accessibilityLabel="Email address"
                   placeholder="you@example.com"
                   placeholderTextColor={GRAY}
                   value={value}
@@ -193,6 +188,9 @@ export default function LoginMobile() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  textContentType="username"
+                  autoComplete="email"
+                  returnKeyType="next"
                 />
               </View>
             )}
@@ -209,7 +207,15 @@ export default function LoginMobile() {
         <View style={{ gap: s(6) }}>
           <View style={styles.fieldHeaderRow}>
             <Text style={[styles.label, { fontSize: s(13) }]}>Password</Text>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => showMessage(
+                'Password reset',
+                "Password reset isn't available in the app yet. Please contact CareNexus support to regain access to your account.",
+              )}
+              accessibilityRole="button"
+              accessibilityLabel="Forgot password"
+            >
               <Text style={[styles.forgotText, { fontSize: s(12), color: active.color }]}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
@@ -225,14 +231,26 @@ export default function LoginMobile() {
                 <Ionicons name="lock-closed-outline" size={s(18)} color={GRAY} style={{ marginRight: s(10) }} />
                 <TextInput
                   style={[styles.input, { fontSize: s(14) }]}
+                  accessibilityLabel="Password"
                   placeholder="Enter your password"
                   placeholderTextColor={GRAY}
                   value={value}
                   onChangeText={onChange}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  autoComplete="current-password"
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit(onSubmit)}
                 />
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: s(4) }} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={() => setShowPass(v => !v)}
+                  style={{ padding: s(4) }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPass ? 'Hide password' : 'Show password'}
+                >
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={s(18)} color={GRAY} />
                 </TouchableOpacity>
               </View>
@@ -248,7 +266,11 @@ export default function LoginMobile() {
 
         {/* Auth error */}
         {!!authError && (
-          <View style={[styles.errorBox, { borderRadius: s(10), padding: s(12), gap: s(6), marginBottom: s(4) }]}>
+          <View
+            style={[styles.errorBox, { borderRadius: s(10), padding: s(12), gap: s(6), marginBottom: s(4) }]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
             <Ionicons name="alert-circle-outline" size={s(15)} color={RED} />
             <Text style={[styles.errorText, { fontSize: s(12) }]}>{authError}</Text>
           </View>
@@ -266,6 +288,9 @@ export default function LoginMobile() {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <Text style={[styles.signInText, { fontSize: s(15) }]}>Signing in…</Text>
@@ -288,6 +313,8 @@ export default function LoginMobile() {
           style={[styles.createBtn, { borderRadius: s(12), paddingVertical: s(14), gap: s(8) }]}
           activeOpacity={0.8}
           onPress={() => router.push('/auth/register/mobile/register-mobile')}
+          accessibilityRole="link"
+          accessibilityLabel="Create a new account"
         >
           <Ionicons name="person-add-outline" size={s(16)} color={active.color} />
           <Text style={[styles.createText, { fontSize: s(13), color: active.color }]}>Create a new account</Text>

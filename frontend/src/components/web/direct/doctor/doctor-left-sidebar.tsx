@@ -1,17 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLogout } from '@/hooks/use-logout';
+import { useUnreadCounts } from '@/hooks/use-notifications';
 
 const BG        = '#0D1B2E';
-const ACTIVE_BG = '#4F6EF7';
+const ACTIVE_BG = '#3B5BDB';
 const WHITE     = '#FFFFFF';
-const GRAY      = '#6B8099';
+const GRAY      = '#8196AE';
 const TEAL      = '#2DD4BF';
 const DIVIDER   = '#1E2D42';
-const LOGOUT_RED = '#EF4444';
+const LOGOUT_RED = '#F87171';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type NavItem      = { key: string; label: string; icon: IoniconsName };
+type NavItem      = { key: string; label: string; icon: IoniconsName; disabled?: boolean };
 type NavSection   = { title: string; items: NavItem[] };
 
 const sections: NavSection[] = [
@@ -28,15 +29,14 @@ const sections: NavSection[] = [
     items: [
       { key: 'patients',        label: 'Patients',        icon: 'people-outline' },
       { key: 'medical-records', label: 'Medical Records', icon: 'folder-open-outline' },
-      { key: 'documents',       label: 'Documents',       icon: 'document-outline' },
+      { key: 'documents',       label: 'Documents',       icon: 'document-outline', disabled: true },
     ],
   },
   {
     title: 'CLINICAL',
     items: [
       { key: 'prescriptions', label: 'Prescriptions',  icon: 'medkit-outline' },
-      { key: 'ai-diagnosis',  label: 'AI Diagnosis',   icon: 'scan-outline' },
-      { key: 'referrals',     label: 'Referrals',      icon: 'git-compare-outline' },
+      { key: 'referrals',     label: 'Referrals',      icon: 'git-compare-outline', disabled: true },
       { key: 'labs',          label: 'Labs & Results', icon: 'flask-outline' },
     ],
   },
@@ -51,24 +51,42 @@ const sections: NavSection[] = [
     title: 'SETTINGS',
     items: [
       { key: 'profile',      label: 'Profile',        icon: 'person-outline' },
-      { key: 'settings',     label: 'Settings',       icon: 'settings-outline' },
-      { key: 'help-support', label: 'Help & Support', icon: 'help-circle-outline' },
+      { key: 'settings',     label: 'Settings',       icon: 'settings-outline', disabled: true },
+      { key: 'help-support', label: 'Help & Support', icon: 'help-circle-outline', disabled: true },
     ],
   },
 ];
 
-function SidebarNavItem({ item, active, collapsed, onPress }: {
-  item: NavItem; active: boolean; collapsed: boolean; onPress: () => void;
+function SidebarNavItem({ item, active, collapsed, onPress, badge = 0 }: {
+  item: NavItem; active: boolean; collapsed: boolean; onPress: () => void; badge?: number;
 }) {
+  const disabled = !!item.disabled;
   return (
     <TouchableOpacity
-      style={[styles.navItem, active && styles.navItemActive]}
+      style={[styles.navItem, active && styles.navItemActive, disabled && styles.navItemDisabled]}
       activeOpacity={0.7}
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={disabled ? `${item.label}, coming soon` : badge > 0 ? `${item.label}, ${badge} unread` : item.label}
+      accessibilityState={{ selected: active, disabled }}
     >
-      <Ionicons name={item.icon} size={18} color={active ? WHITE : '#8BA3BE'} />
+      <View>
+        <Ionicons name={item.icon} size={18} color={active ? WHITE : '#8BA3BE'} />
+        {collapsed && badge > 0 && <View style={styles.badgeDot} />}
+      </View>
       {!collapsed && (
-        <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
+        <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}{' '}</Text>
+      )}
+      {!collapsed && disabled && (
+        <View style={styles.soonPill}>
+          <Text style={styles.soonText}>Coming soon</Text>
+        </View>
+      )}
+      {!collapsed && !disabled && badge > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -82,6 +100,8 @@ export interface DoctorLeftSidebarProps {
 
 export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', onNavigate }: DoctorLeftSidebarProps) {
   const { handleLogout, loading } = useLogout();
+  // The top navbar bell polls the counts; the sidebar only reads them.
+  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
 
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
@@ -109,6 +129,9 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
           style={[styles.navItem, activeKey === 'dashboard' && styles.navItemActive]}
           activeOpacity={0.8}
           onPress={() => onNavigate?.('dashboard')}
+          accessibilityRole="button"
+          accessibilityLabel="Dashboard"
+          accessibilityState={{ selected: activeKey === 'dashboard' }}
         >
           <Ionicons name="home-outline" size={18} color={activeKey === 'dashboard' ? WHITE : '#8BA3BE'} />
           {!collapsed && (
@@ -128,6 +151,7 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
                 active={activeKey === item.key}
                 collapsed={collapsed}
                 onPress={() => onNavigate?.(item.key)}
+                badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
               />
             ))}
           </View>
@@ -159,6 +183,10 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading, busy: loading }}
+          aria-busy={loading}
         >
           <View style={styles.logoutIconBg}>
             <Ionicons
@@ -177,6 +205,19 @@ export function DoctorLeftSidebar({ collapsed = false, activeKey = 'dashboard', 
 }
 
 const styles = StyleSheet.create({
+  navItemDisabled: { opacity: 0.45 },
+  soonPill: {
+    marginLeft: 'auto',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    backgroundColor: DIVIDER,
+  },
+  badge:     { marginLeft: 'auto', minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { color: BG, fontSize: 11, fontWeight: '700' },
+  badgeDot:  { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: LOGOUT_RED }, // bright red: the only unread cue on the navy rail
+  soonText: { fontSize: 9, fontWeight: '700', color: '#8BA3BE', letterSpacing: 0.5 },
+
   sidebar: {
     width: 240,
     backgroundColor: BG,

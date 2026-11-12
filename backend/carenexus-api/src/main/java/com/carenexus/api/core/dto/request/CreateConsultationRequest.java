@@ -18,6 +18,7 @@ public class CreateConsultationRequest {
     @JsonProperty("patientSystemId")
     private String patientSystemId;
 
+    /** Ignored by the server: the author doctor is always the authenticated caller. Kept for compatibility. */
     @JsonProperty("doctorSystemId")
     private String doctorSystemId;
 

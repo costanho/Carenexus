@@ -2,6 +2,8 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.common.exception.ConflictException;
+import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.core.dto.request.CreateEmergencyContactRequest;
 import com.carenexus.api.core.dto.request.UpdateUserProfileRequest;
 import com.carenexus.api.core.dto.request.UpdateUserSettingsRequest;
@@ -14,12 +16,16 @@ import com.carenexus.api.core.model.UserSettings;
 import com.carenexus.api.core.repository.EmergencyContactRepository;
 import com.carenexus.api.core.repository.PatientRepository;
 import com.carenexus.api.core.repository.UserSettingsRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,10 +37,31 @@ public class UserProfileService {
     private final PatientRepository patientRepository;
     private final EmergencyContactRepository emergencyContactRepository;
     private final UserSettingsRepository userSettingsRepository;
+    private final ObjectMapper objectMapper;
+
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$");
+
+    /**
+     * Uppercase role of the user (PATIENT, DOCTOR, CAREGIVER, ADMIN). 404 if the user does not exist.
+     */
+    public String getUserRole(String systemId) {
+        return userRepository.findBySystemId(systemId)
+                .map(User::getRole)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    /**
+     * Patient that owns this emergency contact (used for authorization before reading/changing it).
+     */
+    public String getEmergencyContactPatientSystemId(Integer contactId) {
+        return emergencyContactRepository.findById(contactId)
+                .map(EmergencyContact::getPatientSystemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Emergency contact not found"));
+    }
 
     public UserProfileResponse getUserProfile(String systemId) {
         User user = userRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         UserProfileResponse.UserProfileResponseBuilder builder = UserProfileResponse.builder()
                 .userId(user.getUserId())
@@ -73,7 +100,7 @@ public class UserProfileService {
 
     public UserProfileResponse updateUserProfile(String systemId, UpdateUserProfileRequest request) {
         User user = userRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         if (request.getFirstName() != null && !request.getFirstName().isEmpty()) {
             user.setFirstName(request.getFirstName());
@@ -81,11 +108,29 @@ public class UserProfileService {
         if (request.getLastName() != null && !request.getLastName().isEmpty()) {
             user.setLastName(request.getLastName());
         }
-        if (request.getPhone() != null && !request.getPhone().isEmpty()) {
-            user.setPhone(request.getPhone());
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            String phone = request.getPhone().trim();
+            if (phone.length() > 20) {
+                throw new RuntimeException("Phone number must be at most 20 characters");
+            }
+            if (!phone.equals(user.getPhone())) {
+                userRepository.findByPhone(phone)
+                        .filter(other -> !other.getSystemId().equals(systemId))
+                        .ifPresent(other -> {
+                            throw new ConflictException("Phone number already registered");
+                        });
+            }
+            user.setPhone(phone);
         }
-        if (request.getEmail() != null && !request.getEmail().isEmpty()) {
-            user.setEmail(request.getEmail());
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
+            if (email.length() > 150 || !EMAIL_PATTERN.matcher(email).matches()) {
+                throw new RuntimeException("Please enter a valid email address");
+            }
+            if (!email.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmailIgnoreCase(email)) {
+                throw new ConflictException("Email already registered");
+            }
+            user.setEmail(email);
         }
 
         User updatedUser = userRepository.save(user);
@@ -104,10 +149,10 @@ public class UserProfileService {
                     patient.setBloodType(request.getBloodType());
                 }
                 if (request.getAllergies() != null) {
-                    patient.setAllergies(request.getAllergies());
+                    patient.setAllergies(requireJsonArray(request.getAllergies(), "Allergies"));
                 }
                 if (request.getChronicConditions() != null) {
-                    patient.setChronicConditions(request.getChronicConditions());
+                    patient.setChronicConditions(requireJsonArray(request.getChronicConditions(), "Chronic conditions"));
                 }
                 if (request.getHealthStatus() != null && !request.getHealthStatus().isEmpty()) {
                     if (!isValidHealthStatus(request.getHealthStatus())) {
@@ -123,8 +168,11 @@ public class UserProfileService {
     }
 
     public EmergencyContactResponse createEmergencyContact(CreateEmergencyContactRequest request) {
-        if (request.getPatientSystemId() == null) {
+        if (request.getPatientSystemId() == null || request.getPatientSystemId().isBlank()) {
             throw new RuntimeException("Patient System ID is required");
+        }
+        if (patientRepository.findBySystemId(request.getPatientSystemId()).isEmpty()) {
+            throw new ResourceNotFoundException("Patient not found");
         }
         if (request.getName() == null || request.getName().isEmpty()) {
             throw new RuntimeException("Contact name is required");
@@ -165,13 +213,13 @@ public class UserProfileService {
 
     public EmergencyContactResponse getEmergencyContactById(Integer contactId) {
         EmergencyContact contact = emergencyContactRepository.findById(contactId)
-                .orElseThrow(() -> new RuntimeException("Emergency contact not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Emergency contact not found"));
         return mapEmergencyContactToResponse(contact);
     }
 
     public EmergencyContactResponse updateEmergencyContact(Integer contactId, CreateEmergencyContactRequest request) {
         EmergencyContact contact = emergencyContactRepository.findById(contactId)
-                .orElseThrow(() -> new RuntimeException("Emergency contact not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Emergency contact not found"));
 
         if (request.getName() != null && !request.getName().isEmpty()) {
             contact.setName(request.getName());
@@ -207,7 +255,7 @@ public class UserProfileService {
 
     public void deleteEmergencyContact(Integer contactId) {
         emergencyContactRepository.findById(contactId)
-                .orElseThrow(() -> new RuntimeException("Emergency contact not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Emergency contact not found"));
         emergencyContactRepository.deleteById(contactId);
     }
 
@@ -255,6 +303,42 @@ public class UserProfileService {
         if (request.getConsultationNotifications() != null) {
             settings.setConsultationNotifications(request.getConsultationNotifications());
         }
+        if (request.getCriticalAlerts() != null) {
+            settings.setCriticalAlerts(request.getCriticalAlerts());
+        }
+        if (request.getMedicationReminders() != null) {
+            settings.setMedicationReminders(request.getMedicationReminders());
+        }
+        if (request.getVitalsAlerts() != null) {
+            settings.setVitalsAlerts(request.getVitalsAlerts());
+        }
+        if (request.getAppointmentReminder1h() != null) {
+            settings.setAppointmentReminder1h(request.getAppointmentReminder1h());
+        }
+        if (request.getAppointmentChangeAlerts() != null) {
+            settings.setAppointmentChangeAlerts(request.getAppointmentChangeAlerts());
+        }
+        if (request.getVideoCallAlerts() != null) {
+            settings.setVideoCallAlerts(request.getVideoCallAlerts());
+        }
+        if (request.getMessageNotifications() != null) {
+            settings.setMessageNotifications(request.getMessageNotifications());
+        }
+        if (request.getCarePlanUpdateAlerts() != null) {
+            settings.setCarePlanUpdateAlerts(request.getCarePlanUpdateAlerts());
+        }
+        if (request.getReferralAlerts() != null) {
+            settings.setReferralAlerts(request.getReferralAlerts());
+        }
+        if (request.getLoginAlerts() != null) {
+            settings.setLoginAlerts(request.getLoginAlerts());
+        }
+        if (request.getAccessChangeAlerts() != null) {
+            settings.setAccessChangeAlerts(request.getAccessChangeAlerts());
+        }
+        if (request.getWeeklySummary() != null) {
+            settings.setWeeklySummary(request.getWeeklySummary());
+        }
         if (request.getProfileVisibility() != null && !request.getProfileVisibility().isEmpty()) {
             if (!isValidProfileVisibility(request.getProfileVisibility())) {
                 throw new RuntimeException("Invalid profile visibility. Must be PRIVATE, CONTACTS_ONLY, or PUBLIC");
@@ -265,7 +349,11 @@ public class UserProfileService {
             settings.setDataSharingEnabled(request.getDataSharingEnabled());
         }
         if (request.getTwoFactorEnabled() != null) {
-            settings.setTwoFactorEnabled(request.getTwoFactorEnabled());
+            // No second factor is implemented yet; storing TRUE would claim protection that does not exist
+            if (request.getTwoFactorEnabled()) {
+                throw new RuntimeException("Two-factor authentication is not available yet");
+            }
+            settings.setTwoFactorEnabled(false);
         }
         if (request.getLanguage() != null && !request.getLanguage().isEmpty()) {
             settings.setLanguage(request.getLanguage());
@@ -310,6 +398,18 @@ public class UserProfileService {
                 .labResultAlerts(settings.getLabResultAlerts())
                 .imagingResultAlerts(settings.getImagingResultAlerts())
                 .consultationNotifications(settings.getConsultationNotifications())
+                .criticalAlerts(settings.getCriticalAlerts())
+                .medicationReminders(settings.getMedicationReminders())
+                .vitalsAlerts(settings.getVitalsAlerts())
+                .appointmentReminder1h(settings.getAppointmentReminder1h())
+                .appointmentChangeAlerts(settings.getAppointmentChangeAlerts())
+                .videoCallAlerts(settings.getVideoCallAlerts())
+                .messageNotifications(settings.getMessageNotifications())
+                .carePlanUpdateAlerts(settings.getCarePlanUpdateAlerts())
+                .referralAlerts(settings.getReferralAlerts())
+                .loginAlerts(settings.getLoginAlerts())
+                .accessChangeAlerts(settings.getAccessChangeAlerts())
+                .weeklySummary(settings.getWeeklySummary())
                 .profileVisibility(settings.getProfileVisibility())
                 .dataSharingEnabled(settings.getDataSharingEnabled())
                 .twoFactorEnabled(settings.getTwoFactorEnabled())
@@ -319,6 +419,25 @@ public class UserProfileService {
                 .createdAt(settings.getCreatedAt())
                 .updatedAt(settings.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * allergies / chronic_conditions are jsonb: the value must be a JSON array (e.g. ["Penicillin"]),
+     * otherwise Postgres rejects it with an opaque error.
+     */
+    private String requireJsonArray(String value, String label) {
+        if (value.isBlank()) {
+            return "[]";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(value);
+            if (node == null || !node.isArray()) {
+                throw new RuntimeException(label + " must be a list");
+            }
+            return node.toString();
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(label + " must be a list");
+        }
     }
 
     private boolean isValidHealthStatus(String status) {

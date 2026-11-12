@@ -2,23 +2,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { logout } from '@/lib/auth/auth.service';
+import { NotificationBell } from '../../notifications/notification-bell';
 
-const PURPLE = '#7C3AED';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
+// Below this width the subtitle and the name block are hidden so the greeting keeps its room.
+const NARROW_MAX = 640;
+const HIDDEN = { 'aria-hidden': true } as object;
 
 const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
   : '/auth/login/mobile/login-mobile';
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -34,22 +36,17 @@ function greeting() {
   return 'Good evening';
 }
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-function IconBadge({ name, badge }: { name: IoniconsName; badge: string }) {
-  return (
-    <View style={styles.iconWrapper}>
-      <Ionicons name={name} size={24} color={TEXT} />
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>{badge}</Text>
-      </View>
-    </View>
-  );
-}
-
-export function PatientProxyTopNavbar() {
+export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }: {
+  onNavigate?:   (key: string) => void;
+  /** Phones: opens the navigation drawer. */
+  onMenuPress?:  () => void;
+  /** Open the messages section on a thread (from a notification). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { user }              = useCurrentUser();
   const router                = useRouter();
+  const { width }             = useWindowDimensions();
+  const narrow                = width < NARROW_MAX;
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -72,65 +69,89 @@ export function PatientProxyTopNavbar() {
   }
 
   return (
-    <View style={styles.navbar}>
+    <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
+      {!!onMenuPress && (
+        <TouchableOpacity
+          onPress={onMenuPress}
+          style={styles.menuBtn}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
+        >
+          <Ionicons name="menu-outline" size={26} color={TEXT} />
+        </TouchableOpacity>
+      )}
       {/* Left: greeting */}
       <View style={styles.left}>
-        <Text style={styles.greeting}>{greeting()}, {firstName || '…'}!</Text>
-        <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>
+        <Text style={[styles.greeting, narrow && styles.greetingNarrow]} numberOfLines={narrow ? 2 : undefined}>{greeting()}, {firstName || '…'}!</Text>
+        {!narrow && <Text style={styles.subtitle}>Here's how your loved ones are doing today.</Text>}
       </View>
 
-      {/* Right: icons + profile + switch */}
-      <View style={styles.right}>
-        <View style={styles.iconsRow}>
-          <TouchableOpacity activeOpacity={0.7}>
-            <IconBadge name="notifications-outline" badge="5" />
-          </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.7}>
-            <IconBadge name="mail-outline" badge="3" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.divider} />
+      {/* Right: profile menu */}
+      <View style={[styles.right, narrow && styles.rightNarrow]}>
+        {onOpenThread && (
+          <NotificationBell theme={{ accent: '#7C3AED', accentBg: '#F5F3FF' }} onOpenThread={onOpenThread} />
+        )}
 
         {/* Profile + dropdown */}
         <View style={styles.profileBlock}>
-          <TouchableOpacity style={styles.profileRow} activeOpacity={0.8} onPress={() => setMenuOpen(o => !o)}>
+          <TouchableOpacity
+            style={styles.profileRow}
+            activeOpacity={0.8}
+            onPress={() => setMenuOpen(o => !o)}
+            accessibilityRole="button"
+            // Named by the visible name and role (WCAG 2.5.3); the initials are decorative.
+            // On phones the text is hidden, so the same words become the label.
+            accessibilityLabel={narrow ? `${fullName || '—'} Proxy / Caregiver` : undefined}
+            accessibilityState={{ expanded: menuOpen }}
+            aria-expanded={menuOpen}
+          >
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]}>
-                <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]} importantForAccessibility="no-hide-descendants" {...HIDDEN}>
+                {/* On phones the button is labelled by name, so it shows no other visible words (WCAG 2.5.3). */}
+                {narrow ? <Ionicons name="person" size={18} color={WHITE} /> : <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>}
               </View>
             )}
-            <View>
-              <Text style={styles.profileName}>{fullName || '—'}</Text>
-              <Text style={styles.profileRole}>Proxy / Caregiver</Text>
-            </View>
-            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} />
+            {!narrow && (
+              <View>
+                <Text style={styles.profileName}>{fullName || '—'}{' '}</Text>
+                <Text style={styles.profileRole}>Proxy / Caregiver</Text>
+              </View>
+            )}
+            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} {...HIDDEN} />
           </TouchableOpacity>
 
           {/* Dropdown menu */}
           {menuOpen && (
             <View style={styles.dropdown}>
+              {onNavigate && (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  activeOpacity={0.7}
+                  onPress={() => { setMenuOpen(false); onNavigate('profile-settings'); }}
+                  accessibilityRole="menuitem"
+                >
+                  <Ionicons name="settings-outline" size={16} color={TEXT} importantForAccessibility="no" />
+                  <Text style={styles.dropdownItemText}>Profile & Settings</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.dropdownItem}
                 activeOpacity={0.7}
                 onPress={handleLogout}
                 disabled={loggingOut}
+                accessibilityRole="menuitem"
+                accessibilityState={{ disabled: loggingOut }}
               >
-                <Ionicons name="log-out-outline" size={16} color={RED} />
+                <Ionicons name="log-out-outline" size={16} color={RED} importantForAccessibility="no" />
                 <Text style={styles.dropdownLogoutText}>
                   {loggingOut ? 'Signing out…' : 'Log Out'}
                 </Text>
               </TouchableOpacity>
             </View>
           )}
-
-          <TouchableOpacity style={styles.switchBtn} activeOpacity={0.8}>
-            <Ionicons name="people-outline" size={15} color={PURPLE} />
-            <Text style={styles.switchText}>Switch to another</Text>
-            <Ionicons name="chevron-down" size={14} color={PURPLE} />
-          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -139,6 +160,7 @@ export function PatientProxyTopNavbar() {
 
 const styles = StyleSheet.create({
   navbar: {
+    zIndex: 20,
     height: 92,
     backgroundColor: WHITE,
     borderBottomWidth: 1,
@@ -149,10 +171,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     gap: 20,
   },
+  navbarNarrow: {
+    height: 64,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+
+  menuBtn: { padding: 4, marginRight: 4 },
 
   // Left
   left: {
     flex: 1,
+    minWidth: 0,
+  },
+  greetingNarrow: {
+    fontSize: 16,
+    marginBottom: 0,
   },
   greeting: {
     fontSize: 20,
@@ -171,38 +205,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  iconsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 20,
-  },
-  iconWrapper: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: PURPLE,
-    borderRadius: 8,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: WHITE,
-  },
-  divider: {
-    width: 1,
-    height: 36,
-    backgroundColor: BORDER,
+  rightNarrow: {
+    gap: 8,
+    flexShrink: 0,
   },
 
   // Profile block
@@ -240,22 +245,6 @@ const styles = StyleSheet.create({
     color: GRAY,
     marginTop: 1,
   },
-  switchBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  switchText: {
-    fontSize: 12,
-    color: PURPLE,
-    fontWeight: '600',
-  },
 
   dropdown: {
     position: 'absolute',
@@ -278,6 +267,11 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 13,
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: TEXT,
+    fontWeight: '500',
   },
   dropdownLogoutText: {
     fontSize: 14,

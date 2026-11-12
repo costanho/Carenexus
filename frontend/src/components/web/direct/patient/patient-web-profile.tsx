@@ -2,20 +2,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { usePatientProfile, type PatientProfile } from '@/hooks/use-patient-profile';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const TEAL_L = '#E6F4F1';
 const TEAL_M = '#CCEBE6';
-const GREEN  = '#10B981';
+const GREEN  = '#047857';
 const GREEN_L= '#ECFDF5';
-const AMBER  = '#F59E0B';
+const AMBER  = '#B45309';
 const AMBER_L= '#FFFBEB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 const RED_L  = '#FEF2F2';
 const INDIGO = '#4F46E5';
 const INDIGO_L='#EEF2FF';
-const PURPLE = '#8B5CF6';
+const PURPLE = '#6D28D9';
 const PURPLE_L='#F5F3FF';
-const BLUE   = '#3B82F6';
+const BLUE   = '#1D4ED8';
 const BLUE_L = '#EFF6FF';
 const GRAY   = '#6B7280';
 const GRAY_L = '#F3F4F6';
@@ -165,10 +165,10 @@ function ProfileHero({ profile }: { profile: PatientProfile }) {
       </View>
 
       <View style={styles.heroRight}>
-        {profile.patient_id && (
+        {profile.patient_system_id && (
           <View style={styles.heroStatBox}>
             <Text style={styles.heroStatLabel}>Patient ID</Text>
-            <Text style={styles.heroStatValue}>#{profile.patient_id}</Text>
+            <Text style={styles.heroStatValue}>{profile.patient_system_id}</Text>
           </View>
         )}
         <View style={styles.heroStatBox}>
@@ -218,11 +218,11 @@ export function PatientWebProfile() {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       {/* Page header */}
       <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.pageTitle}>Profile &amp; Settings</Text>
+        <View style={styles.pageHeaderText}>
+          <Text style={styles.pageTitle} accessibilityRole="header">Profile &amp; Settings</Text>
           <Text style={styles.pageSubtitle}>Your personal and health information</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} accessibilityRole="button">
           <Ionicons name="refresh-outline" size={16} color={TEAL} />
           <Text style={styles.refreshText}>Refresh</Text>
         </TouchableOpacity>
@@ -311,7 +311,7 @@ export function PatientWebProfile() {
       <SectionCard title="Account Details" icon="shield-checkmark-outline">
         <View style={styles.accountGrid}>
           <InfoRow label="User ID"          value={`#${profile.user_id}`} />
-          <InfoRow label="Patient ID"       value={profile.patient_id ? `#${profile.patient_id}` : '—'} />
+          <InfoRow label="Patient ID"       value={profile.patient_system_id ?? '—'} />
           <InfoRow label="Role"             value={profile.role.charAt(0).toUpperCase() + profile.role.slice(1).toLowerCase()} valueColor={TEAL} />
           <InfoRow label="Account Status"   value={profile.is_active ? 'Active' : 'Inactive'} valueColor={profile.is_active ? GREEN : RED} />
           <InfoRow label="Profile Created"  value={formatDate(profile.patient_created_at)} />
@@ -338,8 +338,9 @@ const styles = StyleSheet.create({
 
   pageHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 20, flexWrap: 'wrap', rowGap: 12, columnGap: 12,
   },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:    { fontSize: 22, fontWeight: '700', color: TEXT },
   pageSubtitle: { fontSize: 14, color: GRAY, marginTop: 2 },
   refreshBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: TEAL, backgroundColor: TEAL_L },

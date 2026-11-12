@@ -17,7 +17,7 @@ public class AuditLog {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "audit_id")
-    private Long auditId;
+    private Long auditId;  // BIGINT since V14
 
     @Column(name = "system_id", length = 20)
     private String systemId;
@@ -30,6 +30,18 @@ public class AuditLog {
 
     @Column(name = "resource_id")
     private Integer resourceId;
+
+    @Column(name = "patient_system_id", length = 20)
+    private String patientSystemId;  // patient whose data was touched (clinical audit), null otherwise
+
+    @Column(name = "actor_role", length = 20)
+    private String actorRole;  // role of the caller at the time of the action
+
+    @Column(name = "http_method", length = 10)
+    private String httpMethod;
+
+    @Column(name = "request_path", length = 255)
+    private String requestPath;
 
     @Column(name = "status", nullable = false, length = 20)
     private String status;  // "SUCCESS", "FAILURE"
@@ -48,6 +60,8 @@ public class AuditLog {
 
     @PrePersist
     protected void onCreate() {
-        timestamp = LocalDateTime.now();
+        if (timestamp == null) {
+            timestamp = LocalDateTime.now();
+        }
     }
 }

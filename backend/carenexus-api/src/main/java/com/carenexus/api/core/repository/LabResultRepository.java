@@ -23,6 +23,7 @@ public interface LabResultRepository extends JpaRepository<LabResult, Integer> {
     List<LabResult> findByPatientSystemIdAndTestDateBetween(String patientSystemId, LocalDate startDate, LocalDate endDate);
     List<LabResult> findByIsCriticalTrue();
     List<LabResult> findByPatientSystemIdAndIsCriticalTrue(String patientSystemId);
+    List<LabResult> findByDoctorSystemIdAndIsCriticalTrue(String doctorSystemId);
     List<LabResult> findByStatusAndReviewedBySystemIdIsNull(String status);
     Optional<LabResult> findByResultIdAndPatientSystemId(Integer resultId, String patientSystemId);
 }

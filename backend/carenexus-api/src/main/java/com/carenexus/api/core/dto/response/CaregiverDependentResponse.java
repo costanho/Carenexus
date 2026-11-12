@@ -3,6 +3,7 @@ package com.carenexus.api.core.dto.response;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -70,7 +71,40 @@ public class CaregiverDependentResponse {
     @JsonProperty("revokedAt")
     private LocalDateTime revokedAt;
 
-    // Enriched patient fields
+    // Communication permissions. canMessageCareTeam / canJoinCalls are requests; they only take effect with the
+    // patient's approval (messagingAllowed / joinCallsAllowed are the effective values right now).
+    @JsonProperty("canJoinCalls")
+    private Boolean canJoinCalls;
+
+    @JsonProperty("messagingApprovedAt")
+    private Instant messagingApprovedAt;
+
+    @JsonProperty("callsApprovedAt")
+    private Instant callsApprovedAt;
+
+    @JsonProperty("messagingAllowed")
+    private boolean messagingAllowed;
+
+    @JsonProperty("joinCallsAllowed")
+    private boolean joinCallsAllowed;
+
+    /** Active and at least one requested communication permission is not approved yet. */
+    @JsonProperty("pendingApproval")
+    private boolean pendingApproval;
+
+    /** ACTIVE | EXPIRED | REVOKED */
+    @JsonProperty("accessStatus")
+    private String accessStatus;
+
+    // Enriched caregiver fields (filled for the patient-side view, GET /api/patients/me/caregivers)
+    @JsonProperty("caregiverName")
+    private String caregiverName;
+
+    @JsonProperty("caregiverEmail")
+    private String caregiverEmail;
+
+    // Enriched patient fields (date of birth, blood type and health status are only filled when the
+    // grant allows viewing records)
     @JsonProperty("patientName")
     private String patientName;
 

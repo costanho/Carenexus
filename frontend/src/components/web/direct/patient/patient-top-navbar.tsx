@@ -2,29 +2,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { NotificationBell } from '../../notifications/notification-bell';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
-const RED   = '#EF4444';
+const RED   = '#B91C1C';
 
 interface Props {
   showMenuButton?: boolean;
   onMenuPress?: () => void;
+  onProfilePress?: () => void;
+  /** Open the messages section on a thread (from a notification). */
+  onOpenThread?: (threadId: number) => void;
+  /** Opens the caregiver access screen (from a caregiver approval notification). */
+  onOpenCaregiverAccess?: () => void;
 }
 
-function BellIcon({ count }: { count: number }) {
-  return (
-    <View style={styles.bellWrapper}>
-      <Ionicons name="notifications-outline" size={22} color={GRAY} />
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>{count}</Text>
-      </View>
-    </View>
-  );
-}
-
-export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
+export function PatientTopNavbar({ showMenuButton, onMenuPress, onProfilePress, onOpenThread, onOpenCaregiverAccess }: Props) {
   const { width } = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
   const { handleLogout, loading } = useLogout();
@@ -32,17 +27,25 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
 
   const firstName = user?.first_name ?? (userLoading ? '...' : 'there');
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '';
+  const showName  = !isSmall && !!fullName;
   const avatarUri = user?.avatar_url ?? null;
 
   return (
     <View style={styles.navbar}>
       <View style={styles.left}>
         {showMenuButton && (
-          <TouchableOpacity onPress={onMenuPress} style={styles.menuBtn} activeOpacity={0.7}>
+          <TouchableOpacity
+            onPress={onMenuPress}
+            style={styles.menuBtn}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+          >
             <Ionicons name="menu-outline" size={26} color={TEXT} />
           </TouchableOpacity>
         )}
-        <View>
+        {/* Shrinks (and truncates) instead of running under the bell on a phone. */}
+        <View style={styles.titleBlock}>
           <Text style={styles.title} numberOfLines={1}>Welcome back, {firstName}!</Text>
           {!isSmall && (
             <Text style={styles.subtitle}>Here's your health overview and latest updates.</Text>
@@ -51,21 +54,30 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
       </View>
 
       <View style={styles.right}>
-        <BellIcon count={3} />
-        {!isSmall && <BellIcon count={2} />}
-        <View style={styles.divider} />
+        {onOpenThread && (
+          <NotificationBell theme={{ accent: '#0F766E', accentBg: '#E8F5F4' }} onOpenThread={onOpenThread} onOpenCaregiverAccess={onOpenCaregiverAccess} />
+        )}
 
         {/* Profile */}
-        <TouchableOpacity style={styles.userRow} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.userRow}
+          activeOpacity={0.7}
+          onPress={onProfilePress}
+          disabled={!onProfilePress}
+          accessibilityRole="button"
+          // The visible name must be part of the accessible name (WCAG 2.5.3 Label in Name).
+          accessibilityLabel={showName ? `${fullName}, open profile and settings` : 'Open profile and settings'}
+        >
           {avatarUri ? (
             <Image source={{ uri: avatarUri }} style={styles.avatar} />
           ) : (
             <View style={[styles.avatar, styles.avatarFallback]}>
-              <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>
+              {showName
+                ? <Ionicons name="person" size={16} color={WHITE} importantForAccessibility="no" />
+                : <Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text>}
             </View>
           )}
-          {!isSmall && fullName && <Text style={styles.userName}>{fullName}</Text>}
-          <Ionicons name="chevron-down" size={16} color={GRAY} />
+          {showName && <Text style={styles.userName}>{fullName}</Text>}
         </TouchableOpacity>
 
         <View style={styles.divider} />
@@ -76,6 +88,9 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading }}
         >
           <Ionicons
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
@@ -93,6 +108,7 @@ export function PatientTopNavbar({ showMenuButton, onMenuPress }: Props) {
 
 const styles = StyleSheet.create({
   navbar: {
+    zIndex: 20,
     height: 96,
     backgroundColor: WHITE,
     borderBottomWidth: 1,
@@ -112,6 +128,10 @@ const styles = StyleSheet.create({
   menuBtn: {
     padding: 4,
   },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
   title: {
     fontSize: 16,
     fontWeight: '700',
@@ -126,30 +146,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  bellWrapper: {
-    position: 'relative',
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: RED,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    color: WHITE,
-    fontSize: 10,
-    fontWeight: '700',
   },
   divider: {
     width: 1,
@@ -173,7 +169,7 @@ const styles = StyleSheet.create({
     color: TEXT,
   },
   avatarFallback: {
-    backgroundColor: '#0D9488',
+    backgroundColor: '#0F766E',
     alignItems: 'center',
     justifyContent: 'center',
   },

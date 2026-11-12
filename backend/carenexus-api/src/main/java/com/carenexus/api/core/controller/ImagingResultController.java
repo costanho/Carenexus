@@ -168,9 +168,11 @@ public class ImagingResultController {
     @PostMapping("/{id}/review")
     public ResponseEntity<ImagingResultResponse> reviewImagingResult(
             @PathVariable Integer id,
-            @RequestParam String reviewedBy,
+            @RequestParam(required = false) String reviewedBy,
             @RequestParam String status) {
-        ImagingResultResponse response = imagingResultService.reviewImagingResult(id, reviewedBy, status);
+        // reviewedBy is accepted for backwards compatibility but ignored: the reviewer is always the
+        // authenticated doctor (taken from the JWT inside the service).
+        ImagingResultResponse response = imagingResultService.reviewImagingResult(id, status);
         return ResponseEntity.ok(response);
     }
 

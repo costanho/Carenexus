@@ -5,19 +5,18 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { useCurrentUser } from '@/hooks/use-current-user';
 
 const WHITE      = '#FFFFFF';
 const TEXT       = '#111827';
 const GRAY       = '#6B7280';
-const GRAY2      = '#9CA3AF';
+const GRAY2      = '#6B7280';
 const BORDER     = '#E5E7EB';
 const BG         = '#F9FAFB';
 const PURPLE     = '#7C3AED';
 const PURPLE_BG  = '#F5F3FF';
-const GREEN      = '#10B981';
-const ORANGE     = '#F59E0B';
-const RED        = '#EF4444';
+const GREEN      = '#047857';
+const ORANGE     = '#B45309';
+const RED        = '#B91C1C';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +49,10 @@ interface AccessForm {
   can_view_medications:   boolean;
   can_view_lab_results:   boolean;
   can_view_imaging:       boolean;
+  /** Request only: the patient must approve before it takes effect. */
   can_message_care_team:  boolean;
+  /** Request only: the patient must approve before it takes effect. */
+  can_join_calls:         boolean;
   can_view_consultations: boolean;
   can_schedule_appointments: boolean;
   can_manage_care_plan:   boolean;
@@ -58,25 +60,53 @@ interface AccessForm {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function generatePassword(firstName: string, lastName: string) {
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${firstName.charAt(0).toUpperCase()}${lastName.toLowerCase()}@${rand}`;
+// Temporary password: 12 random characters with at least one letter and one digit (backend rule:
+// at least 8 characters with a letter and a number).
+function generatePassword() {
+  const letters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ';
+  const digits  = '23456789';
+  const all     = letters + digits;
+  const pick = (set: string) => {
+    const buf = new Uint32Array(1);
+    if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(buf);
+    else buf[0] = Math.floor(Math.random() * 0xffffffff);
+    return set[buf[0] % set.length];
+  };
+  const chars = [pick(letters), pick(digits), ...Array.from({ length: 10 }, () => pick(all))];
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
+// Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
+// The Y-M-D parts are checked directly: parsing as local midnight and reading back toISOString() shifts the
+// day in any timezone ahead of UTC (e.g. Africa/Harare) and rejected every valid date.
+function isValidDate(value: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
+}
+
+// Messaging and video calls are not part of an access level: they are separate requests the patient approves.
 function permissionsForLevel(level: AccessLevel): Partial<AccessForm> {
   if (level === 'FULL_ACCESS') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   };
   if (level === 'VIEW_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: false, can_message_care_team: false,
+    can_view_lab_results: true, can_view_imaging: false,
     can_view_consultations: true, can_schedule_appointments: false, can_manage_care_plan: false,
   };
   if (level === 'EDIT_ONLY') return {
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: false,
   };
   return {};
@@ -177,7 +207,14 @@ function TagInput({ tags, onAdd, onRemove, placeholder }: {
 
 function PermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <TouchableOpacity style={styles.permRow} activeOpacity={0.7} onPress={() => onChange(!value)}>
+    <TouchableOpacity
+      style={styles.permRow}
+      activeOpacity={0.7}
+      onPress={() => onChange(!value)}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+    >
       <Text style={styles.permLabel}>{label}</Text>
       <View style={[styles.toggle, value && styles.toggleOn]}>
         <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
@@ -223,12 +260,11 @@ export default function PatientProxyWebAddDependent({
   onDone:   () => void;
   onCancel: () => void;
 }) {
-  const { user } = useCurrentUser();
   const [step, setStep] = useState(0);
 
   const [personal, setPersonal] = useState<PersonalForm>({
     first_name: '', last_name: '', email: '', phone: '',
-    password: Math.random().toString(36).slice(2, 10) + 'A1!',
+    password: generatePassword(),
   });
   const [health, setHealth] = useState<HealthForm>({
     date_of_birth: '', gender: '', blood_type: '', health_status: 'STABLE',
@@ -237,7 +273,8 @@ export default function PatientProxyWebAddDependent({
   const [access, setAccess] = useState<AccessForm>({
     relationship: '', access_level: 'FULL_ACCESS', expires_at: '',
     can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: true,
+    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: false,
+    can_join_calls: false,
     can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
   });
 
@@ -267,11 +304,7 @@ export default function PatientProxyWebAddDependent({
   }
 
   function regeneratePassword() {
-    if (!personal.first_name && !personal.last_name) {
-      setP('password', Math.random().toString(36).slice(2, 10) + 'A1!');
-    } else {
-      setP('password', generatePassword(personal.first_name || 'user', personal.last_name || 'care'));
-    }
+    setP('password', generatePassword());
   }
 
   function copyPassword() {
@@ -289,6 +322,8 @@ export default function PatientProxyWebAddDependent({
     if (!personal.email.trim())      e.email      = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(personal.email)) e.email = 'Enter a valid email';
     if (!personal.phone.trim())      e.phone      = 'Phone number is required';
+    if (personal.password.length < 8 || !/[A-Za-z]/.test(personal.password) || !/\d/.test(personal.password))
+      e.password = 'Password must be at least 8 characters and contain a letter and a number';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -296,6 +331,7 @@ export default function PatientProxyWebAddDependent({
   function validateStep2() {
     const e: Record<string, string> = {};
     if (!health.date_of_birth) e.date_of_birth = 'Date of birth is required';
+    else if (!isValidDate(health.date_of_birth)) e.date_of_birth = 'Use the format YYYY-MM-DD';
     if (!health.gender)        e.gender        = 'Gender is required';
     if (!health.blood_type)    e.blood_type    = 'Blood type is required';
     setErrors(e);
@@ -305,6 +341,7 @@ export default function PatientProxyWebAddDependent({
   function validateStep3() {
     const e: Record<string, string> = {};
     if (!access.relationship.trim()) e.relationship = 'Relationship is required';
+    if (access.expires_at.trim() && !isValidDate(access.expires_at.trim())) e.expires_at = 'Use the format YYYY-MM-DD';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -317,60 +354,46 @@ export default function PatientProxyWebAddDependent({
 
   async function handleSubmit() {
     if (!validateStep3()) return;
-    if (!user) return;
     setSubmitting(true);
     setSubmitErr('');
 
     try {
-      // 1. Register user as PATIENT
-      const regRes = await api.post('/api/auth/register', {
-        firstName: personal.first_name.trim(),
-        lastName:  personal.last_name.trim(),
-        email:     personal.email.trim().toLowerCase(),
-        phone:     personal.phone.trim(),
-        password:  personal.password,
-        role:      'patient',
-      });
-      const newUserId = regRes.data.user.user_id;
+      // One atomic call: the backend creates the patient account, the health profile and this caregiver's
+      // access grant in a single transaction (nothing is created if any part fails). The caregiver is taken
+      // from the signed-in session, never from this body.
+      await api.post('/api/caregiver/dependents', {
+        firstName:   personal.first_name.trim(),
+        lastName:    personal.last_name.trim(),
+        email:       personal.email.trim().toLowerCase(),
+        phone:       personal.phone.trim(),
+        password:    personal.password,
 
-      // 2. Create patient health profile
-      const patRes = await api.post('/api/patients', {
-        user_id:            newUserId,
-        date_of_birth:      health.date_of_birth,
-        gender:             health.gender,
-        blood_type:         health.blood_type,
-        health_status:      health.health_status,
-        allergies:          health.allergies,
-        chronic_conditions: health.chronic_conditions,
-      });
-      const newPatientId = patRes.data.patient_id;
+        dateOfBirth:       health.date_of_birth,
+        gender:            health.gender || null,
+        bloodType:         health.blood_type || null,
+        healthStatus:      health.health_status,
+        allergies:         health.allergies,
+        chronicConditions: health.chronic_conditions,
 
-      // 3. Resolve caregiver_id for logged-in user
-      const cgRes    = await api.get(`/api/caregivers/user/${user.user_id}`);
-      const caregiverId = cgRes.data.caregiver_id;
-
-      // 4. Create dependent access record
-      await api.post('/api/dependent-access', {
-        caregiver_id:              caregiverId,
-        patient_id:                newPatientId,
-        relationship:              access.relationship.trim().toLowerCase(),
-        access_level:              access.access_level,
-        can_view_records:          access.can_view_records          ? 1 : 0,
-        can_view_appointments:     access.can_view_appointments     ? 1 : 0,
-        can_view_medications:      access.can_view_medications      ? 1 : 0,
-        can_view_lab_results:      access.can_view_lab_results      ? 1 : 0,
-        can_view_imaging:          access.can_view_imaging          ? 1 : 0,
-        can_message_care_team:     access.can_message_care_team     ? 1 : 0,
-        can_view_consultations:    access.can_view_consultations    ? 1 : 0,
-        can_schedule_appointments: access.can_schedule_appointments ? 1 : 0,
-        can_manage_care_plan:      access.can_manage_care_plan      ? 1 : 0,
-        authorized_by:             user.user_id,
-        expires_at:                access.expires_at.trim() || null,
+        relationship:            access.relationship.trim().toLowerCase(),
+        accessLevel:             access.access_level,
+        expiresAt:               access.expires_at.trim() || null,
+        canViewRecords:          access.can_view_records,
+        canViewAppointments:     access.can_view_appointments,
+        canViewMedications:      access.can_view_medications,
+        canViewLabResults:       access.can_view_lab_results,
+        canViewImaging:          access.can_view_imaging,
+        canMessageCareTeam:      access.can_message_care_team,
+        canJoinCalls:            access.can_join_calls,
+        canViewConsultations:    access.can_view_consultations,
+        canScheduleAppointments: access.can_schedule_appointments,
+        canManageCarePlan:       access.can_manage_care_plan,
       });
 
       setSuccess(true);
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Something went wrong. Please try again.';
+      const msg = err?.response?.data?.message
+        ?? (err?.response ? 'Something went wrong. Please try again.' : 'Unable to reach the server. Please check your connection.');
       setSubmitErr(msg);
     } finally {
       setSubmitting(false);
@@ -398,10 +421,18 @@ export default function PatientProxyWebAddDependent({
             </View>
             <View style={styles.credRow}>
               <Text style={styles.credLabel}>Password</Text>
-              <Text style={styles.credValue}>{personal.password}</Text>
+              <TouchableOpacity
+                onPress={() => setPwVisible(v => !v)}
+                accessibilityRole="button"
+                accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              >
+                <Text style={styles.credValue}>{pwVisible ? personal.password : '••••••••••••'}</Text>
+                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={16} color={GRAY} />
+              </TouchableOpacity>
             </View>
             <Text style={styles.credNote}>
-              Please share these credentials securely with {personal.first_name}. They can change their password on first login.
+              Share these credentials with {personal.first_name} securely, in person or by phone. Do not send the password by email or SMS.
             </Text>
           </View>
 
@@ -423,7 +454,7 @@ export default function PatientProxyWebAddDependent({
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View>
-          <Text style={styles.pageTitle}>Add Loved One</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Add Loved One</Text>
           <Text style={styles.pageSub}>Register a new patient under your proxy care</Text>
         </View>
       </View>
@@ -461,6 +492,7 @@ export default function PatientProxyWebAddDependent({
                 value={personal.password}
                 onChange={v => setP('password', v)}
                 secureTextEntry={!pwVisible}
+                error={errors.password}
                 editable
               />
             </View>
@@ -475,7 +507,7 @@ export default function PatientProxyWebAddDependent({
               <Text style={styles.regenText}>Regenerate</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>This temporary password will be shared with the patient. They can change it after first login.</Text>
+          <Text style={styles.hint}>Share this temporary password securely with the patient.</Text>
         </View>
       )}
 
@@ -557,7 +589,7 @@ export default function PatientProxyWebAddDependent({
             {([
               { value: 'FULL_ACCESS', label: 'Full Access',  sub: 'All permissions enabled',             color: GREEN  },
               { value: 'VIEW_ONLY',   label: 'View Only',    sub: 'Read records, no actions',            color: PURPLE },
-              { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + message + schedule',           color: ORANGE },
+              { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + schedule',                     color: ORANGE },
               { value: 'CUSTOM',      label: 'Custom',        sub: 'Set individual permissions below',   color: GRAY   },
             ] as { value: AccessLevel; label: string; sub: string; color: string }[]).map(opt => (
               <TouchableOpacity
@@ -587,7 +619,6 @@ export default function PatientProxyWebAddDependent({
                 { key: 'can_view_medications',      label: 'View Medications'         },
                 { key: 'can_view_lab_results',      label: 'View Lab Results'         },
                 { key: 'can_view_imaging',          label: 'View Imaging Results'     },
-                { key: 'can_message_care_team',     label: 'Message Care Team'        },
                 { key: 'can_view_consultations',    label: 'View Consultations'       },
                 { key: 'can_schedule_appointments', label: 'Schedule Appointments'    },
                 { key: 'can_manage_care_plan',      label: 'Manage Care Plan'         },
@@ -602,11 +633,28 @@ export default function PatientProxyWebAddDependent({
             </View>
           )}
 
+          {/* Communication requests (any access level) */}
+          <View style={styles.permBox}>
+            <Text style={styles.permBoxTitle}>Messaging and video calls</Text>
+            <PermSwitch
+              label="Request messaging with the care team"
+              value={access.can_message_care_team}
+              onChange={v => setA('can_message_care_team', v)}
+            />
+            <PermSwitch
+              label="Request joining video calls"
+              value={access.can_join_calls}
+              onChange={v => setA('can_join_calls', v)}
+            />
+            <Text style={styles.commNote}>Messaging and video calls need the patient's approval.</Text>
+          </View>
+
           <Label text="Access Expiry Date (optional)" />
           <Input
             value={access.expires_at}
             onChange={v => setA('expires_at', v)}
             placeholder="YYYY-MM-DD (leave blank for no expiry)"
+            error={errors.expires_at}
           />
           <Text style={styles.hint}>Leave blank if this proxy access should not expire.</Text>
         </View>
@@ -665,7 +713,7 @@ const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { padding: 28, paddingBottom: 60, gap: 20, maxWidth: 820, alignSelf: 'center', width: '100%' } as any,
 
-  pageHeader: { gap: 6 },
+  pageHeader: { gap: 6, flexWrap: 'wrap' },
   backBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   backBtnText:{ fontSize: 13, color: GRAY },
   pageTitle:  { fontSize: 24, fontWeight: '700', color: TEXT },
@@ -695,6 +743,7 @@ const styles = StyleSheet.create({
   inputDisabled:{ backgroundColor: BG },
   errorText: { fontSize: 11, color: RED, marginTop: 4 },
   hint:      { fontSize: 11, color: GRAY2, marginTop: -8 },
+  commNote:  { fontSize: 12, color: GRAY, marginTop: 10 },
 
   pwRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pwIconBtn: { width: 38, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BORDER, borderRadius: 10 },

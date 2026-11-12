@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
+import { getUser } from '@/lib/auth/auth.storage';
 
 export interface PatientProfile {
   user_id:             number;
@@ -12,6 +13,7 @@ export interface PatientProfile {
   avatar_url:          string | null;
   user_created_at:     string;
   user_updated_at:     string;
+  /** Legacy numeric id, not returned by the API. Display patient_system_id instead. */
   patient_id:          number | null;
   patient_system_id:   string | null;
   date_of_birth:       string | null;
@@ -45,8 +47,11 @@ export function usePatientProfile(): State {
   useEffect(() => {
     setLoading(true);
 
-    api.get<any>('/api/profile')
-      .then(({ data: d }) => {
+    // The signed-in user's system id (PAT-…) is the patient's public identifier; it fills in
+    // when the profile response leaves patientSystemId out.
+    Promise.all([api.get<any>('/api/profile'), getUser().catch(() => null)])
+      .then(([{ data: d }, stored]) => {
+        const ownSystemId = String(stored?.role ?? '').toLowerCase() === 'patient' ? stored?.system_id ?? null : null;
         setProfile({
           user_id:            d.userId            ?? 0,
           first_name:         d.firstName         ?? '',
@@ -59,7 +64,7 @@ export function usePatientProfile(): State {
           user_created_at:    d.createdAt         ? String(d.createdAt) : '',
           user_updated_at:    d.updatedAt         ? String(d.updatedAt) : '',
           patient_id:         null,
-          patient_system_id:  d.patientSystemId   ?? null,
+          patient_system_id:  d.patientSystemId   ?? ownSystemId,
           date_of_birth:      d.dateOfBirth       ? String(d.dateOfBirth) : null,
           gender:             (d.gender           ?? null) as PatientProfile['gender'],
           blood_type:         d.bloodType         ?? null,

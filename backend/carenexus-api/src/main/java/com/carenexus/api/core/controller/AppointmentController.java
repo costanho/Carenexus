@@ -1,15 +1,20 @@
 package com.carenexus.api.core.controller;
 
+import com.carenexus.api.common.service.AuthorizationService;
 import com.carenexus.api.core.dto.request.CreateAppointmentRequest;
+import com.carenexus.api.core.dto.request.RescheduleAppointmentRequest;
 import com.carenexus.api.core.dto.response.AppointmentResponse;
 import com.carenexus.api.core.service.AppointmentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/appointments")
@@ -17,11 +22,23 @@ import java.util.List;
 public class AppointmentController {
 
     private final AppointmentService appointmentService;
+    private final AuthorizationService authorizationService;
 
+    /**
+     * Book an appointment. Patients book for themselves (patientSystemId may be omitted); caregivers need
+     * appointment-management access to the patient; doctors book related patients into their own schedule.
+     * For VIDEO appointments the server generates the video link.
+     */
     @PostMapping
     public ResponseEntity<AppointmentResponse> createAppointment(@RequestBody CreateAppointmentRequest request) {
         AppointmentResponse response = appointmentService.createAppointment(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /** Clinic booking rules (hours, slot size, durations) the server enforces. */
+    @GetMapping("/booking-rules")
+    public ResponseEntity<Map<String, Object>> getBookingRules() {
+        return ResponseEntity.ok(appointmentService.getBookingRules());
     }
 
     @GetMapping("/{id}")
@@ -32,38 +49,61 @@ public class AppointmentController {
 
     @GetMapping("/patient/{patientSystemId}")
     public ResponseEntity<List<AppointmentResponse>> getPatientAppointments(@PathVariable String patientSystemId) {
-        List<AppointmentResponse> appointments = appointmentService.getAppointmentsByPatientSystemId(patientSystemId);
+        List<AppointmentResponse> appointments = appointmentService.getAppointmentsForPatientAsCaller(patientSystemId);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/doctor/{doctorSystemId}")
     public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(@PathVariable String doctorSystemId) {
+        authorizationService.requireDoctorSelf(doctorSystemId);
         List<AppointmentResponse> appointments = appointmentService.getAppointmentsByDoctorSystemId(doctorSystemId);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/patient/{patientSystemId}/upcoming")
     public ResponseEntity<List<AppointmentResponse>> getUpcomingAppointments(@PathVariable String patientSystemId) {
-        List<AppointmentResponse> appointments = appointmentService.getUpcomingAppointments(patientSystemId);
+        List<AppointmentResponse> appointments = appointmentService.getUpcomingAppointmentsForPatientAsCaller(patientSystemId);
         return ResponseEntity.ok(appointments);
     }
 
     @GetMapping("/doctor/{doctorSystemId}/schedule")
     public ResponseEntity<List<AppointmentResponse>> getDoctorSchedule(
             @PathVariable String doctorSystemId,
-            @RequestParam String start,
-            @RequestParam String end) {
-        LocalDateTime startTime = LocalDateTime.parse(start);
-        LocalDateTime endTime = LocalDateTime.parse(end);
-        List<AppointmentResponse> appointments = appointmentService.getDoctorSchedule(doctorSystemId, startTime, endTime);
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
+        authorizationService.requireDoctorSelf(doctorSystemId);
+        List<AppointmentResponse> appointments = appointmentService.getDoctorSchedule(doctorSystemId, start, end);
         return ResponseEntity.ok(appointments);
     }
 
+    /**
+     * Busy times of a doctor on one day: [{start, end, durationMinutes}] for SCHEDULED/RESCHEDULED appointments.
+     * No patient details. For slot pickers.
+     */
+    @GetMapping("/doctor/{doctorSystemId}/busy")
+    public ResponseEntity<List<Map<String, Object>>> getDoctorBusySlots(
+            @PathVariable String doctorSystemId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(appointmentService.getDoctorBusySlots(doctorSystemId, date));
+    }
+
+    /**
+     * Edit an active appointment. Sending a new scheduledAt reschedules it (status becomes RESCHEDULED).
+     */
     @PutMapping("/{id}")
     public ResponseEntity<AppointmentResponse> updateAppointment(
             @PathVariable Integer id,
             @RequestBody CreateAppointmentRequest request) {
         AppointmentResponse response = appointmentService.updateAppointment(id, request);
+        return ResponseEntity.ok(response);
+    }
+
+    /** Move an active appointment to a new time: body {scheduledAt, durationMinutes?}. */
+    @PatchMapping("/{id}/reschedule")
+    public ResponseEntity<AppointmentResponse> rescheduleAppointment(
+            @PathVariable Integer id,
+            @RequestBody RescheduleAppointmentRequest request) {
+        AppointmentResponse response = appointmentService.rescheduleAppointment(id, request);
         return ResponseEntity.ok(response);
     }
 
@@ -75,6 +115,7 @@ public class AppointmentController {
         return ResponseEntity.ok(response);
     }
 
+    /** Soft cancel: the appointment is kept with status CANCELLED. */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> cancelAppointment(@PathVariable Integer id) {
         appointmentService.cancelAppointment(id);

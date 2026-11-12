@@ -1,8 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
-import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import {
+  useCaregiverActivity,
+  useCaregiverDependents,
+  type CaregiverAppointment,
+  type CaregiverConsultation,
+  type CaregiverDependent,
+} from '@/hooks/use-caregiver-dependents';
+import { useCareTeamConversation } from '@/hooks/use-caregiver-messaging';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { describeCallJoin } from '@/lib/calls/join';
+import { MessageCareTeamButton } from './message-care-team-button';
+import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -12,9 +22,9 @@ const BG     = '#F9FAFB';
 const PURPLE = '#7C3AED';
 const PURPLE_LIGHT = '#EDE9FE';
 const PURPLE_BG    = '#F5F3FF';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -44,9 +54,9 @@ function Card({ title, action, onAction, children, style }: {
   return (
     <View style={[styles.card, style]}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
         {action && (
-          <TouchableOpacity activeOpacity={0.7} onPress={onAction}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button">
             <Text style={styles.cardAction}>{action}</Text>
           </TouchableOpacity>
         )}
@@ -59,23 +69,29 @@ function Card({ title, action, onAction, children, style }: {
 
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
-function ScheduleRow({ time, timeColor = TEXT, title, person, doctor, avatarId }: {
-  time: string; timeColor?: string; title: string; person: string; doctor: string; avatarId: number;
-}) {
+function ScheduleRow({ appt, person, canJoinCalls }: { appt: CaregiverAppointment; person: string; canJoinCalls: boolean }) {
+  const time    = new Date(appt.scheduledAt).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
+  const join    = canJoinCalls ? describeCallJoin(appt, false) : null;
   return (
     <View style={styles.scheduleRow}>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }} style={styles.scheduleAvatar} />
-      <View style={[styles.scheduleTimePill, { borderColor: timeColor === ORANGE ? ORANGE : BORDER }]}>
-        <Text style={[styles.scheduleTime, { color: timeColor }]}>{time}</Text>
+      <View style={[styles.scheduleAvatar, { backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: WHITE, fontSize: 14, fontWeight: '700' }}>{initials(person)}</Text>
+      </View>
+      <View style={[styles.scheduleTimePill, { borderColor: BORDER }]}>
+        <Text style={[styles.scheduleTime, { color: TEXT }]}>{time}</Text>
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.scheduleTitle}>{title}</Text>
+        <Text style={styles.scheduleTitle}>{appt.reasonForVisit ?? 'Appointment'}</Text>
         <Text style={styles.schedulePerson}>{person}</Text>
-        <Text style={styles.scheduleDoctor}>{doctor}</Text>
       </View>
-      <TouchableOpacity style={styles.videoBtn} activeOpacity={0.8}>
-        <Ionicons name="videocam-outline" size={18} color={GREEN} />
-      </TouchableOpacity>
+      <CallJoinButton
+        info={join}
+        withName={person}
+        style={styles.videoBtn}
+        textStyle={styles.videoBtnText}
+        iconSize={16}
+        iconColor={GREEN}
+      />
     </View>
   );
 }
@@ -88,61 +104,31 @@ function UpdateRow({ icon, iconBg, iconColor, title, sub, time }: {
   return (
     <View style={styles.updateRow}>
       <View style={[styles.updateIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={15} color={iconColor} />
+        <Ionicons name={icon} size={15} color={iconColor} importantForAccessibility="no" />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.updateTitle}>{title}</Text>
-        <Text style={styles.updateSub}>{sub}</Text>
+        {sub ? <Text style={styles.updateSub} numberOfLines={1}>{sub}</Text> : null}
       </View>
       <Text style={styles.updateTime}>{time}</Text>
     </View>
   );
 }
 
-// ─── Medication Row ───────────────────────────────────────────────────────────
-
-function MedRow({ name, dose, person, dueTime, dueLabel, dueColor }: {
-  name: string; dose: string; person: string; dueTime: string; dueLabel: string; dueColor: string;
-}) {
-  return (
-    <View style={styles.medRow}>
-      <View style={[styles.updateIcon, { backgroundColor: '#F5F3FF' }]}>
-        <Ionicons name="medical-outline" size={15} color={PURPLE} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.updateTitle}>{name}</Text>
-        <Text style={styles.updateSub}>{dose}</Text>
-        <Text style={styles.updateSub}>{person}</Text>
-      </View>
-      <View style={[styles.duePill, { backgroundColor: dueColor + '20', borderColor: dueColor + '40' }]}>
-        <Text style={[styles.dueTime, { color: dueColor }]}>Due {dueTime}</Text>
-        <Text style={[styles.dueLabel, { color: dueColor }]}>{dueLabel}</Text>
-      </View>
-    </View>
-  );
+function formatShortDate(iso: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-ZW', { day: 'numeric', month: 'short' });
 }
 
-// ─── Care Team Row ────────────────────────────────────────────────────────────
-
-function CareTeamRow({ name, role, avatarId }: { name: string; role: string; avatarId: number }) {
-  return (
-    <View style={styles.careRow}>
-      <Image source={{ uri: `https://i.pravatar.cc/150?img=${avatarId}` }} style={styles.careAvatar} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.careName}>{name}</Text>
-        <Text style={styles.careRole}>{role}</Text>
-      </View>
-      <TouchableOpacity style={styles.messageBtn} activeOpacity={0.8}>
-        <Ionicons name="chatbox-outline" size={13} color={WHITE} />
-        <Text style={styles.messageBtnText}>Message</Text>
-      </TouchableOpacity>
-    </View>
-  );
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -155,7 +141,7 @@ function healthDotColor(s: string | null) {
   if (s === 'STABLE')   return GREEN;
   if (s === 'MONITOR')  return ORANGE;
   if (s === 'CRITICAL') return RED;
-  return '#9CA3AF';
+  return '#6B7280';
 }
 function calcAge(dob: string | null) {
   if (!dob) return '';
@@ -171,7 +157,14 @@ function accessLabel(level: string) {
 
 // ─── Live Loved One Row ───────────────────────────────────────────────────────
 
-function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?: (dep: CaregiverDependent) => void }) {
+function LiveLovedOneRow({ dep, onSelect, compact, message }: {
+  dep: CaregiverDependent;
+  onSelect?: (dep: CaregiverDependent) => void;
+  /** Narrow layout (phones): the stats wrap under the name and the dividers/chevron are hidden. */
+  compact?: boolean;
+  /** "Message Care Team" for this row; omitted when the dashboard cannot open Messages. */
+  message?: { onPress: (dep: CaregiverDependent) => void; busy: boolean; error: string | null };
+}) {
   const name     = dep.patientName ?? 'Unknown';
   const dotColor = healthDotColor(dep.patientHealthStatus);
   const access   = accessLabel(dep.accessLevel);
@@ -181,108 +174,142 @@ function LiveLovedOneRow({ dep, onSelect }: { dep: CaregiverDependent; onSelect?
     ? dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()
     : '';
 
+  // The profile link and "Message Care Team" are sibling buttons (a button inside a button is not operable).
   return (
-    <TouchableOpacity style={styles.lovedOneRow} activeOpacity={0.8} onPress={() => onSelect?.(dep)}>
-      <View style={styles.lovedOneLeft}>
-        <View style={styles.lovedOneAvatarWrapper}>
-          <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+    <View style={styles.lovedOneCard}>
+      <TouchableOpacity
+        style={styles.lovedOneRow}
+        activeOpacity={0.8}
+        onPress={() => onSelect?.(dep)}
+        accessibilityRole="button"
+        accessibilityLabel={`Open profile for ${name}`}
+      >
+        <View style={styles.lovedOneLeft}>
+          <View style={styles.lovedOneAvatarWrapper}>
+            <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
+            </View>
+            <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
           </View>
-          <View style={[styles.lovedOneDot, { backgroundColor: dotColor }]} />
-        </View>
-        <View>
-          <Text style={styles.lovedOneName}>{name}</Text>
-          <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
-            <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
-          </View>
-          {(age || gender) && <Text style={styles.lovedOneMeta}>{[age, gender].filter(Boolean).join(' • ')}</Text>}
-        </View>
-      </View>
-      <View style={styles.lovedOneStats}>
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Health Status</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="heart-outline" size={14} color={dotColor} />
-            <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
-              {dep.patientHealthStatus
-                ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
-                : 'Unknown'}
-            </Text>
+          <View style={{ minWidth: 0 }}>
+            <Text style={styles.lovedOneName}>{name}</Text>
+            <View style={[styles.accessBadge, { backgroundColor: isFullAccess ? '#D1FAE5' : '#FEF3C7' }]}>
+              <Text style={[styles.accessText, { color: isFullAccess ? GREEN : ORANGE }]}>{access}</Text>
+            </View>
+            {(age || gender) && <Text style={styles.lovedOneMeta}>{[age, gender].filter(Boolean).join(' • ')}</Text>}
           </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="water-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
+        <View style={styles.lovedOneStats}>
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Health Status</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="heart-outline" size={14} color={dotColor} />
+              <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
+                {dep.patientHealthStatus
+                  ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
+                  : 'Unknown'}
+              </Text>
+            </View>
+          </View>
+          {!compact && <View style={styles.statDivider} />}
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="water-outline" size={14} color={GRAY} />
+              <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
+            </View>
+          </View>
+          {!compact && <View style={styles.statDivider} />}
+          <View style={styles.lovedOneStat}>
+            <Text style={styles.lovedOneStatLabel}>Relationship</Text>
+            <View style={styles.lovedOneStatVal}>
+              <Ionicons name="people-outline" size={14} color={GRAY} />
+              <Text style={styles.lovedOneStatText}>
+                {dep.relationship
+                  ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+                  : '—'}
+              </Text>
+            </View>
           </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.lovedOneStat}>
-          <Text style={styles.lovedOneStatLabel}>Relationship</Text>
-          <View style={styles.lovedOneStatVal}>
-            <Ionicons name="people-outline" size={14} color={GRAY} />
-            <Text style={styles.lovedOneStatText}>
-              {dep.relationship
-                ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
-                : '—'}
-            </Text>
-          </View>
+        {!compact && <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />}
+      </TouchableOpacity>
+      {message && (
+        <View style={styles.lovedOneActions}>
+          <MessageCareTeamButton compact dependent={dep} onPress={message.onPress} busy={message.busy} error={message.error} />
         </View>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />
-    </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const SHOW_LIMIT = 3;
+const UPDATES_LIMIT = 4;
 
-function useActivityAppointments() {
-  const [upcoming, setUpcoming] = useState<number | null>(null);
-  const [nextSub,  setNextSub]  = useState('');
-
-  useEffect(() => {
-    api.get<{ appointments: { status: string; scheduledAt: string }[] }>('/api/caregiver/dependents/activity')
-      .then(({ data }) => {
-        const now = Date.now();
-        const scheduled = (data.appointments ?? [])
-          .filter(a => a.status === 'SCHEDULED' && new Date(a.scheduledAt).getTime() > now)
-          .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-        setUpcoming(scheduled.length);
-        if (scheduled.length > 0) {
-          const next = new Date(scheduled[0].scheduledAt);
-          setNextSub(`Next: ${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })} ${next.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' })}`);
-        } else {
-          setNextSub('No upcoming');
-        }
-      })
-      .catch(() => { setUpcoming(0); setNextSub(''); });
-  }, []);
-
-  return { upcoming, nextSub };
-}
-
-export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onNavigate?: (key: string) => void; onSelectPatient?: (dep: CaregiverDependent) => void }) {
+export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenThread }: {
+  onNavigate?:      (key: string) => void;
+  onSelectPatient?: (dep: CaregiverDependent) => void;
+  /** Switches the dashboard to Messages on this thread (used by "Message Care Team"). */
+  onOpenThread?:    (threadId: number) => void;
+}) {
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   const isMedium = width >= 768;
-  const { dependents, loading: lovedLoading } = useCaregiverDependents();
+  const careTeam = useCareTeamConversation(onOpenThread);
+  const [errorFor, setErrorFor] = useState<number | null>(null);
+  const messageCareTeam = (dep: CaregiverDependent) => { setErrorFor(dep.accessId); careTeam.open(dep); };
+  const { dependents, loading: lovedLoading, error: lovedError, refetch: refetchLoved } = useCaregiverDependents();
+  const { appointments, consultations, loading: actLoading, error: actError, refetch: refetchActivity } = useCaregiverActivity();
   const [lovedExpanded, setLovedExpanded] = useState(false);
-  const { upcoming: apptCount, nextSub: apptSub } = useActivityAppointments();
+
+  const nameFor = (patientSystemId: string | null, fallback: string | null) =>
+    dependents.find(d => d.patientSystemId === patientSystemId)?.patientName ?? fallback ?? 'Your loved one';
+
+  const { upcoming, todays, nextSub } = useMemo(() => {
+    const now   = new Date();
+    const sched = appointments
+      .filter(a => a.status === 'SCHEDULED')
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+    const future = sched.filter(a => new Date(a.scheduledAt).getTime() > now.getTime());
+    const today  = sched.filter(a => isSameDay(new Date(a.scheduledAt), now));
+    let sub = 'No upcoming';
+    if (future.length > 0) {
+      const next = new Date(future[0].scheduledAt);
+      sub = `Next: ${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })} ${next.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return { upcoming: future.length, todays: today, nextSub: sub };
+  }, [appointments]);
+
+  const recentConsultations = useMemo(
+    () => [...consultations]
+      .sort((a, b) => new Date(b.completedAt ?? b.startedAt ?? b.createdAt ?? 0).getTime()
+                    - new Date(a.completedAt ?? a.startedAt ?? a.createdAt ?? 0).getTime())
+      .slice(0, UPDATES_LIMIT),
+    [consultations],
+  );
+
+  const consultTitle = (c: CaregiverConsultation) =>
+    c.status === 'COMPLETED' ? 'Consultation completed' : 'Consultation recorded';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
       {/* Stat Cards */}
       <View style={styles.statsRow}>
-        <StatCard icon="calendar-outline"      iconBg="#EDE9FE" iconColor={PURPLE} label="Upcoming Appointments" value={apptCount === null ? '…' : String(apptCount)} sub={apptSub} />
-        <StatCard icon="medical-outline"       iconBg="#D1FAE5" iconColor={GREEN}  label="Medications Due"       value="3" sub="Today" />
-        <StatCard icon="flask-outline"         iconBg="#FEF3C7" iconColor={ORANGE} label="Pending Results"       value="1" sub="Awaiting Review" />
-        <StatCard icon="chatbox-outline"       iconBg="#EDE9FE" iconColor={PURPLE} label="Unread Messages"       value="2" sub="From Care Team" />
-        <StatCard icon="warning-outline"       iconBg="#FEE2E2" iconColor={RED}    label="Alerts"                value="1" sub="Requires Attention" subColor={RED} />
+        <StatCard
+          icon="calendar-outline" iconBg="#EDE9FE" iconColor={PURPLE}
+          label="Upcoming Appointments"
+          value={actLoading ? '…' : actError ? '—' : String(upcoming)}
+          sub={actLoading ? '' : actError ? 'Unavailable' : nextSub}
+        />
+        <StatCard
+          icon="people-outline" iconBg="#D1FAE5" iconColor={GREEN}
+          label="Loved Ones"
+          value={lovedLoading ? '…' : lovedError ? '—' : String(dependents.length)}
+          sub={lovedLoading ? '' : lovedError ? 'Unavailable' : 'Linked to your account'}
+        />
       </View>
 
       {/* Top row: Loved One Overview + Today's Schedule */}
@@ -290,7 +317,9 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
         {/* Loved One Overview — live data */}
         <Card title="Loved One Overview" style={[styles.colWide, !isLarge && styles.colFull]}>
           {lovedLoading ? (
-            <ActivityIndicator size="small" color={PURPLE} style={{ marginVertical: 16 }} />
+            <LoadingState compact label="Loading loved ones" />
+          ) : lovedError ? (
+            <ErrorState compact message={lovedError} onRetry={refetchLoved} />
           ) : dependents.length === 0 ? (
             <Text style={{ fontSize: 13, color: GRAY, padding: 8 }}>No linked patients yet.</Text>
           ) : (
@@ -298,7 +327,16 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
               {(lovedExpanded ? dependents : dependents.slice(0, SHOW_LIMIT)).map((dep, i) => (
                 <View key={dep.accessId}>
                   {i > 0 && <View style={styles.sep} />}
-                  <LiveLovedOneRow dep={dep} onSelect={onSelectPatient} />
+                  <LiveLovedOneRow
+                    dep={dep}
+                    onSelect={onSelectPatient}
+                    compact={!isMedium}
+                    message={onOpenThread ? {
+                      onPress: messageCareTeam,
+                      busy:    careTeam.openingFor === dep.accessId,
+                      error:   errorFor === dep.accessId ? careTeam.error : null,
+                    } : undefined}
+                  />
                 </View>
               ))}
               {dependents.length > SHOW_LIMIT && (
@@ -306,8 +344,10 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingTop: 12 }}
                   activeOpacity={0.7}
                   onPress={() => setLovedExpanded(e => !e)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: lovedExpanded }}
                 >
-                  <Ionicons name={lovedExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} />
+                  <Ionicons name={lovedExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} importantForAccessibility="no" />
                   <Text style={styles.viewAllText}>
                     {lovedExpanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
                   </Text>
@@ -315,64 +355,78 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
               )}
             </>
           )}
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')}>
-            <Text style={styles.viewAllText}>View appointments →</Text>
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('health-summary')} accessibilityRole="button">
+            <Text style={styles.viewAllText}>View health summary →</Text>
           </TouchableOpacity>
         </Card>
 
-        {/* Today's Schedule */}
-        <Card title="Today's Schedule" action="View Calendar" style={[styles.colNarrow, !isLarge && styles.colFull]}>
-          <ScheduleRow time="10:30 AM" title="Follow-up Consultation" person="Mary Davis (Mom)"  doctor="Dr. Matt (Physician)" avatarId={47} />
-          <View style={styles.sep} />
-          <ScheduleRow time="02:00 PM" timeColor={ORANGE} title="Lab Review"             person="Mary Davis (Mom)"  doctor="Dr. Matt (Physician)" avatarId={47} />
-          <View style={styles.sep} />
-          <ScheduleRow time="04:30 PM" title="Blood Pressure Check"   person="Robert Davis (Dad)" doctor="Care Nurse"          avatarId={15} />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')}>
+        {/* Today's Schedule — from caregiver activity */}
+        <Card title="Today's Schedule" action="View all" onAction={() => onNavigate?.('appointments')} style={[styles.colNarrow, !isLarge && styles.colFull]}>
+          {actLoading ? (
+            <LoadingState compact label="Loading schedule" />
+          ) : actError ? (
+            <ErrorState compact message={actError} onRetry={refetchActivity} />
+          ) : todays.length === 0 ? (
+            <EmptyState compact icon="calendar-outline" title="Nothing scheduled today" />
+          ) : (
+            todays.map((a, i) => (
+              <View key={a.appointmentId}>
+                {i > 0 && <View style={styles.sep} />}
+                <ScheduleRow
+                  appt={a}
+                  person={nameFor(a.patientSystemId, a.patientName)}
+                  canJoinCalls={dependents.some(d => d.patientSystemId === a.patientSystemId && d.joinCallsAllowed)}
+                />
+              </View>
+            ))
+          )}
+          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')} accessibilityRole="button">
             <Text style={styles.viewAllText}>View all appointments →</Text>
           </TouchableOpacity>
         </Card>
       </View>
 
-      {/* Bottom row: Recent Updates + Medications + Care Team */}
+      {/* Bottom row: Recent Updates (consultations) + quick links */}
       <View style={[styles.row, isMedium && styles.rowHorizontal]}>
-        {/* Recent Updates */}
-        <Card title="Recent Updates" action="View all" onAction={() => onNavigate?.('documents-results')} style={[styles.colThird, !isMedium && styles.colFull]}>
-          <UpdateRow icon="document-text-outline" iconBg="#EDE9FE" iconColor={PURPLE} title="Dr. Matt sent consultation summary" sub="Mary Davis • 24 May 2024"    time="2 hrs ago"  />
-          <View style={styles.sep} />
-          <UpdateRow icon="medkit-outline"         iconBg="#FEF3C7" iconColor={ORANGE} title="New prescription issued"            sub="Mary Davis • Amlodipine 5mg"  time="3 hrs ago"  />
-          <View style={styles.sep} />
-          <UpdateRow icon="flask-outline"          iconBg="#D1FAE5" iconColor={GREEN}  title="Lab results uploaded"               sub="Mary Davis • Blood Test"       time="1 day ago"  />
-          <View style={styles.sep} />
-          <UpdateRow icon="chatbox-outline"        iconBg="#EDE9FE" iconColor={PURPLE} title="Message from Dr. Matt"              sub='"Please ensure medication is taken daily."' time="2 days ago" />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('documents-results')}>
-            <Text style={styles.viewAllText}>View all updates →</Text>
-          </TouchableOpacity>
+        <Card title="Recent Consultations" style={[styles.colWide, !isMedium && styles.colFull]}>
+          {actLoading ? (
+            <LoadingState compact label="Loading recent consultations" />
+          ) : actError ? (
+            <ErrorState compact message={actError} onRetry={refetchActivity} />
+          ) : recentConsultations.length === 0 ? (
+            <EmptyState compact icon="document-text-outline" title="No recent consultations" />
+          ) : (
+            recentConsultations.map((c, i) => (
+              <View key={c.consultationId}>
+                {i > 0 && <View style={styles.sep} />}
+                <UpdateRow
+                  icon="document-text-outline" iconBg="#EDE9FE" iconColor={PURPLE}
+                  title={consultTitle(c)}
+                  sub={[nameFor(c.patientSystemId, c.patientName), c.chiefComplaint].filter(Boolean).join(' • ')}
+                  time={formatShortDate(c.completedAt ?? c.startedAt ?? c.createdAt)}
+                />
+              </View>
+            ))
+          )}
         </Card>
 
-        {/* Medications */}
-        <Card title="Medications" action="View all" onAction={() => onNavigate?.('medications')} style={[styles.colThird, !isMedium && styles.colFull]}>
-          <MedRow name="Amlodipine 5mg"   dose="1 tablet • Once daily"   person="Mary Davis (Mom)" dueTime="08:00 AM" dueLabel="Today" dueColor={GREEN}  />
-          <View style={styles.sep} />
-          <MedRow name="Metformin 500mg"  dose="1 tablet • Twice daily"  person="Mary Davis (Mom)" dueTime="08:00 AM" dueLabel="Today" dueColor={GREEN}  />
-          <View style={styles.sep} />
-          <MedRow name="Atorvastatin 20mg" dose="1 tablet • At night"    person="Mary Davis (Mom)" dueTime="08:00 PM" dueLabel="Today" dueColor={PURPLE} />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('medications')}>
-            <Text style={styles.viewAllText}>View all medications →</Text>
-          </TouchableOpacity>
-        </Card>
-
-        {/* Care Team */}
-        <Card title="Care Team" action="View all" style={[styles.colThird, !isMedium && styles.colFull]}>
-          <CareTeamRow name="Dr. Matt"          role="Physician"   avatarId={12} />
-          <View style={styles.sep} />
-          <CareTeamRow name="Nurse Clara"        role="Care Nurse"  avatarId={32} />
-          <View style={styles.sep} />
-          <CareTeamRow name="Lab Support"        role="Laboratory"  avatarId={22} />
-          <View style={styles.sep} />
-          <CareTeamRow name="Pharmacy Support"   role="Pharmacist"  avatarId={55} />
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7}>
-            <Text style={styles.viewAllText}>View full care team →</Text>
-          </TouchableOpacity>
+        <Card title="Records" style={[styles.colNarrow, !isMedium && styles.colFull]}>
+          {[
+            { key: 'medications',       label: 'Medications',         icon: 'medical-outline' as IoniconsName },
+            { key: 'documents-results', label: 'Documents & Results', icon: 'flask-outline' as IoniconsName },
+            { key: 'health-summary',    label: 'Health Summary',      icon: 'heart-outline' as IoniconsName },
+          ].map((l, i) => (
+            <View key={l.key}>
+              {i > 0 && <View style={styles.sep} />}
+              <TouchableOpacity style={styles.linkRow} activeOpacity={0.7} onPress={() => onNavigate?.(l.key)} accessibilityRole="button">
+                <View style={[styles.updateIcon, { backgroundColor: PURPLE_BG }]}>
+                  <Ionicons name={l.icon} size={15} color={PURPLE} importantForAccessibility="no" />
+                </View>
+                <Text style={[styles.updateTitle, { flex: 1 }]}>{l.label}</Text>
+                <Ionicons name="chevron-forward" size={16} color={GRAY} importantForAccessibility="no" />
+              </TouchableOpacity>
+            </View>
+          ))}
         </Card>
       </View>
 
@@ -380,19 +434,21 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient }: { onN
       {dependents.length > 0 && (
       <View style={styles.banner}>
         <View style={styles.bannerIconWrapper}>
-          <Ionicons name="shield-outline" size={28} color={PURPLE} />
+          <Ionicons name="shield-outline" size={28} color={PURPLE} importantForAccessibility="no" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.bannerTitle}>
-            You are a {accessLabel(dependents[0].accessLevel)} Proxy for {dependents[0].patientName ?? 'your loved one'}
+            {dependents.length === 1
+              ? `You are a ${accessLabel(dependents[0].accessLevel)} proxy for ${dependents[0].patientName ?? 'your loved one'}`
+              : `You are a proxy for ${dependents.length} loved ones`}
           </Text>
           <Text style={styles.bannerSub}>
-            You can view health info, appointments, medications, results and communicate with the care team. You can also join consultations when permitted.
+            Depending on the permissions each loved one has granted, you can view their appointments, prescriptions, lab results and health profile.
           </Text>
         </View>
-        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8} onPress={() => onNavigate?.('profile-settings')}>
-          <Ionicons name="people-outline" size={15} color={PURPLE} />
-          <Text style={styles.manageBtnText}>Manage Permissions</Text>
+        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8} onPress={() => onNavigate?.('profile-settings')} accessibilityRole="button">
+          <Ionicons name="people-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+          <Text style={styles.manageBtnText}>View Access</Text>
         </TouchableOpacity>
       </View>
       )}
@@ -408,9 +464,9 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 40, gap: 20 },
 
   // Stat cards
-  statsRow: { flexDirection: 'row', gap: 12 },
+  statsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   statCard: {
-    flex: 1, backgroundColor: WHITE,
+    flexGrow: 1, flexBasis: 150, backgroundColor: WHITE,
     borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16,
   },
   statIconBg: { width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
@@ -424,7 +480,9 @@ const styles = StyleSheet.create({
   colWide:       { flex: 1.4 },
   colNarrow:     { flex: 1 },
   colThird:      { flex: 1 },
-  colFull:       { flex: undefined },
+  // Stacked columns size to their content. `flex: undefined` did not reset flex: 1.4 on web, so the
+  // cards shrank to a share of the column and the next card sat on top of their overflowing rows.
+  colFull:       { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
 
   // Card
   card: {
@@ -441,11 +499,13 @@ const styles = StyleSheet.create({
   viewAllText: { fontSize: 13, color: PURPLE, fontWeight: '500' },
 
   // Loved one
+  // The row wraps: on a phone the stats move under the name instead of running past the screen edge.
+  lovedOneCard: { backgroundColor: BG, borderRadius: 12, padding: 14, gap: 12 },
   lovedOneRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: BG, borderRadius: 12, padding: 14,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, minWidth: 0,
   },
-  lovedOneLeft:         { width: 180 },
+  lovedOneActions:      { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, minWidth: 0 },
+  lovedOneLeft:         { flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 },
   lovedOneAvatarWrapper:{ position: 'relative', marginBottom: 6 },
   lovedOneAvatar:       { width: 52, height: 52, borderRadius: 26, backgroundColor: BORDER },
   lovedOneDot: {
@@ -457,11 +517,11 @@ const styles = StyleSheet.create({
   accessText:      { fontSize: 11, fontWeight: '600' },
   lovedOneMeta:    { fontSize: 12, color: GRAY },
   lovedOneUpdated: { fontSize: 11, color: GRAY, marginTop: 2 },
-  lovedOneStats:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lovedOneStat:    { flex: 1 },
+  lovedOneStats:   { flexGrow: 2, flexShrink: 1, flexBasis: 240, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
+  lovedOneStat:    { flexGrow: 1, flexShrink: 1, flexBasis: 72, minWidth: 0 },
   lovedOneStatLabel: { fontSize: 11, color: GRAY, marginBottom: 4 },
-  lovedOneStatVal: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  lovedOneStatText:{ fontSize: 13, fontWeight: '600', color: TEXT },
+  lovedOneStatVal: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+  lovedOneStatText:{ fontSize: 13, fontWeight: '600', color: TEXT, flexShrink: 1 },
   lovedOneStatSub: { fontSize: 11, color: GRAY },
   statDivider:     { width: 1, height: 40, backgroundColor: BORDER },
 
@@ -475,36 +535,22 @@ const styles = StyleSheet.create({
   scheduleTime:   { fontSize: 12, fontWeight: '700' },
   scheduleTitle:  { fontSize: 13, fontWeight: '700', color: TEXT },
   schedulePerson: { fontSize: 12, color: GRAY, marginTop: 1 },
-  scheduleDoctor: { fontSize: 12, color: GRAY },
   videoBtn: {
-    width: 36, height: 36, borderRadius: 8, borderWidth: 1,
+    flexDirection: 'row', gap: 4, minHeight: 36, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10,
     borderColor: GREEN + '50', backgroundColor: GREEN + '15',
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+  videoBtnText: { fontSize: 12, fontWeight: '600', color: GREEN },
 
   // Updates & Meds
   updateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  medRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  linkRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
   updateIcon:{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   updateTitle:{ fontSize: 13, fontWeight: '600', color: TEXT },
   updateSub:  { fontSize: 11, color: GRAY, marginTop: 1 },
   updateTime: { fontSize: 11, color: GRAY },
-  duePill: {
-    borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, alignItems: 'center',
-  },
-  dueTime:  { fontSize: 11, fontWeight: '700' },
-  dueLabel: { fontSize: 10, fontWeight: '500' },
 
   // Care team
-  careRow:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  careAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: BORDER },
-  careName:   { fontSize: 14, fontWeight: '600', color: TEXT },
-  careRole:   { fontSize: 12, color: GRAY, marginTop: 1 },
-  messageBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: PURPLE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
-  },
-  messageBtnText: { fontSize: 12, color: WHITE, fontWeight: '600' },
 
   // Banner
   banner: {

@@ -10,20 +10,22 @@ import {
   View,
 } from 'react-native';
 import { api } from '@/lib/auth/auth.interceptor';
-import { type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { caregiverErrorMessage, caregiverSaveErrorMessage, parseList, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
+import { caregiverCallsStatus, caregiverMessagingState, useCareTeamConversation } from '@/hooks/use-caregiver-messaging';
+import { MessageCareTeamButton } from './message-care-team-button';
 
 const WHITE        = '#FFFFFF';
 const TEXT         = '#111827';
 const GRAY         = '#6B7280';
-const GRAY2        = '#9CA3AF';
+const GRAY2        = '#6B7280';
 const BORDER       = '#E5E7EB';
 const BG           = '#F9FAFB';
 const PURPLE       = '#7C3AED';
 const PURPLE_BG    = '#F5F3FF';
 const PURPLE_LIGHT = '#EDE9FE';
-const GREEN        = '#10B981';
-const ORANGE       = '#F59E0B';
-const RED          = '#EF4444';
+const GREEN        = '#047857';
+const ORANGE       = '#B45309';
+const RED          = '#B91C1C';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type AccessLevel  = 'FULL_ACCESS' | 'VIEW_ONLY' | 'EDIT_ONLY' | 'CUSTOM';
@@ -43,7 +45,7 @@ interface PatientDetail {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#4F46E5','#0D9488','#F59E0B','#EF4444','#8B5CF6','#10B981','#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5','#0F766E','#B45309','#B91C1C','#6D28D9','#047857','#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -91,11 +93,60 @@ function accessLabel(level: string) {
   if (level === 'CUSTOM')      return 'Custom';
   return level;
 }
+// Messaging and video calls are NOT part of an access level: only the patient can turn them on (see CommStatusRow).
 function permissionsForLevel(level: AccessLevel) {
-  if (level === 'FULL_ACCESS') return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:true };
-  if (level === 'VIEW_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:false,canMessageCareTeam:false,canViewConsultations:true,canScheduleAppointments:false,canManageCarePlan:false };
-  if (level === 'EDIT_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canMessageCareTeam:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:false };
+  if (level === 'FULL_ACCESS') return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:true };
+  if (level === 'VIEW_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:false,canViewConsultations:true,canScheduleAppointments:false,canManageCarePlan:false };
+  if (level === 'EDIT_ONLY')   return { canViewRecords:true,canViewAppointments:true,canViewMedications:true,canViewLabResults:true,canViewImaging:true,canViewConsultations:true,canScheduleAppointments:true,canManageCarePlan:false };
   return {};
+}
+
+/** Messaging / joining calls for the caregiver: effective now, waiting for the patient (pendingApproval), or off. */
+type CommState = 'ALLOWED' | 'WAITING' | 'NOT_ALLOWED';
+
+function commLabel(state: CommState, patientFirstName: string) {
+  if (state === 'ALLOWED') return 'Allowed';
+  if (state === 'WAITING') return `Waiting for ${patientFirstName} to approve`;
+  return 'Not allowed';
+}
+
+function CommStatusRow({ icon, label, state, patientFirstName }: {
+  icon: IoniconsName; label: string; state: CommState; patientFirstName: string;
+}) {
+  const color = state === 'ALLOWED' ? GREEN : state === 'WAITING' ? ORANGE : GRAY;
+  const bg    = state === 'ALLOWED' ? '#D1FAE5' : state === 'WAITING' ? '#FEF3C7' : '#F3F4F6';
+  return (
+    <View style={styles.commRow} accessible accessibilityLabel={`${label}: ${commLabel(state, patientFirstName)}`}>
+      <Ionicons name={icon} size={16} color={GRAY} importantForAccessibility="no" />
+      <Text style={styles.commRowLabel}>{label}</Text>
+      <View style={[styles.badge, { backgroundColor: bg }]}>
+        <Text style={[styles.badgeText, { color }]}>{commLabel(state, patientFirstName)}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Off-only switch: the caregiver can turn a communication permission off, never on. */
+function ECommSwitch({ label, value, canTurnOn, onChange }: {
+  label: string; value: boolean; canTurnOn: boolean; onChange: (v: boolean) => void;
+}) {
+  const disabled = !value && !canTurnOn;
+  return (
+    <TouchableOpacity
+      style={[styles.permRow, disabled && { opacity: 0.5 }]}
+      onPress={() => { if (!disabled) onChange(!value); }}
+      disabled={disabled}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value, disabled }}
+    >
+      <Text style={styles.permLabel}>{label}</Text>
+      <View style={[styles.toggle, value && styles.toggleOn]}>
+        <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
+      </View>
+    </TouchableOpacity>
+  );
 }
 
 // ─── Small edit components ────────────────────────────────────────────────────
@@ -150,7 +201,7 @@ function ETagInput({ tags, onAdd, onRemove, placeholder }: {
         {tags.map((t, i) => (
           <View key={i} style={styles.tagChip}>
             <Text style={styles.tagChipText}>{t}</Text>
-            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }}>
+            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top:6,right:6,bottom:6,left:6 }} accessibilityRole="button" accessibilityLabel={`Remove ${t}`}>
               <Ionicons name="close" size={11} color={PURPLE} />
             </TouchableOpacity>
           </View>
@@ -170,7 +221,14 @@ function ETagInput({ tags, onAdd, onRemove, placeholder }: {
 
 function EPermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <TouchableOpacity style={styles.permRow} onPress={() => onChange(!value)} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.permRow}
+      onPress={() => onChange(!value)}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+    >
       <Text style={styles.permLabel}>{label}</Text>
       <View style={[styles.toggle, value && styles.toggleOn]}>
         <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
@@ -183,7 +241,7 @@ function SectionCard({ title, children, editAction }: { title: string; children:
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">{title}</Text>
         {editAction}
       </View>
       {children}
@@ -214,12 +272,19 @@ function PermTile({ icon, label, granted }: { icon: IoniconsName; label: string;
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function PatientProxyWebProfile({
-  dependent,
+  dependent: initialDependent,
   onBack,
+  onNavigate,
+  onOpenThread,
 }: {
   dependent: CaregiverDependent;
   onBack: () => void;
+  onNavigate?: (key: string) => void;
+  /** Switches the dashboard to Messages on this thread (used by "Message Care Team"). */
+  onOpenThread?: (threadId: number) => void;
 }) {
+  // Local copy so a successful access PATCH is reflected immediately.
+  const [dependent,  setDependent]  = useState<CaregiverDependent>(initialDependent);
   const [patient,    setPatient]    = useState<PatientDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -249,12 +314,20 @@ export default function PatientProxyWebProfile({
   const [aExpires,  setAExpires]  = useState('');
   const [aPerms, setAPerms] = useState({
     canViewRecords:true, canViewAppointments:true, canViewMedications:true,
-    canViewLabResults:true, canViewImaging:true, canMessageCareTeam:true,
+    canViewLabResults:true, canViewImaging:true,
     canViewConsultations:true, canScheduleAppointments:true, canManageCarePlan:true,
   });
+  // Communication requests: can only be turned off here
+  const [aComm, setAComm] = useState({ canMessageCareTeam: false, canJoinCalls: false });
+  const careTeam = useCareTeamConversation(onOpenThread);
+
+  useEffect(() => {
+    setDependent(initialDependent);
+  }, [initialDependent]);
 
   useEffect(() => {
     setLoading(true);
+    setFetchError(null);
     api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`)
       .then(({ data }) => {
         setPatient(data);
@@ -265,10 +338,10 @@ export default function PatientProxyWebProfile({
         setHGender((data.gender as Gender) ?? 'MALE');
         setHBlood((data.bloodType as BloodType) ?? 'A+');
         setHStatus((data.healthStatus as HealthStat) ?? 'STABLE');
-        setHAllergies(JSON.parse(data.allergies || '[]'));
-        setHConditions(JSON.parse(data.chronicConditions || '[]'));
+        setHAllergies(parseList(data.allergies));
+        setHConditions(parseList(data.chronicConditions));
       })
-      .catch(() => setFetchError('Could not load full patient details. Showing available data.'))
+      .catch(err => setFetchError(caregiverErrorMessage(err, 'Could not load full patient details. Showing available data.')))
       .finally(() => setLoading(false));
 
     setALevel(dependent.accessLevel as AccessLevel);
@@ -279,12 +352,22 @@ export default function PatientProxyWebProfile({
       canViewMedications:      dependent.canViewMedications,
       canViewLabResults:       dependent.canViewLabResults,
       canViewImaging:          dependent.canViewImaging,
-      canMessageCareTeam:      dependent.canMessageCareTeam,
       canViewConsultations:    dependent.canViewConsultations,
       canScheduleAppointments: dependent.canScheduleAppointments,
       canManageCarePlan:       dependent.canManageCarePlan,
     });
+    setAComm({
+      canMessageCareTeam: !!dependent.canMessageCareTeam,
+      canJoinCalls:       !!dependent.canJoinCalls,
+    });
   }, [dependent.patientSystemId]);
+
+  function startEditingAccess() {
+    setSaveError('');
+    // Always start from the saved values so an off-only switch never re-sends a stale "on"
+    setAComm({ canMessageCareTeam: !!dependent.canMessageCareTeam, canJoinCalls: !!dependent.canJoinCalls });
+    setEditingAccess(true);
+  }
 
   function changeAccessLevel(level: AccessLevel) {
     setALevel(level);
@@ -299,7 +382,7 @@ export default function PatientProxyWebProfile({
       const { data } = await api.get<PatientDetail>(`/api/profile/user/${dependent.patientSystemId}`);
       setPatient(data);
       setEditingPersonal(false);
-    } catch { setSaveError('Failed to save personal details.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save personal details.')); }
     finally { setSaving(false); }
   }
 
@@ -312,14 +395,14 @@ export default function PatientProxyWebProfile({
       });
       setPatient(data);
       setEditingHealth(false);
-    } catch { setSaveError('Failed to save health profile.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save health profile.')); }
     finally { setSaving(false); }
   }
 
   async function saveAccess() {
     setSaving(true); setSaveError('');
     try {
-      await api.patch(`/api/caregiver/dependents/${dependent.accessId}`, {
+      const { data } = await api.patch<CaregiverDependent>(`/api/caregiver/dependents/${dependent.accessId}`, {
         accessLevel:              aLevel,
         expiresAt:                aExpires.trim() || null,
         canViewRecords:           aPerms.canViewRecords,
@@ -327,18 +410,20 @@ export default function PatientProxyWebProfile({
         canViewMedications:       aPerms.canViewMedications,
         canViewLabResults:        aPerms.canViewLabResults,
         canViewImaging:           aPerms.canViewImaging,
-        canMessageCareTeam:       aPerms.canMessageCareTeam,
+        // Only ever narrowed here: a value can be true only if it already was
+        canMessageCareTeam:       aComm.canMessageCareTeam && !!dependent.canMessageCareTeam,
+        canJoinCalls:             aComm.canJoinCalls && !!dependent.canJoinCalls,
         canViewConsultations:     aPerms.canViewConsultations,
         canScheduleAppointments:  aPerms.canScheduleAppointments,
         canManageCarePlan:        aPerms.canManageCarePlan,
       });
+      if (data) setDependent(prev => ({ ...prev, ...data }));
       setEditingAccess(false);
-    } catch { setSaveError('Failed to save access settings.'); }
+    } catch (err) { setSaveError(caregiverSaveErrorMessage(err, 'Failed to save access settings.')); }
     finally { setSaving(false); }
   }
 
   const name       = patient ? `${patient.firstName} ${patient.lastName}` : dependent.patientName ?? 'Unknown Patient';
-  const avatarUri  = null;
   const status     = patient?.healthStatus ?? dependent.patientHealthStatus ?? null;
   const dob        = patient?.dateOfBirth ?? dependent.patientDateOfBirth;
   const gender     = patient?.gender ?? dependent.patientGender;
@@ -346,13 +431,16 @@ export default function PatientProxyWebProfile({
   const email      = patient?.email ?? dependent.patientEmail;
   const phone      = patient?.phone;
   const createdAt  = patient?.createdAt;
-  const allergies  = patient ? JSON.parse(patient.allergies || '[]') : [];
-  const conditions = patient ? JSON.parse(patient.chronicConditions || '[]') : [];
+  const allergies  = parseList(patient?.allergies);
+  const conditions = parseList(patient?.chronicConditions);
 
   const sc  = healthColors(status);
   const dc  = dotColor(status);
   const lc  = accessColors(dependent.accessLevel);
   const currentALevel = aLevel;
+  const patientFirstName = (patient?.firstName ?? dependent.patientName?.split(' ')[0] ?? '').trim() || 'the patient';
+  const messagingState: CommState = caregiverMessagingState(dependent).status;
+  const callsState:     CommState = caregiverCallsStatus(dependent);
   const currentLc     = accessColors(currentALevel);
 
   const PERMS: { key: keyof typeof aPerms; icon: IoniconsName; label: string }[] = [
@@ -361,7 +449,6 @@ export default function PatientProxyWebProfile({
     { key: 'canViewMedications',      icon: 'medical-outline',       label: 'Medications'       },
     { key: 'canViewLabResults',       icon: 'flask-outline',         label: 'Lab Results'       },
     { key: 'canViewImaging',          icon: 'scan-outline',          label: 'Imaging'           },
-    { key: 'canMessageCareTeam',      icon: 'chatbox-outline',       label: 'Message Team'      },
     { key: 'canViewConsultations',    icon: 'people-outline',        label: 'Consultations'     },
     { key: 'canScheduleAppointments', icon: 'add-circle-outline',    label: 'Schedule'          },
     { key: 'canManageCarePlan',       icon: 'clipboard-outline',     label: 'Manage Care Plan'  },
@@ -372,11 +459,11 @@ export default function PatientProxyWebProfile({
 
       {/* Back + title */}
       <View style={styles.pageHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={18} color={PURPLE} />
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityRole="button">
+          <Ionicons name="arrow-back-outline" size={18} color={PURPLE} importantForAccessibility="no" />
           <Text style={styles.backText}>Back to Dashboard</Text>
         </TouchableOpacity>
-        <Text style={styles.pageTitle}>Patient Profile</Text>
+        <Text style={styles.pageTitle} accessibilityRole="header">Patient Profile</Text>
         <Text style={styles.pageSub}>Proxy access overview for this patient</Text>
       </View>
 
@@ -404,12 +491,9 @@ export default function PatientProxyWebProfile({
         </View>
         <View style={styles.heroBody}>
           <View style={styles.heroAvatarWrap}>
-            {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={styles.heroAvatar} />
-              : <View style={[styles.heroAvatar, { backgroundColor: avatarColor(name), alignItems:'center', justifyContent:'center' }]}>
-                  <Text style={styles.heroInitials}>{initials(name)}</Text>
-                </View>
-            }
+            <View style={[styles.heroAvatar, { backgroundColor: avatarColor(name), alignItems:'center', justifyContent:'center' }]}>
+              <Text style={styles.heroInitials}>{initials(name)}</Text>
+            </View>
             <View style={[styles.heroDot, { backgroundColor: dc }]} />
           </View>
           <View style={styles.heroInfo}>
@@ -446,7 +530,7 @@ export default function PatientProxyWebProfile({
         title="Personal Details"
         editAction={
           !editingPersonal
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingPersonal(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingPersonal(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit personal details">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -494,7 +578,7 @@ export default function PatientProxyWebProfile({
         title="Health Profile"
         editAction={
           !editingHealth
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingHealth(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingHealth(true); }} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit health profile">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -572,7 +656,7 @@ export default function PatientProxyWebProfile({
         title="Your Access"
         editAction={
           !editingAccess
-            ? <TouchableOpacity style={styles.editBtn} onPress={() => { setSaveError(''); setEditingAccess(true); }} activeOpacity={0.7}>
+            ? <TouchableOpacity style={styles.editBtn} onPress={startEditingAccess} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Edit your access">
                 <Ionicons name="pencil-outline" size={14} color={PURPLE} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </TouchableOpacity>
@@ -587,7 +671,7 @@ export default function PatientProxyWebProfile({
                 {([
                   { value:'FULL_ACCESS', label:'Full Access',  sub:'All permissions enabled',         color:GREEN  },
                   { value:'VIEW_ONLY',   label:'View Only',    sub:'Read records, no actions',        color:PURPLE },
-                  { value:'EDIT_ONLY',   label:'Edit Only',    sub:'View + message + schedule',       color:ORANGE },
+                  { value:'EDIT_ONLY',   label:'Edit Only',    sub:'View + schedule',                 color:ORANGE },
                   { value:'CUSTOM',      label:'Custom',        sub:'Set individual permissions below',color:GRAY  },
                 ] as {value:AccessLevel;label:string;sub:string;color:string}[]).map(opt => (
                   <TouchableOpacity
@@ -621,6 +705,25 @@ export default function PatientProxyWebProfile({
                 ))}
               </View>
             )}
+
+            <View style={styles.permBox}>
+              <Text style={styles.permBoxTitle}>Messaging and video calls</Text>
+              <ECommSwitch
+                label="Message the care team"
+                value={aComm.canMessageCareTeam}
+                canTurnOn={false}
+                onChange={v => setAComm(prev => ({ ...prev, canMessageCareTeam: v }))}
+              />
+              <ECommSwitch
+                label="Join video calls"
+                value={aComm.canJoinCalls}
+                canTurnOn={false}
+                onChange={v => setAComm(prev => ({ ...prev, canJoinCalls: v }))}
+              />
+              <Text style={styles.hint}>
+                You can turn these off. Only {patientFirstName} can allow messaging or video calls.
+              </Text>
+            </View>
 
             <View>
               <ELabel text="Access Expiry Date (optional)" />
@@ -657,17 +760,44 @@ export default function PatientProxyWebProfile({
             <View style={styles.permGrid}>
               {PERMS.map(p => <PermTile key={p.key} icon={p.icon} label={p.label} granted={!!dependent[p.key as keyof CaregiverDependent]} />)}
             </View>
+            <View style={[styles.sep, { marginVertical: 4 }]} />
+            <Text style={styles.subLabel}>Messaging and video calls</Text>
+            <CommStatusRow icon="chatbox-outline" label="Message the care team" state={messagingState} patientFirstName={patientFirstName} />
+            <CommStatusRow icon="videocam-outline" label="Join video calls" state={callsState} patientFirstName={patientFirstName} />
           </View>
         )}
       </SectionCard>
 
       {/* ── Quick Actions ── */}
-      {(!!dependent.canMessageCareTeam || !!dependent.canScheduleAppointments || !!dependent.canViewRecords) && (
+      {(onOpenThread || (onNavigate && (!!dependent.canViewAppointments || !!dependent.canViewLabResults || !!dependent.canViewMedications))) && (
         <SectionCard title="Quick Actions">
+          {onOpenThread && (
+            <MessageCareTeamButton
+              dependent={dependent}
+              onPress={careTeam.open}
+              busy={careTeam.openingFor === dependent.accessId}
+              error={careTeam.error}
+            />
+          )}
           <View style={styles.actionsRow}>
-            {!!dependent.canMessageCareTeam    && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="chatbox-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Message Care Team</Text></TouchableOpacity>}
-            {!!dependent.canScheduleAppointments && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="calendar-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>Schedule Appointment</Text></TouchableOpacity>}
-            {!!dependent.canViewRecords          && <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7}><Ionicons name="document-text-outline" size={15} color={PURPLE} /><Text style={styles.actionBtnText}>View Records</Text></TouchableOpacity>}
+            {onNavigate && !!dependent.canViewAppointments && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('appointments')} accessibilityRole="button">
+                <Ionicons name="calendar-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Appointments</Text>
+              </TouchableOpacity>
+            )}
+            {onNavigate && !!dependent.canViewMedications && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('medications')} accessibilityRole="button">
+                <Ionicons name="medical-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Medications</Text>
+              </TouchableOpacity>
+            )}
+            {onNavigate && !!dependent.canViewLabResults && (
+              <TouchableOpacity style={styles.actionBtn} activeOpacity={0.7} onPress={() => onNavigate('documents-results')} accessibilityRole="button">
+                <Ionicons name="flask-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+                <Text style={styles.actionBtnText}>View Lab Results</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </SectionCard>
       )}
@@ -683,7 +813,7 @@ const styles = StyleSheet.create({
   scroll:     { flex: 1, backgroundColor: BG },
   container:  { alignSelf:'center', width:'100%', maxWidth:860, padding:28, gap:20, paddingBottom:48 } as any,
 
-  pageHeader: { gap: 4 },
+  pageHeader: { gap: 4, flexWrap: 'wrap' },
   backBtn:    { flexDirection:'row', alignItems:'center', gap:6, alignSelf:'flex-start', marginBottom:6 },
   backText:   { fontSize:14, color:PURPLE, fontWeight:'500' },
   pageTitle:  { fontSize:24, fontWeight:'700', color:TEXT },
@@ -771,6 +901,9 @@ const styles = StyleSheet.create({
   accessRadioDot:  { width:8, height:8, borderRadius:4 },
   accessCardLabel: { fontSize:13, fontWeight:'700', color:TEXT, marginBottom:2 },
   accessCardSub:   { fontSize:11, color:GRAY },
+
+  commRow:      { flexDirection:'row', alignItems:'center', gap:8, flexWrap:'wrap', paddingVertical:4 },
+  commRowLabel: { flex:1, minWidth:140, fontSize:13, color:TEXT, fontWeight:'500' },
 
   permBox:      { backgroundColor:BG, borderRadius:12, borderWidth:1, borderColor:BORDER, padding:16 },
   permBoxTitle: { fontSize:13, fontWeight:'700', color:TEXT, marginBottom:10 },

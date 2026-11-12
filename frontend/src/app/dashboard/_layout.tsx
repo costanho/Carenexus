@@ -1,5 +1,5 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { getAccessToken, getUser } from '@/lib/auth/auth.storage';
 import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
@@ -15,80 +15,92 @@ function getUserIdFromToken(token: string): number | null {
     const payload = token.split('.')[1];
     if (!payload) return null;
 
-    // Decode base64 payload
-    const decoded = JSON.parse(atob(payload));
+    // Decode base64url payload
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
     return decoded.userId ?? null;
   } catch {
     return null;
   }
 }
 
+/** Role a dashboard route belongs to ('patient/index' -> patient). The call route is shared by every role. */
+function routeRole(routeName: string): Role | null {
+  const first = routeName.split('/')[0];
+  return first === 'patient' || first === 'doctor' || first === 'proxy' ? first : null;
+}
+
+/** undefined while checking, null when there is no valid session. */
+type Session = { role: Role } | null | undefined;
+
+function Loader() {
+  return (
+    <View style={styles.loader}>
+      <ActivityIndicator size="large" color="#0F766E" accessibilityLabel="Loading" />
+    </View>
+  );
+}
+
+/**
+ * Wraps every dashboard screen. A screen only mounts (and fetches its data) once the session is verified and the
+ * route belongs to the signed-in role; another role's dashboard URL shows the loader and is replaced by the
+ * user's own dashboard, so its screens never mount and never call APIs that would answer 403.
+ */
+function RoleGate({ routeName, session, children }: { routeName: string; session: Session; children: ReactNode }) {
+  const router   = useRouter();
+  const required = routeRole(routeName);
+  const wrongRole = !!session && required !== null && session.role !== required;
+
+  useEffect(() => {
+    if (session && wrongRole) router.replace(ROLE_HOME[session.role] as any);
+  }, [session, wrongRole, router]);
+
+  if (!session || wrongRole) return <Loader />;
+  return <>{children}</>;
+}
+
 export default function DashboardLayout() {
   const router   = useRouter();
   const segments = useSegments();
-  const [checking, setChecking] = useState(true);
-  const didRedirect = useRef(false);
+  const [session, setSession] = useState<Session>(undefined);
+  const path = segments.join('/');
 
   useEffect(() => {
+    let cancelled = false;
     async function verify() {
-      console.log('🔐 Dashboard guard: verifying access');
       const [token, user] = await Promise.all([getAccessToken(), getUser()]);
-      console.log('📦 Dashboard guard: token:', token ? 'exists' : 'missing', 'user:', user);
+      if (cancelled) return;
 
-      // No token or user → back to login
-      if (!token || !user) {
-        console.log('❌ No token or user, redirecting to login');
+      // No token or user, or a token for a different account than the stored user -> back to login
+      if (!token || !user || getUserIdFromToken(token) !== user.user_id || !ROLE_HOME[user.role]) {
+        setSession(null);
         router.replace(LOGIN_ROUTE as any);
         return;
       }
-
-      // Extract user_id from token and verify it matches stored user
-      const tokenUserId = getUserIdFromToken(token);
-      console.log('🔍 Token userId:', tokenUserId, 'Stored user_id:', user.user_id, 'Match:', tokenUserId === user.user_id);
-      if (tokenUserId !== user.user_id) {
-        console.log('❌ UserId mismatch, redirecting to login');
-        router.replace(LOGIN_ROUTE as any);
-        return;
-      }
-
-      // Check the current dashboard segment matches the user's role
-      // segments = ['dashboard', 'patient'] for /dashboard/patient
-      const dashboardSegment = segments[1] as string;
-      console.log('📍 Dashboard segment:', dashboardSegment, 'User role:', user.role);
-
-      // Map route segment → role (proxy route = caregiver role)
-      const segmentToRole: Record<string, Role> = {
-        patient:   'patient',
-        doctor:    'doctor',
-        proxy:     'proxy',
-      };
-
-      const expectedRole = segmentToRole[dashboardSegment];
-      console.log('✔️ Expected role:', expectedRole);
-
-      if (expectedRole && user.role !== expectedRole && !didRedirect.current) {
-        didRedirect.current = true;
-        console.warn(`[Guard] Role mismatch — user is "${user.role}" but tried to access "${dashboardSegment}" dashboard. Redirecting.`);
-        router.replace(ROLE_HOME[user.role] as any);
-        return;
-      }
-
-      console.log('✅ Dashboard guard passed!');
-      setChecking(false);
+      setSession(prev => (prev?.role === user.role ? prev : { role: user.role }));
     }
-
     verify();
-  }, [segments]);
+    return () => { cancelled = true; };
+  }, [path, router]);
 
-  if (checking) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#0D9488" />
-      </View>
-    );
-  }
-
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // The navigator always stays mounted (redirects need it; rendering a loader in its place made expo-router fall
+  // back to the first route, /dashboard/call/undefined). Screens are gated individually by RoleGate instead.
+  // The role homes are declared first so any fallback lands on a gated screen, never on the call route.
+  return (
+    <Stack
+      screenOptions={{ headerShown: false }}
+      screenLayout={({ route, children }) => (
+        <RoleGate routeName={route.name} session={session}>{children}</RoleGate>
+      )}
+    >
+      <Stack.Screen name="patient/index" />
+      <Stack.Screen name="doctor/index" />
+      <Stack.Screen name="proxy/index" />
+      <Stack.Screen name="patient/appointments/book" />
+      <Stack.Screen name="patient/appointments/status" />
+      <Stack.Screen name="call/[appointmentId]" />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({
