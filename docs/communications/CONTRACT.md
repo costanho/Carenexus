@@ -1,6 +1,6 @@
 # CareNexus Communications Contract (Care Direct + Care Proxy)
 
-Status: authoritative for the five implementing agents on branch `cyprian/video-communication-messages`.
+Status: historical. This was the specification for the five implementing agents on branch `cyprian/video-communication-messages`. Later work changed parts of it: support conversations (administrators answer `SUPPORT` threads, V65), the shared error envelope and validation messages, the `thread-create` and `message-send` rate limits, the 200-person recipient cap and the 400 for a missing confirm-time body. Those changes are listed in [README.md](README.md) sections 5 and 6 and win over this file; API-wide conventions are in [docs/api/CONTRACT.md](../api/CONTRACT.md). The migration numbering below ("the next schema migration is V22") is out of date: see [DATA-MODEL-NOTES.md](../architecture/DATA-MODEL-NOTES.md).
 Scope source: COMMS-PLAN.md (user-supplied). Where this contract and older specs (PRD, ERD, Technical-Architecture) disagree, this contract and the code/migrations win.
 
 Agents: `permissions`, `messaging-api`, `video-api`, `messaging-web`, `call-web`.
