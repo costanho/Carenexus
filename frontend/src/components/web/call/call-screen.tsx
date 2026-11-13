@@ -8,7 +8,7 @@ export function CallScreen(_props: { appointmentId: number }): React.JSX.Element
   const router = useRouter();
   return (
     <View style={styles.root}>
-      <Ionicons name="videocam-outline" size={40} color="#4F46E5" />
+      <Ionicons aria-hidden name="videocam-outline" size={40} color="#4F46E5" />
       <Text style={styles.title} accessibilityRole="header">Video consultation</Text>
       <Text style={styles.body}>Video consultations are available in the CareNexus web app.</Text>
       <TouchableOpacity

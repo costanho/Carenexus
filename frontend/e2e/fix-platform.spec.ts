@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { type Clients, callStatus, disposeAll, loginAll } from './support/api';
-import { JAMES, ROLE_HOME, SARAH, THOMAS, type DemoUser } from './support/env';
+import { ADMIN, JAMES, ROLE_HOME, SARAH, THOMAS, type DemoUser } from './support/env';
 import {
   acceptNextDialog, bookFixVideoAppointment, cancelLeftoverFixAppointments, cleanUpFixAppointment,
   expectCallStatusStays, fixPage, trackApi, trackUrls, type FixPage,
 } from './support/fix-platform';
 import { login } from './support/ui';
 
-// Platform fixes: the dashboard role gate, the register form's accessibility, 401 on a wrong password,
-// the device check timeout, and that a call starts / ends only through explicit, confirmed actions.
+// Platform fixes: the dashboard role gate (administrators included), the register form's accessibility, 401 on a
+// wrong password, the device check timeout, and that a call starts / ends only through explicit, confirmed actions.
+// The two call tests need Chromium's fake camera and microphone and are tagged @chromium-only.
+//
+// Tables written: appointments ("e2e-fix-platform video call safety" VIDEO appointments, cancelled in afterAll) with
+// their call_sessions, call_participants, call_jobs and provider_events; refresh_tokens and audit_log for every
+// sign-in. Nothing for the wrong-password and register checks (the empty register form sends nothing).
 
 const LOGIN_PATH    = '/auth/login/web/login-web';
 const REGISTER_PATH = '/auth/register/web/register-web';
@@ -36,6 +41,9 @@ test.describe('fix-platform', () => {
     [THOMAS, ROLE_HOME.doctor],
     [JAMES, ROLE_HOME.patient],
     [SARAH, ROLE_HOME.doctor],
+    [THOMAS, ROLE_HOME.admin],
+    [ADMIN, ROLE_HOME.doctor],
+    [ADMIN, ROLE_HOME.patient],
   ];
 
   for (const [user, target] of otherRoleCases) {
@@ -53,10 +61,14 @@ test.describe('fix-platform', () => {
 
       expect(urls.filter(u => u.startsWith('/dashboard/call')), 'never passes through the call route').toEqual([]);
       if (target === ROLE_HOME.doctor) {
-        // The active-doctor directory is public to every role (the patient and caregiver screens list
-        // doctors too); any other /api/doctors/* call comes from the doctor dashboard.
-        const doctorOnly = calls.filter(c => c.includes('/api/doctors/') && !c.includes('/api/doctors/profile/list/active'));
+        // The bookable-doctor directory and public doctor profiles are open to every role (the patient and caregiver
+        // screens list doctors too); any other /api/doctors/* call comes from the doctor dashboard.
+        const shared = ['/api/doctors/profile/list/active', '/api/doctors/profile/directory', '/api/doctors/profile/public/'];
+        const doctorOnly = calls.filter(c => c.includes('/api/doctors/') && !shared.some(p => c.includes(p)));
         expect(doctorOnly, 'the doctor dashboard never mounted').toEqual([]);
+      }
+      if (target === ROLE_HOME.admin) {
+        expect(calls.filter(c => c.includes('/api/admin/')), 'the administration dashboard never mounted').toEqual([]);
       }
       // The other role's screens would call its APIs with this user's token (403)
       expect(statuses.filter(s => s === 403), 'no 403 responses').toEqual([]);
@@ -127,7 +139,7 @@ test.describe('fix-platform', () => {
 
   // ── Calls ──────────────────────────────────────────────────────────────────
 
-  test('a microphone that never answers shows a recovery state after the timeout', async ({ browser }) => {
+  test('a microphone that never answers shows a recovery state after the timeout @chromium-only', async ({ browser }) => {
     const id = await bookFixVideoAppointment(api.james);
     const p = await fixPage(browser, null);
     pages.push(p);
@@ -153,7 +165,7 @@ test.describe('fix-platform', () => {
     await cleanUpFixAppointment(api.james, id);
   });
 
-  test('the call starts and ends only on explicit, confirmed actions; Leave never ends it', async ({ browser }) => {
+  test('the call starts and ends only on explicit, confirmed actions; Leave never ends it @chromium-only', async ({ browser }) => {
     const id = await bookFixVideoAppointment(api.james);
     const route = `/dashboard/call/${id}`;
     const doctor = await fixPage(browser, JAMES);

@@ -179,4 +179,97 @@ public class AuditServiceTest {
         return org.mockito.ArgumentMatchers.argThat(def ->
                 def != null && def.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
+
+    // ==================== LIST READS ====================
+
+    private java.util.List<AuditLog> allSaved(int times) {
+        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogRepository, times(times)).save(captor.capture());
+        return captor.getAllValues();
+    }
+
+    @Test
+    public void logListRead_writesOneReadRowPerDistinctPatient() {
+        record Row(String patient) { }
+        auditService.logListRead("PRESCRIPTION",
+                java.util.List.of(new Row("PAT-00001"), new Row("PAT-00002"), new Row("PAT-00001"), new Row(null)),
+                Row::patient);
+
+        java.util.List<AuditLog> rows = allSaved(2);
+        assertEquals(java.util.List.of("PAT-00001", "PAT-00002"),
+                rows.stream().map(AuditLog::getPatientSystemId).toList());
+        for (AuditLog row : rows) {
+            assertEquals("READ", row.getAction());
+            assertEquals("PRESCRIPTION", row.getResourceType());
+            assertNull(row.getResourceId());
+            assertEquals("SUCCESS", row.getStatus());
+            assertEquals("DOC-00001", row.getSystemId());
+            assertEquals("DOCTOR", row.getActorRole());
+        }
+    }
+
+    @Test
+    public void logListRead_emptyOrNull_writesNothing() {
+        auditService.logListRead("PRESCRIPTION", java.util.List.<String>of(), s -> s);
+        auditService.logListRead("PRESCRIPTION", null, (String s) -> s);
+        verify(auditLogRepository, never()).save(any());
+    }
+
+    // ==================== ACCOUNT EVENTS ====================
+
+    @Test
+    public void logAccountEvent_recordsActorTargetActionAndRequestContext() {
+        when(userContext.getCurrentUserSystemId()).thenReturn("ADM-00001");
+        when(userContext.getCurrentUserRole()).thenReturn("ADMIN");
+
+        auditService.logAccountEvent("ADM-00001", "doctor_verify", "doctor_profile", "DOC-00007", null);
+
+        AuditLog log = saved();
+        assertEquals("ADM-00001", log.getSystemId());
+        assertEquals("ADMIN", log.getActorRole());
+        assertEquals("DOCTOR_VERIFY", log.getAction());
+        assertEquals("DOCTOR_PROFILE", log.getResourceType());
+        assertEquals("DOC-00007", log.getTargetSystemId());
+        assertNull(log.getPatientSystemId(), "the target is not a patient");
+        assertEquals("SUCCESS", log.getStatus());
+        assertEquals("203.0.113.42", log.getIpAddress());
+        assertEquals("/api/lab-results/patient/PAT-00001", log.getRequestPath());
+    }
+
+    @Test
+    public void logAccountEvent_patientTarget_isAlsoIndexedAsThePatient_andActorRoleComesFromTheIdWhenNotTheCaller() {
+        // the signed-in caller (setUp) is DOC-00001; the actor here is the patient acting through a reset link
+        auditService.logAccountEvent("PAT-00009", "PASSWORD_RESET", "ACCOUNT", "PAT-00009", "SUCCESS");
+
+        AuditLog log = saved();
+        assertEquals("PAT-00009", log.getSystemId());
+        assertEquals("PATIENT", log.getActorRole());
+        assertEquals("PAT-00009", log.getTargetSystemId());
+        assertEquals("PAT-00009", log.getPatientSystemId());
+    }
+
+    @Test
+    public void logAccountEvent_anonymousActorAndFailure() {
+        auditService.logAccountEvent(null, "PASSWORD_RESET", "ACCOUNT", null, "failure");
+
+        AuditLog log = saved();
+        assertNull(log.getSystemId());
+        assertNull(log.getActorRole());
+        assertNull(log.getTargetSystemId());
+        assertEquals("FAILURE", log.getStatus());
+        // a failure row is written in its own transaction so it survives the caller's rollback
+        verify(transactionManager).getTransaction(argThat(def ->
+                def.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+    }
+
+    @Test
+    public void logAccountEvent_rejectsMalformedActionsAndStatuses() {
+        assertThrows(IllegalArgumentException.class,
+                () -> auditService.logAccountEvent("ADM-00001", "password reset!", "ACCOUNT", "PAT-00001", "SUCCESS"));
+        assertThrows(IllegalArgumentException.class,
+                () -> auditService.logAccountEvent("ADM-00001", null, "ACCOUNT", "PAT-00001", "SUCCESS"));
+        assertThrows(IllegalArgumentException.class,
+                () -> auditService.logAccountEvent("ADM-00001", "ROLE_CHANGE", "ACCOUNT", "PAT-00001", "MAYBE"));
+        verify(auditLogRepository, never()).save(any());
+    }
 }

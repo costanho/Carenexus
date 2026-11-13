@@ -26,6 +26,11 @@ export function threadOutboxKey(userSystemId: string, threadId: number): string 
   return `${PREFIX}.${userSystemId}.${threadId}`;
 }
 
+/** Outbox key used while the signed-in user is not known yet: kept in memory for this page only. */
+export function memoryOutboxKey(threadId: number): string {
+  return `memory.${threadId}`;
+}
+
 const memory    = new Map<string, LocalMessage[]>();
 const listeners = new Map<string, Set<() => void>>();
 /** clientMessageIds with a POST in flight in this page (survives a thread view unmounting). */
@@ -84,6 +89,26 @@ export function updateOutbox(key: string, fn: (items: LocalMessage[]) => LocalMe
   writeStored(key, next);
   emit(key);
   return next;
+}
+
+/**
+ * Puts a message whose send failed outside a thread view (the first message of a new conversation)
+ * into that thread's outbox as failed. The thread view then shows it with Retry and Discard, and a
+ * retry reuses `clientMessageId`, so the server stores it once even if the first try did land.
+ */
+export function addFailedMessage(
+  key: string,
+  message: { clientMessageId: string; body: string; urgent: boolean; error?: string | null },
+): void {
+  const failed: LocalMessage = {
+    clientMessageId: message.clientMessageId,
+    body:            message.body,
+    urgent:          message.urgent,
+    status:          'failed',
+    error:           message.error || NOT_SENT_TEXT,
+    createdAt:       new Date().toISOString(),
+  };
+  updateOutbox(key, prev => [...prev.filter(p => p.clientMessageId !== failed.clientMessageId), failed]);
 }
 
 export function subscribeOutbox(key: string, fn: () => void): () => void {

@@ -1,16 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { apiErrorMessage } from '@/hooks/use-appointments';
+import { usePolling } from '@/hooks/use-page-active';
 import { type LocalMessage, useThreadMessages } from '@/hooks/use-thread-messages';
 import { fetchThread, httpStatus } from '@/lib/communications/api';
 import { threadDraftKey } from '@/lib/communications/drafts';
 import { threadOutboxKey } from '@/lib/communications/outbox';
 import { clockTime, dayHeading, dayKey, fullTime, threadTitle } from '@/lib/communications/format';
 import { NO_THREAD_ACCESS_TEXT, type Message, type Thread } from '@/lib/communications/types';
+import { isClosedSupportThread, isSupportThread, keepClosed, supportOpener, supportThreadTitle } from '@/lib/support/format';
+import { SUPPORT_CLOSED_TEXT } from '@/lib/support/types';
 import { showMessage } from '@/lib/ui/dialogs';
+import { ariaLevel } from '@/components/web/ui/a11y';
 import { Composer } from './composer';
 import { MemberManager } from './member-manager';
 import {
@@ -31,10 +35,19 @@ interface Props {
   onArchived:     (threadId: number, archived: boolean) => Promise<void>;
   /** The user left or lost the conversation; close it and refresh the list. */
   onClosed:       () => void;
+  /**
+   * The viewer is an administrator answering a support conversation: it cannot be archived, and it can be
+   * closed. Resolves when the conversation was closed or the administrator changed their mind; rejects when
+   * the request failed.
+   */
+  onCloseConversation?: (threadId: number) => Promise<void>;
 }
+
+const SUPPORT_THREAD_POLL_MS = 15_000;
 
 export function ThreadView({
   threadId, initialThread, mySystemId, myRole, onBack, onThreadChanged, onRead, onSent, onArchived, onClosed,
+  onCloseConversation,
 }: Props) {
   const { accent } = useTheme();
   const [thread,        setThread]        = useState<Thread | null>(initialThread);
@@ -43,6 +56,7 @@ export function ThreadView({
   const [threadMissing, setThreadMissing] = useState(false);
   const [showMembers,   setShowMembers]   = useState(false);
   const [archiving,     setArchiving]     = useState(false);
+  const [closing,       setClosing]       = useState(false);
 
   const outboxKey = mySystemId ? threadOutboxKey(mySystemId, threadId) : null;
   const msgs = useThreadMessages(threadId, { outboxKey, onRead, onSent });
@@ -108,9 +122,53 @@ export function ThreadView({
     msgs.loadOlder();
   }
 
+  // ── Support conversations: no patient, no urgent flag, no member changes; an administrator can close them ──
+  const adminView = !!onCloseConversation;
+  const support   = isSupportThread(thread);
+  // Closed is decided by an administrator and can change while this thread is open. It is final (a closed
+  // conversation is never reopened), so it is enough that this copy or the parent's newer one says so.
+  const parentClosed = initialThread?.threadId === threadId && isClosedSupportThread(initialThread);
+  const closed    = support && (isClosedSupportThread(thread) || parentClosed);
+
+  const onThreadChangedRef = useRef(onThreadChanged);
+  onThreadChangedRef.current = onThreadChanged;
+  /** Quietly reloads the details of a support conversation (closed state, administrators who joined). */
+  const refreshSupportThread = useCallback(async () => {
+    try {
+      const t = await fetchThread(threadId);
+      setThread(prev => keepClosed(prev, t));
+      onThreadChangedRef.current(t);
+    } catch {
+      // The message history reports lost access and connection problems; this refresh only adds detail.
+    }
+  }, [threadId]);
+
+  // The conversation list may not contain this thread (it is left out while a patient filter is on), so an
+  // open support conversation checks for itself whether it was closed.
+  usePolling(refreshSupportThread, SUPPORT_THREAD_POLL_MS, support && !closed && !forbidden && !notFound);
+
+  // A send that the server refused because the conversation was closed meanwhile: show the closed state now.
+  const refusedAsClosed = msgs.pending.some(p => p.status === 'failed' && p.error === SUPPORT_CLOSED_TEXT);
+  useEffect(() => {
+    if (refusedAsClosed && support && !closed) refreshSupportThread();
+  }, [refusedAsClosed, support, closed, refreshSupportThread]);
+
   function send(body: string, urgent: boolean) {
     nearBottomRef.current = true;
-    msgs.send(body, urgent);
+    // The server ignores urgent in a support conversation; never send it.
+    msgs.send(body, urgent && !support);
+  }
+
+  async function closeConversation() {
+    if (!thread || !onCloseConversation) return;
+    setClosing(true);
+    try {
+      await onCloseConversation(thread.threadId);
+    } catch (e) {
+      showMessage('Could not close conversation', apiErrorMessage(e, 'Please try again.'));
+    } finally {
+      setClosing(false);
+    }
   }
 
   async function toggleArchive() {
@@ -127,10 +185,22 @@ export function ThreadView({
     }
   }
 
-  const title = thread ? threadTitle(thread, mySystemId) : 'Conversation';
-  const subtitle = thread
-    ? [thread.type === 'CARE_TEAM' ? 'Care team' : 'Private', `About ${thread.patientName}`, `${thread.members.length} members`].join(' · ')
-    : '';
+  const title = thread
+    ? (support ? supportThreadTitle(thread, mySystemId) : threadTitle(thread, mySystemId))
+    : 'Conversation';
+  const opener = thread && support ? supportOpener(thread) : null;
+  const subtitle = !thread ? '' : support
+    ? [
+        'Support',
+        // Tell the administrator who is asking, unless the title already is that person's name.
+        adminView && opener && opener.label !== title ? `Opened by ${opener.label}` : null,
+        closed ? 'Closed' : null,
+      ].filter(Boolean).join(' · ')
+    : [thread.type === 'CARE_TEAM' ? 'Care team' : 'Private', `About ${thread.patientName}`, `${thread.members.length} members`].join(' · ');
+  const canClose = adminView && support && !closed;
+  const closedReason = adminView
+    ? 'This support conversation is closed.'
+    : 'This support conversation is closed. You can start a new one from Help & Support.';
   const draftKey = mySystemId ? threadDraftKey(mySystemId, threadId) : null;
 
   return (
@@ -139,11 +209,12 @@ export function ThreadView({
       <View style={styles.header}>
         {onBack && (
           <TouchableOpacity style={styles.iconBtn} onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to conversations">
-            <Ionicons name="arrow-back" size={20} color={TEXT} importantForAccessibility="no" />
+            <Ionicons aria-hidden name="arrow-back" size={20} color={TEXT} importantForAccessibility="no" />
           </TouchableOpacity>
         )}
         <View style={styles.headerBody}>
-          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">{title}</Text>
+          {/* Beside the list (wide) the conversation is a sub-section of Messages; alone (narrow, with Back) it is the page. */}
+          <Text style={styles.title} numberOfLines={1} accessibilityRole="header" {...ariaLevel(onBack ? 1 : 2)}>{title}</Text>
           {!!subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
         </View>
         {thread && !forbidden && !notFound && (
@@ -156,19 +227,37 @@ export function ThreadView({
               accessibilityState={{ expanded: showMembers }}
               aria-expanded={showMembers}
             >
-              <Ionicons name="people-outline" size={19} color={showMembers ? accent : GRAY} importantForAccessibility="no" />
+              <Ionicons aria-hidden name="people-outline" size={19} color={showMembers ? accent : GRAY} importantForAccessibility="no" />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={toggleArchive}
-              disabled={archiving}
-              accessibilityRole="button"
-              accessibilityLabel={thread.archived ? 'Move conversation to inbox' : 'Archive conversation'}
-              accessibilityState={{ busy: archiving, disabled: archiving }}
-              aria-busy={archiving}
-            >
-              <Ionicons name={thread.archived ? 'arrow-undo-outline' : 'archive-outline'} size={19} color={GRAY} importantForAccessibility="no" />
-            </TouchableOpacity>
+            {/* Support conversations are closed by an administrator, never archived by one. */}
+            {!adminView && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={toggleArchive}
+                disabled={archiving}
+                accessibilityRole="button"
+                accessibilityLabel={thread.archived ? 'Move conversation to inbox' : 'Archive conversation'}
+                accessibilityState={{ busy: archiving, disabled: archiving }}
+                aria-busy={archiving}
+              >
+                <Ionicons aria-hidden name={thread.archived ? 'arrow-undo-outline' : 'archive-outline'} size={19} color={GRAY} importantForAccessibility="no" />
+              </TouchableOpacity>
+            )}
+            {canClose && (
+              <TouchableOpacity
+                style={[styles.closeBtn, { borderColor: accent }, closing && styles.closeBtnBusy]}
+                onPress={closeConversation}
+                disabled={closing}
+                accessibilityRole="button"
+                accessibilityLabel="Close conversation"
+                accessibilityState={{ busy: closing, disabled: closing }}
+                aria-busy={closing}
+              >
+                <Ionicons aria-hidden name="checkmark-done-outline" size={16} color={accent} importantForAccessibility="no" />
+                {/* On a narrow screen (the Back button is shown) the icon alone keeps the title readable. */}
+                {!onBack && <Text style={[styles.closeBtnText, { color: accent }]}>{closing ? 'Closing…' : 'Close conversation'}</Text>}
+              </TouchableOpacity>
+            )}
           </>
         )}
       </View>
@@ -182,6 +271,7 @@ export function ThreadView({
 
       {showMembers && thread && !forbidden && (
         <MemberManager
+          headingLevel={onBack ? 2 : 3}
           thread={thread}
           mySystemId={mySystemId}
           myRole={myRole}
@@ -236,13 +326,21 @@ export function ThreadView({
           {msgs.error && <Text style={styles.inlineError} accessibilityRole="alert">{msgs.error}</Text>}
 
           {msgs.messages.length === 0 && msgs.pending.length === 0 ? (
-            <Empty icon="chatbubble-outline" title="No messages yet" sub="Send the first message below." />
+            support && !adminView && !closed ? (
+              <Empty
+                icon="help-buoy-outline"
+                title="How can we help?"
+                sub="Write your question below and the support team will reply here. For questions about your health, message your care team instead."
+              />
+            ) : (
+              <Empty icon="chatbubble-outline" title="No messages yet" sub={closed ? undefined : 'Send the first message below.'} />
+            )
           ) : (
             <View accessibilityRole="list" accessibilityLabel="Messages">
               {msgs.messages.map((m, i) => (
                 <View key={m.messageId} role="listitem">
                   {(i === 0 || dayKey(msgs.messages[i - 1].sentAt) !== dayKey(m.sentAt)) && (
-                    <Text style={styles.day} accessibilityRole="header">{dayHeading(m.sentAt)}</Text>
+                    <Text style={styles.day} accessibilityRole="header" {...ariaLevel(onBack ? 2 : 3)}>{dayHeading(m.sentAt)}</Text>
                   )}
                   <Bubble message={m} showSender={!m.mine} />
                 </View>
@@ -259,8 +357,9 @@ export function ThreadView({
 
       <Composer
         draftKey={draftKey}
-        disabled={forbidden || notFound}
-        disabledReason={forbidden ? NO_THREAD_ACCESS_TEXT : 'This conversation is not available.'}
+        disabled={forbidden || notFound || closed}
+        disabledReason={forbidden ? NO_THREAD_ACCESS_TEXT : notFound ? 'This conversation is not available.' : closedReason}
+        allowUrgent={!support}
         onSend={send}
       />
     </View>
@@ -273,8 +372,9 @@ function Bubble({ message: m, showSender }: { message: Message; showSender: bool
   return (
     <View
       style={[styles.bubbleRow, m.mine ? styles.rowMine : styles.rowTheirs]}
-      accessible
-      accessibilityLabel={`${m.mine ? 'You' : m.senderLabel}, ${fullTime(m.sentAt)}${m.urgent ? ', urgent' : ''}: ${m.body}`}
+      // A named group: who sent it and the full date and time; the message text inside is read as it is shown.
+      role="group"
+      accessibilityLabel={`${m.mine ? 'You' : m.senderLabel}, ${fullTime(m.sentAt)}${m.urgent ? ', urgent' : ''}`}
     >
       <View
         style={[
@@ -308,8 +408,8 @@ function PendingBubble({ local, onRetry, onDiscard }: { local: LocalMessage; onR
           { opacity: failed ? 1 : 0.7 },
           failed && styles.bubbleFailed,
         ]}
-        accessible
-        accessibilityLabel={`Your message${local.urgent ? ', urgent' : ''}, ${failed ? 'not sent' : 'sending'}: ${local.body}`}
+        role="group"
+        accessibilityLabel={`Your message${local.urgent ? ', urgent' : ''}, ${failed ? 'not sent' : 'sending'}`}
       >
         {local.urgent && <View style={styles.bubbleHead}><UrgentTag /></View>}
         <Text style={[styles.body, !local.urgent && !failed && styles.bodyMine]}>{local.body}</Text>
@@ -338,6 +438,9 @@ const styles = StyleSheet.create({
   title:      { fontSize: 15, fontWeight: '700', color: TEXT },
   subtitle:   { fontSize: 12, color: GRAY, marginTop: 1 },
   iconBtn:    { padding: 8, borderRadius: 8 },
+  closeBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: WHITE },
+  closeBtnBusy: { opacity: 0.6 },
+  closeBtnText: { fontSize: 13, fontWeight: '600' },
   list:       { paddingHorizontal: 14, paddingVertical: 12, flexGrow: 1 },
   olderBtn:   { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12 },
   olderText:  { fontSize: 13, fontWeight: '600' },

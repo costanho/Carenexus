@@ -69,13 +69,14 @@ function FilterMenu({ options, value, onChange, searchable }: {
         onPress={() => setOpen(o => !o)}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={`Filter by patient: ${currentName}`}
+        // Starts with the visible "Patient: <name>" (WCAG 2.5.3); what the button does follows.
+        accessibilityLabel={`Patient: ${currentName}, change patient filter`}
         accessibilityState={{ expanded: open }}
         aria-expanded={open}
       >
-        <Ionicons name="person-circle-outline" size={15} color={value ? accent : GRAY} importantForAccessibility="no" />
+        <Ionicons aria-hidden name="person-circle-outline" size={15} color={value ? accent : GRAY} importantForAccessibility="no" />
         <Text style={[styles.toggleText, value && { color: accent }]} numberOfLines={1}>Patient: {currentName}</Text>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={GRAY} importantForAccessibility="no" />
+        <Ionicons aria-hidden name={open ? 'chevron-up' : 'chevron-down'} size={14} color={GRAY} importantForAccessibility="no" />
       </TouchableOpacity>
 
       {open && (
@@ -107,7 +108,7 @@ function FilterMenu({ options, value, onChange, searchable }: {
                   aria-checked={on}
                   accessibilityLabel={name}
                 >
-                  <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={16} color={on ? accent : LIGHT} importantForAccessibility="no" />
+                  <Ionicons aria-hidden name={on ? 'radio-button-on' : 'radio-button-off'} size={16} color={on ? accent : LIGHT} importantForAccessibility="no" />
                   <Text style={styles.optionText} numberOfLines={1}>{name}</Text>
                 </TouchableOpacity>
               );
@@ -127,7 +128,8 @@ const styles = StyleSheet.create({
   toggleText: { fontSize: 12, color: TEXT, fontWeight: '600', flexShrink: 1 },
   menu:       { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingVertical: 4 },
   options:    { maxHeight: 220 },
-  search:     { marginHorizontal: 8, marginVertical: 4, borderWidth: 1, borderColor: BORDER, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 7, fontSize: 13, color: TEXT },
+  // Input outline 4.83:1 on white (WCAG 1.4.11).
+  search:     { marginHorizontal: 8, marginVertical: 4, borderWidth: 1, borderColor: '#6B7280', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 7, fontSize: 13, color: TEXT },
   option:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 7 },
   optionText: { fontSize: 13, color: TEXT, flexShrink: 1 },
   note:       { fontSize: 12, color: GRAY, paddingHorizontal: 10, paddingVertical: 6 },

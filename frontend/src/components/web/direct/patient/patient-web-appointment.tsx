@@ -1,806 +1,127 @@
-import { Ionicons } from '@expo/vector-icons';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { BookingForm } from '@/components/web/appointments/booking-form';
 import {
-  ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, useWindowDimensions, View,
-} from 'react-native';
-import { z } from 'zod';
+  ariaLevel, Button, Card, colors, ErrorView, fontSize, Icon, InfoRow, LoadingView, Screen, space, useUiTheme,
+} from '@/components/web/ui';
+import { applyAppointmentUpdate } from '@/hooks/use-appointments';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { doctorInitial, useDoctors } from '@/hooks/use-doctors';
-import { apiErrorMessage, invalidateAppointments, isFutureSlot, toScheduledAt } from '@/hooks/use-appointments';
-import { api } from '@/lib/auth/auth.interceptor';
-import { ariaHidden, ariaPressed } from './a11y';
+import { APPOINTMENT_TYPE_LABEL } from '@/lib/appointments/rules';
+import type { AppointmentDto } from '@/lib/appointments/types';
+import { useDoctorName } from '@/lib/doctors/names';
+import type { SectionProps } from '@/lib/nav/sections';
+import { formatClinicDateTime } from '@/lib/time/clinic';
 
-const TEAL   = '#0F766E';
-const INDIGO = '#4F46E5';
-const NAVY   = '#0D1B2E';
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const GRAY2  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const RED    = '#B91C1C';
-const GREEN  = '#047857';
+// The doctor reschedule panel imports the calendar from this file; it now lives with the shared booking components.
+export { CalendarPicker } from '@/components/web/appointments/calendar-picker';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type ApptType = 'IN_PERSON' | 'VIDEO' | 'PHONE';
+type Props = Partial<Pick<SectionProps, 'navigate' | 'params' | 'theme'>> & {
+  /** Leaves the booking screen (the dashboard passes "go to the home section"). */
+  onBack?: () => void;
+};
 
-const appointmentSchema = z.object({
-  doctor_id:        z.string().min(1, 'Please select a doctor'),
-  scheduled_date:   z.string().min(1, 'Please select a date'),
-  scheduled_time:   z.string().min(1, 'Please select a time'),
-  duration_minutes: z.string().min(1, 'Please select a duration'),
-  type:             z.enum(['IN_PERSON', 'VIDEO', 'PHONE']),
-  reason_for_visit: z.string().min(5, 'Please describe the reason for your visit (min 5 characters)'),
-  notes:            z.string().optional(),
-});
-
-type AppointmentFormData = z.infer<typeof appointmentSchema>;
-
-const DURATIONS = [
-  { value: '15', label: '15 min' },
-  { value: '30', label: '30 min' },
-  { value: '45', label: '45 min' },
-  { value: '60', label: '60 min' },
-];
-
-const APPT_TYPES: { value: ApptType; label: string; icon: IoniconsName; color: string; bg: string; desc: string }[] = [
-  { value: 'IN_PERSON', label: 'In Person',  icon: 'business-outline',  color: TEAL,   bg: '#E6F4F1', desc: 'Visit the clinic'     },
-  { value: 'VIDEO',     label: 'Video Call', icon: 'videocam-outline',  color: INDIGO, bg: '#EEF2FF', desc: 'Consult from anywhere' },
-  { value: 'PHONE',     label: 'Phone Call', icon: 'call-outline',      color: GREEN,  bg: '#F0FDF4', desc: 'Audio consultation'    },
-];
-
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DAY_LABELS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-const HOURS       = [1,2,3,4,5,6,7,8,9,10,11,12];
-const MINUTES     = [0,15,30,45];
-
-// ─── Calendar Picker ──────────────────────────────────────────────────────────
-
-export function CalendarPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const todayRef = new Date();
-  todayRef.setHours(0, 0, 0, 0);
-
-  const selected = value ? new Date(value + 'T00:00:00') : null;
-
-  const [viewYear,  setViewYear]  = useState(selected?.getFullYear() ?? todayRef.getFullYear());
-  const [viewMonth, setViewMonth] = useState(selected?.getMonth()    ?? todayRef.getMonth());
-
-  const isPrevDisabled =
-    viewYear < todayRef.getFullYear()
-      ? false
-      : viewYear === todayRef.getFullYear() && viewMonth <= todayRef.getMonth();
-
-  function prevMonth() {
-    if (isPrevDisabled) return;
-    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
-    else setViewMonth(m => m - 1);
-  }
-  function nextMonth() {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
-    else setViewMonth(m => m + 1);
-  }
-
-  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
-  const daysInMonth    = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const cells: (number | null)[] = [
-    ...Array(firstDayOfWeek).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-
-  function selectDay(day: number) {
-    const m = String(viewMonth + 1).padStart(2, '0');
-    const d = String(day).padStart(2, '0');
-    onChange(`${viewYear}-${m}-${d}`);
-  }
-
+function BookedCard({ appointment, onBack, onViewAppointments, onBookAnother }: {
+  appointment: AppointmentDto;
+  onBack: () => void;
+  onViewAppointments: () => void;
+  onBookAnother: () => void;
+}) {
+  const { accent } = useUiTheme();
+  const doctorName = useDoctorName(appointment.doctorSystemId, appointment.doctorName);
   return (
-    <View>
-      {/* Month navigation */}
-      <View style={styles.calHeader}>
-        <TouchableOpacity
-          style={[styles.calNavBtn, isPrevDisabled && styles.calNavBtnDisabled]}
-          onPress={prevMonth}
-          disabled={isPrevDisabled}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Previous month"
-          accessibilityState={{ disabled: isPrevDisabled }}
-        >
-          <Ionicons name="chevron-back" size={16} color={isPrevDisabled ? GRAY2 : TEAL} />
-        </TouchableOpacity>
-        <Text style={styles.calMonthLabel}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
-        <TouchableOpacity
-          style={styles.calNavBtn}
-          onPress={nextMonth}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Next month"
-        >
-          <Ionicons name="chevron-forward" size={16} color={TEAL} />
-        </TouchableOpacity>
+    <Card style={styles.booked}>
+      <Icon name="checkmark-circle" size={56} color={accent} />
+      <Text style={styles.bookedTitle} accessibilityRole="header" {...ariaLevel(2)}>Appointment Booked!</Text>
+      <Text style={styles.bookedText} role="status">
+        Your appointment with {doctorName} has been scheduled. You can view or manage it under My Appointments.
+      </Text>
+      <View style={styles.bookedDetails}>
+        <InfoRow label="When" value={formatClinicDateTime(appointment.scheduledAt)} />
+        <InfoRow label="Type" value={`${APPOINTMENT_TYPE_LABEL[appointment.type] ?? appointment.type}, ${appointment.durationMinutes} minutes`} />
+        {appointment.type === 'IN_PERSON' && appointment.facilityName ? (
+          <InfoRow
+            label="Location"
+            value={appointment.facilityAddress ? `${appointment.facilityName}, ${appointment.facilityAddress}` : appointment.facilityName}
+          />
+        ) : null}
+        {appointment.type === 'PHONE' && appointment.contactPhone ? (
+          <InfoRow label="Phone call" value={`The doctor will call you on ${appointment.contactPhone}.`} />
+        ) : null}
       </View>
-
-      {/* Day-of-week headers */}
-      <View style={styles.calDayHeaders}>
-        {DAY_LABELS.map(d => (
-          <Text key={d} style={styles.calDayHeader}>{d}</Text>
-        ))}
+      <View style={styles.bookedActions}>
+        <Button label="Back to Dashboard" onPress={onBack} />
+        <Button label="View my appointments" variant="secondary" onPress={onViewAppointments} />
+        <Button label="Book another appointment" variant="ghost" onPress={onBookAnother} />
       </View>
-
-      {/* Day grid */}
-      <View style={styles.calGrid}>
-        {cells.map((day, idx) => {
-          if (!day) return <View key={`e${idx}`} style={styles.calCell} />;
-          const date    = new Date(viewYear, viewMonth, day);
-          const isPast  = date < todayRef;
-          const isSel   = selected && date.toDateString() === selected.toDateString();
-          const isToday = date.toDateString() === todayRef.toDateString();
-          return (
-            <TouchableOpacity
-              key={day}
-              style={styles.calCell}
-              disabled={isPast}
-              onPress={() => selectDay(day)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-              accessibilityState={{ disabled: isPast, selected: !!isSel }}
-              {...ariaPressed(!!isSel)}
-            >
-              <View style={[
-                styles.calDayCircle,
-                isSel  && styles.calDaySelected,
-                isToday && !isSel && styles.calDayToday,
-              ]}>
-                <Text style={[
-                  styles.calDayText,
-                  isSel  && styles.calDayTextSelected,
-                  isPast && styles.calDayTextPast,
-                  isToday && !isSel && styles.calDayTextToday,
-                ]}>{day}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Selected date display */}
-      {value ? (
-        <View style={styles.calSelected}>
-          <Ionicons name="calendar" size={14} color={TEAL} />
-          <Text style={styles.calSelectedText}>
-            {new Date(value + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
-          </Text>
-        </View>
-      ) : (
-        <Text style={styles.calHint}>Tap a date to select</Text>
-      )}
-    </View>
+    </Card>
   );
 }
 
-// ─── Time Picker ──────────────────────────────────────────────────────────────
+/**
+ * Patient > Book Appointment. The signed-in patient books for themselves with the shared booking form:
+ * doctor, date and one of the doctor's free times, then the details of the visit.
+ */
+export function PatientWebAppointment({ onBack, navigate, params, theme }: Props) {
+  const router = useRouter();
+  const { user, loading, error, refetch } = useCurrentUser();
+  const [booked, setBooked] = useState<AppointmentDto | null>(null);
 
-export function TimePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  function parse24(v: string): { h12: number; min: number; ap: 'AM' | 'PM' } {
-    const m = v.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return { h12: 9, min: 0, ap: 'AM' };
-    const h24 = parseInt(m[1]);
-    const min = parseInt(m[2]);
-    return {
-      h12: h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24,
-      min,
-      ap: h24 < 12 ? 'AM' : 'PM',
-    };
-  }
-
-  const init = parse24(value);
-  const [hour,   setHour]   = useState(init.h12);
-  const [minute, setMinute] = useState(init.min);
-  const [ampm,   setAmpm]   = useState<'AM' | 'PM'>(init.ap);
-
-  useEffect(() => {
-    if (!value) return;
-    const p = parse24(value);
-    setHour(p.h12); setMinute(p.min); setAmpm(p.ap);
-  }, [value]);
-
-  function emit(h: number, m: number, ap: 'AM' | 'PM') {
-    let h24 = h;
-    if (ap === 'AM' && h === 12) h24 = 0;
-    else if (ap === 'PM' && h !== 12) h24 = h + 12;
-    onChange(`${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-  }
-
-  const display = value
-    ? `${hour}:${String(minute).padStart(2, '0')} ${ampm}`
-    : null;
-
-  return (
-    <View style={{ gap: 14 }}>
-      {/* AM / PM */}
-      <View>
-        <Text style={styles.timeSubLabel}>AM / PM</Text>
-        <View style={styles.ampmRow} accessibilityRole="radiogroup" accessibilityLabel="AM or PM">
-          {(['AM', 'PM'] as const).map(ap => (
-            <TouchableOpacity
-              key={ap}
-              style={[styles.ampmBtn, ampm === ap && styles.ampmBtnActive]}
-              onPress={() => { setAmpm(ap); emit(hour, minute, ap); }}
-              activeOpacity={0.7}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: !!value && ampm === ap }}
-              aria-checked={!!value && ampm === ap}
-            >
-              <Text style={[styles.ampmText, ampm === ap && styles.ampmTextActive]}>{ap}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Hour */}
-      <View>
-        <Text style={styles.timeSubLabel}>Hour</Text>
-        <View style={styles.hourGrid} accessibilityRole="radiogroup" accessibilityLabel="Hour">
-          {HOURS.map(h => (
-            <TouchableOpacity
-              key={h}
-              style={[styles.hourBtn, hour === h && styles.hourBtnActive]}
-              onPress={() => { setHour(h); emit(h, minute, ampm); }}
-              activeOpacity={0.7}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: !!value && hour === h }}
-              aria-checked={!!value && hour === h}
-            >
-              <Text style={[styles.hourText, hour === h && styles.hourTextActive]}>{h}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Minute */}
-      <View>
-        <Text style={styles.timeSubLabel}>Minute</Text>
-        <View style={styles.minuteRow} accessibilityRole="radiogroup" accessibilityLabel="Minute">
-          {MINUTES.map(m => (
-            <TouchableOpacity
-              key={m}
-              style={[styles.minuteBtn, minute === m && styles.minuteBtnActive]}
-              onPress={() => { setMinute(m); emit(hour, m, ampm); }}
-              activeOpacity={0.7}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: !!value && minute === m }}
-              aria-checked={!!value && minute === m}
-            >
-              <Text style={[styles.minuteText, minute === m && styles.minuteTextActive]}>
-                :{String(m).padStart(2, '0')}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Preview */}
-      <View style={[styles.timePreview, !display && styles.timePreviewEmpty]}>
-        <Ionicons name="time" size={16} color={display ? TEAL : GRAY2} />
-        <Text style={[styles.timePreviewText, !display && { color: GRAY2 }]}>
-          {display ?? 'Select time above'}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── Field Error ──────────────────────────────────────────────────────────────
-
-function FieldError({ message }: { message?: string }) {
-  if (!message) return null;
-  return (
-    <View style={styles.fieldError}>
-      <Ionicons name="alert-circle-outline" size={13} color={RED} />
-      <Text style={styles.fieldErrorText}>{message}</Text>
-    </View>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export function PatientWebAppointment({ onBack }: { onBack?: () => void }) {
-  const router    = useRouter();
-  const { width } = useWindowDimensions();
-  const { user }  = useCurrentUser();
-  const { doctors, loading: doctorsLoading, error: doctorsError, refetch: refetchDoctors } = useDoctors();
   const goBack = onBack ?? (() => {
     if (router.canGoBack()) router.back();
     else router.replace('/dashboard/patient' as any);
   });
-  const narrow = width < 900;
+  const viewAppointments = (appointmentId: number) => {
+    if (navigate) navigate('my-appointments', { id: appointmentId });
+    else router.push(`/dashboard/patient?section=my-appointments&id=${appointmentId}` as any);
+  };
 
-  const [loading,          setLoading]          = useState(false);
-  const [success,          setSuccess]          = useState(false);
-  const [authError,        setAuthError]        = useState('');
-  const [doctorSearch,     setDoctorSearch]     = useState('');
-  const [doctorsExpanded,  setDoctorsExpanded]  = useState(false);
-
-  const { control, handleSubmit, watch, formState: { errors } } = useForm<AppointmentFormData>({
-    resolver: zodResolver(appointmentSchema),
-    defaultValues: {
-      doctor_id: '', scheduled_date: '', scheduled_time: '',
-      duration_minutes: '30', type: 'IN_PERSON',
-      reason_for_visit: '', notes: '',
-    },
-  });
-
-  const watchedDoctor = watch('doctor_id');
-  const watchedDate   = watch('scheduled_date');
-  const watchedTime   = watch('scheduled_time');
-  const selectedDoctor = doctors.find(d => d.doctor_system_id === watchedDoctor);
-  const slotInPast = !!watchedDate && !!watchedTime && !isFutureSlot(watchedDate, watchedTime);
-
-  const activeDoctors = doctors.filter(d => d.is_active === 1);
-  const filteredDoctors = doctorSearch.trim()
-    ? activeDoctors.filter(d =>
-        d.full_name.toLowerCase().includes(doctorSearch.toLowerCase()) ||
-        (d.specialization ?? '').toLowerCase().includes(doctorSearch.toLowerCase())
-      )
-    : activeDoctors;
-  const visibleDoctors = doctorsExpanded ? filteredDoctors : filteredDoctors.slice(0, 3);
-
-  async function onSubmit(data: AppointmentFormData) {
-    setAuthError('');
-    if (!user?.system_id) {
-      setAuthError('We could not load your account. Please refresh the page and try again.');
-      return;
-    }
-    if (!isFutureSlot(data.scheduled_date, data.scheduled_time)) {
-      setAuthError('Please choose a date and time in the future.');
-      return;
-    }
-    setLoading(true);
-    try {
-      // VIDEO appointments: the backend generates the video link, so none is sent from here.
-      await api.post('/api/appointments', {
-        patientSystemId:  user.system_id,
-        doctorSystemId:   data.doctor_id,
-        facilityId:       null,
-        scheduledAt:      toScheduledAt(data.scheduled_date, data.scheduled_time),
-        durationMinutes:  parseInt(data.duration_minutes),
-        type:             data.type,
-        reasonForVisit:   data.reason_for_visit,
-        notes:            data.notes ?? null,
-      });
-      setSuccess(true);
-      // Every panel that lists appointments (right sidebar, dashboard) picks up the new one.
-      invalidateAppointments();
-    } catch (e: any) {
-      setAuthError(apiErrorMessage(e, 'Failed to book appointment. Please try again.'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (success) {
-    return (
-      <View style={styles.successScreen}>
-        <View style={styles.successCard}>
-          <View style={styles.successIcon}>
-            <Ionicons name="checkmark-circle" size={56} color={TEAL} />
-          </View>
-          <Text style={styles.successTitle} accessibilityRole="header">Appointment Booked!</Text>
-          <Text style={styles.successSub}>
-            Your appointment with {selectedDoctor?.full_name ?? 'your doctor'} has been scheduled.
-            You can view or manage it under My Appointments.
-          </Text>
-          <TouchableOpacity style={styles.successBtn} onPress={goBack} activeOpacity={0.85} accessibilityRole="button">
-            <Text style={styles.successBtnText}>Back to Dashboard</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+  function handleBooked(appointment: AppointmentDto) {
+    // Every panel that lists appointments (right sidebar, dashboard, My Appointments) shows the new one.
+    applyAppointmentUpdate(appointment, { created: true });
+    setBooked(appointment);
   }
 
   return (
-    <View style={styles.screen}>
-      <ScrollView
-        style={[styles.formPane, narrow && styles.formPaneFull]}
-        contentContainerStyle={styles.formScroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <View style={styles.pageHeader}>
-          <View style={styles.pageHeaderText}>
-            <Text style={styles.pageTitle} accessibilityRole="header">Book Appointment</Text>
-            <Text style={styles.pageSub}>Schedule a visit with your healthcare provider</Text>
-          </View>
-        </View>
-
-        {/* Appointment type */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Appointment Type</Text>
-          <Controller control={control} name="type"
-            render={({ field: { onChange, value } }) => (
-              <View style={styles.typeRow}>
-                {APPT_TYPES.map(t => {
-                  const on = value === t.value;
-                  return (
-                    <TouchableOpacity
-                      key={t.value}
-                      style={[styles.typeCard, on && { borderColor: t.color, backgroundColor: t.bg }]}
-                      onPress={() => onChange(t.value)}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: on }}
-                      {...ariaPressed(on)}
-                    >
-                      {on && (
-                        <View style={[styles.typeCheck, { backgroundColor: t.color }]} {...ariaHidden}>
-                          <Ionicons name="checkmark" size={10} color={WHITE} />
-                        </View>
-                      )}
-                      <Ionicons name={t.icon} size={22} color={on ? t.color : GRAY} {...ariaHidden} />
-                      <Text style={[styles.typeLabel, on && { color: t.color, fontWeight: '700' }]}>{t.label}</Text>
-                      <Text style={[styles.typeDesc, on && { color: t.color }]}>{t.desc}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
+    <Screen
+      title="Book Appointment"
+      subtitle="Schedule a visit with your healthcare provider"
+      theme={theme}
+      role="patient"
+    >
+      <View style={styles.column}>
+        {loading ? (
+          <LoadingView label="Loading your account…" />
+        ) : !user?.system_id ? (
+          <ErrorView message={error ?? 'We could not load your account.'} onRetry={refetch} />
+        ) : booked ? (
+          <BookedCard
+            appointment={booked}
+            onBack={goBack}
+            onViewAppointments={() => viewAppointments(booked.appointmentId)}
+            onBookAnother={() => setBooked(null)}
           />
-          <FieldError message={errors.type?.message} />
-        </View>
-
-        {/* Doctor */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Select Doctor</Text>
-          <View style={[styles.inputRow, styles.doctorSearchRow]}>
-            <Ionicons name="search-outline" size={16} color={GRAY} style={styles.inputIcon} />
-            <TextInput
-              style={[styles.input, { fontSize: 13 }]}
-              placeholder="Search by name or specialization…"
-              placeholderTextColor={GRAY}
-              accessibilityLabel="Search doctors"
-              value={doctorSearch}
-              onChangeText={t => { setDoctorSearch(t); setDoctorsExpanded(false); }}
-              autoCorrect={false}
-            />
-            {doctorSearch.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setDoctorSearch('')}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Clear doctor search"
-              >
-                <Ionicons name="close-circle" size={16} color={GRAY} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {doctorsLoading ? (
-            <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>Loading doctors…</Text>
-          ) : doctorsError ? (
-            <View style={[styles.errorBanner, { marginTop: 10, marginBottom: 0 }]}>
-              <Ionicons name="alert-circle-outline" size={15} color={RED} />
-              <Text style={styles.errorText}>Could not load doctors.</Text>
-              <TouchableOpacity onPress={refetchDoctors} activeOpacity={0.7} accessibilityRole="button">
-                <Text style={[styles.errorText, { flex: 0, fontWeight: '700', textDecorationLine: 'underline' }]}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          ) : activeDoctors.length === 0 ? (
-            <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>No doctors are available for booking right now.</Text>
-          ) : filteredDoctors.length === 0 ? (
-            <Text style={{ color: GRAY, fontSize: 13, marginTop: 8 }}>No doctors match your search.</Text>
-          ) : (
-            <>
-              <Controller control={control} name="doctor_id"
-                render={({ field: { onChange, value } }) => (
-                  <View style={[styles.doctorGrid, { marginTop: 10 }]}>
-                    {visibleDoctors.map(d => {
-                      const id = d.doctor_system_id;
-                      const on = value === id;
-                      return (
-                        <TouchableOpacity
-                          key={id}
-                          style={[styles.doctorCard, on && styles.doctorCardActive]}
-                          onPress={() => onChange(id)}
-                          activeOpacity={0.8}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: on }}
-                          {...ariaPressed(on)}
-                        >
-                          <View style={[styles.doctorAvatar, on && { borderColor: TEAL }]} {...ariaHidden}>
-                            <Text style={styles.doctorAvatarText}>{doctorInitial(d.full_name)}</Text>
-                          </View>
-                          <View style={styles.doctorInfo}>
-                            <Text style={[styles.doctorName, on && { color: TEAL }]}>{d.full_name}</Text>
-                            <Text style={styles.doctorSpec}>{d.specialization ?? ''}</Text>
-                          </View>
-                          {on && <Ionicons name="checkmark-circle" size={20} color={TEAL} {...ariaHidden} />}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              />
-              {filteredDoctors.length > 3 && (
-                <TouchableOpacity
-                  style={styles.expandBtn}
-                  onPress={() => setDoctorsExpanded(e => !e)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.expandBtnText}>
-                    {doctorsExpanded
-                      ? 'Show less'
-                      : `Show ${filteredDoctors.length - 3} more doctor${filteredDoctors.length - 3 > 1 ? 's' : ''}`}
-                  </Text>
-                  <Ionicons name={doctorsExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={TEAL} />
-                </TouchableOpacity>
-              )}
-            </>
-          )}
-          <FieldError message={errors.doctor_id?.message} />
-        </View>
-
-        {/* ── Date & Time ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Date & Time</Text>
-          <View style={[styles.twoCol, { alignItems: 'flex-start', gap: 16 }]}>
-
-            {/* Calendar */}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Select Date</Text>
-              <Controller control={control} name="scheduled_date"
-                render={({ field: { onChange, value } }) => (
-                  <View style={[styles.pickerCard, !!errors.scheduled_date && styles.pickerCardError]}>
-                    <CalendarPicker value={value} onChange={onChange} />
-                  </View>
-                )}
-              />
-              <FieldError message={errors.scheduled_date?.message} />
-            </View>
-
-            {/* Time */}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Select Time</Text>
-              <Controller control={control} name="scheduled_time"
-                render={({ field: { onChange, value } }) => (
-                  <View style={[styles.pickerCard, !!errors.scheduled_time && styles.pickerCardError]}>
-                    <TimePicker value={value} onChange={onChange} />
-                  </View>
-                )}
-              />
-              <FieldError message={errors.scheduled_time?.message ?? (slotInPast ? 'This time has already passed. Please choose a later time.' : undefined)} />
-            </View>
-          </View>
-        </View>
-
-        {/* Duration */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Duration</Text>
-          <Controller control={control} name="duration_minutes"
-            render={({ field: { onChange, value } }) => (
-              <View style={styles.durationRow} accessibilityRole="radiogroup" accessibilityLabel="Duration">
-                {DURATIONS.map(d => {
-                  const on = value === d.value;
-                  return (
-                    <TouchableOpacity
-                      key={d.value}
-                      style={[styles.durationBtn, on && styles.durationBtnActive]}
-                      onPress={() => onChange(d.value)}
-                      activeOpacity={0.8}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: on }}
-                      aria-checked={on}
-                    >
-                      <Text style={[styles.durationLabel, on && styles.durationLabelActive]}>{d.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
+        ) : (
+          <BookingForm
+            patientSystemId={user.system_id}
+            initialDate={params?.date}
+            onBooked={handleBooked}
+            theme={theme}
           />
-        </View>
-
-        {/* Reason */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Reason for Visit</Text>
-          <Controller control={control} name="reason_for_visit"
-            render={({ field: { onChange, value } }) => (
-              <TextInput
-                style={[styles.textarea, !!errors.reason_for_visit && styles.inputRowError]}
-                placeholder="Describe your symptoms or reason for the appointment..."
-                placeholderTextColor={GRAY}
-                value={value}
-                onChangeText={onChange}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-                autoCorrect={false}
-              />
-            )}
-          />
-          <FieldError message={errors.reason_for_visit?.message} />
-        </View>
-
-        {/* Notes */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Additional Notes <Text style={styles.optional}>(optional)</Text></Text>
-          <Controller control={control} name="notes"
-            render={({ field: { onChange, value } }) => (
-              <TextInput
-                style={styles.textarea}
-                placeholder="Any additional information for the doctor..."
-                placeholderTextColor={GRAY}
-                value={value ?? ''}
-                onChangeText={onChange}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-                autoCorrect={false}
-              />
-            )}
-          />
-        </View>
-
-        {/* Error */}
-        {!!authError && (
-          <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle-outline" size={15} color={RED} />
-            <Text style={styles.errorText}>{authError}</Text>
-          </View>
         )}
-
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.submitBtn, { opacity: loading ? 0.7 : 1 }]}
-          onPress={handleSubmit(onSubmit)}
-          activeOpacity={0.85}
-          disabled={loading}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: loading }}
-        >
-          <Ionicons name="calendar-outline" size={18} color={WHITE} />
-          <Text style={styles.submitText}>{loading ? 'Booking…' : 'Book Appointment'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
+      </View>
+    </Screen>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  screen:       { flex: 1, flexDirection: 'row', backgroundColor: BG },
-  formPane:     { flex: 1, backgroundColor: WHITE, borderRightWidth: 1, borderRightColor: BORDER },
-  formPaneFull: { flex: 1, borderRightWidth: 0 },
-  formScroll:   { flexGrow: 1, padding: 40, maxWidth: 780, alignSelf: 'center', width: '100%' },
+  column: { width: '100%', maxWidth: 860, minWidth: 0, gap: space.lg },
 
-  pageHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 32, flexWrap: 'wrap' },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:  { fontSize: 22, fontWeight: '800', color: TEXT },
-  pageSub:    { fontSize: 13, color: GRAY, marginTop: 2 },
-
-  section:      { marginBottom: 28 },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: TEXT, marginBottom: 12 },
-  optional:     { fontWeight: '400', color: GRAY },
-
-  typeRow:  { flexDirection: 'row', gap: 10 },
-  typeCard: { flex: 1, alignItems: 'center', gap: 5, paddingVertical: 14, borderWidth: 1.5, borderColor: BORDER, borderRadius: 12, position: 'relative' },
-  typeCheck:  { position: 'absolute', top: -7, right: -7, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  typeLabel:  { fontSize: 12, fontWeight: '600', color: GRAY },
-  typeDesc:   { fontSize: 10, color: GRAY, textAlign: 'center' },
-
-  doctorSearchRow:  { marginBottom: 0 },
-  doctorGrid:       { gap: 8 },
-  expandBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, marginTop: 6, borderWidth: 1, borderColor: TEAL, borderRadius: 10, backgroundColor: '#E6F4F1' },
-  expandBtnText:    { fontSize: 13, fontWeight: '600', color: TEAL },
-  doctorCard:       { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1.5, borderColor: BORDER, borderRadius: 12, backgroundColor: WHITE },
-  doctorCardActive: { borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  doctorAvatar:     { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: BORDER },
-  doctorAvatarText: { fontSize: 16, fontWeight: '700', color: TEAL },
-  doctorInfo:       { flex: 1 },
-  doctorName:       { fontSize: 14, fontWeight: '600', color: TEXT },
-  doctorSpec:       { fontSize: 12, color: GRAY, marginTop: 2 },
-
-  twoCol:        { flexDirection: 'row' },
-  label:         { fontSize: 13, fontWeight: '600', color: TEXT, marginBottom: 8 },
-  inputRow:      { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: BG, marginBottom: 4 },
-  inputRowError: { borderColor: RED },
-  inputIcon:     { marginRight: 10 },
-  input:         { flex: 1, fontSize: 14, color: TEXT, outlineStyle: 'none' } as any,
-
-  // Picker card wrapper
-  pickerCard:      { borderWidth: 1.5, borderColor: BORDER, borderRadius: 14, padding: 18, backgroundColor: WHITE },
-  pickerCardError: { borderColor: RED },
-
-  // Calendar
-  calHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  calNavBtn:      { width: 32, height: 32, borderRadius: 16, backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center' },
-  calNavBtnDisabled: { backgroundColor: BG },
-  calMonthLabel:  { fontSize: 15, fontWeight: '700', color: TEXT },
-  calDayHeaders:  { flexDirection: 'row', marginBottom: 6 },
-  calDayHeader:   { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '700', color: GRAY2, paddingVertical: 4 },
-  calGrid:        { flexDirection: 'row', flexWrap: 'wrap' },
-  calCell:        { width: '14.2857%', alignItems: 'center', paddingVertical: 3 },
-  calDayCircle:   { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  calDaySelected: { backgroundColor: TEAL },
-  calDayToday:    { borderWidth: 1.5, borderColor: TEAL },
-  calDayText:     { fontSize: 13, fontWeight: '500', color: TEXT },
-  calDayTextSelected: { color: WHITE, fontWeight: '700' },
-  calDayTextPast: { color: '#D1D5DB' },
-  calDayTextToday:{ color: TEAL, fontWeight: '700' },
-  calSelected:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, padding: 10, backgroundColor: '#E6F4F1', borderRadius: 10 },
-  calSelectedText:{ fontSize: 13, color: TEAL, fontWeight: '600', flex: 1 },
-  calHint:        { fontSize: 12, color: GRAY2, textAlign: 'center', marginTop: 10, fontStyle: 'italic' },
-
-  // Time picker
-  timeSubLabel:    { fontSize: 11, fontWeight: '700', color: GRAY2, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  ampmRow:         { flexDirection: 'row', gap: 8 },
-  ampmBtn:         { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: BG },
-  ampmBtnActive:   { borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  ampmText:        { fontSize: 15, fontWeight: '700', color: GRAY },
-  ampmTextActive:  { color: TEAL },
-  hourGrid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  hourBtn:         { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: BORDER, backgroundColor: BG },
-  hourBtnActive:   { backgroundColor: TEAL, borderColor: TEAL },
-  hourText:        { fontSize: 14, fontWeight: '600', color: TEXT },
-  hourTextActive:  { color: WHITE },
-  minuteRow:       { flexDirection: 'row', gap: 8 },
-  minuteBtn:       { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: BG },
-  minuteBtnActive: { borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  minuteText:      { fontSize: 15, fontWeight: '700', color: GRAY },
-  minuteTextActive:{ color: TEAL },
-  timePreview:     { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#E6F4F1', borderRadius: 10, marginTop: 2 },
-  timePreviewEmpty:{ backgroundColor: BG },
-  timePreviewText: { fontSize: 16, fontWeight: '700', color: TEAL },
-
-  durationRow:        { flexDirection: 'row', gap: 8 },
-  durationBtn:        { flex: 1, paddingVertical: 10, borderWidth: 1.5, borderColor: BORDER, borderRadius: 10, alignItems: 'center' },
-  durationBtnActive:  { borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  durationLabel:      { fontSize: 13, fontWeight: '600', color: GRAY },
-  durationLabelActive:{ color: TEAL },
-
-  textarea: { borderWidth: 1.5, borderColor: BORDER, borderRadius: 12, padding: 14, fontSize: 14, color: TEXT, backgroundColor: BG, minHeight: 100, outlineStyle: 'none' } as any,
-
-  fieldError:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  fieldErrorText: { fontSize: 12, color: RED },
-
-  errorBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: '#FEF2F2', borderRadius: 10, marginBottom: 12 },
-  errorText:   { flex: 1, fontSize: 13, color: RED },
-
-  submitBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: TEAL, borderRadius: 12, paddingVertical: 16, marginBottom: 20 },
-  submitText: { fontSize: 16, fontWeight: '700', color: WHITE },
-
-  successScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG },
-  successCard:   { backgroundColor: WHITE, borderRadius: 20, padding: 48, alignItems: 'center', maxWidth: 440, margin: 24, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 20 } as any,
-  successIcon:   { marginBottom: 20 },
-  successTitle:  { fontSize: 24, fontWeight: '800', color: TEXT, marginBottom: 12 },
-  successSub:    { fontSize: 14, color: GRAY, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
-  successBtn:    { backgroundColor: TEAL, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 },
-  successBtnText:{ fontSize: 15, fontWeight: '700', color: WHITE },
-
-  summaryPane:   { width: 340, backgroundColor: NAVY, overflow: 'hidden' },
-  summaryInner:  { flex: 1, padding: 36, gap: 20 },
-  summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  summaryBrand:  { fontSize: 20, fontWeight: '800', color: WHITE },
-  summaryTitle:  { fontSize: 22, fontWeight: '800', color: WHITE, lineHeight: 30 },
-  summaryCard:     { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: 16, gap: 14 },
-  summaryRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  summaryRowIcon:  { width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(13,148,136,0.2)', alignItems: 'center', justifyContent: 'center' },
-  summaryRowText:  { flex: 1 },
-  summaryRowLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  summaryRowValue: { fontSize: 14, color: WHITE, fontWeight: '600', marginTop: 2 },
-  infoBox:   { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: 'rgba(13,148,136,0.15)', borderRadius: 10, padding: 12 },
-  infoText:  { flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
-  featureList: { gap: 12 },
-  featureRow:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  featureIconBg:{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
-  featureText: { fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
+  booked:        { alignItems: 'center', gap: space.md, paddingVertical: space.xxl },
+  bookedTitle:   { fontSize: fontSize.title, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  bookedText:    { fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center', lineHeight: 21, maxWidth: 520 },
+  bookedDetails: { alignSelf: 'stretch', maxWidth: 520, width: '100%', marginHorizontal: 'auto' },
+  bookedActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm },
 });
 
 export default PatientWebAppointment;

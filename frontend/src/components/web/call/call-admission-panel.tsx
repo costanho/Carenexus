@@ -5,6 +5,7 @@ import { apiErrorMessage } from '@/hooks/use-appointments';
 import { admitParticipant, denyParticipant, removeParticipant } from '@/lib/calls/api';
 import type { CallParticipant, CallStatusResponse } from '@/lib/calls/types';
 import { confirmAction } from '@/lib/ui/dialogs';
+import { ariaLevel, decorative } from '@/components/web/ui/a11y';
 import { C, CallButton, Notice } from './call-ui';
 
 // Doctor-only admission panel: waiting requests (Admit / Deny) and admitted people (Remove).
@@ -96,8 +97,8 @@ export function CallAdmissionPanel(props: {
   const muted = dark ? '#CBD5E1' : C.muted;
 
   return (
-    <View style={[styles.panel, dark && styles.panelDark]} accessibilityLabel="People in this call">
-      <Text style={[styles.heading, { color: text }]} accessibilityRole="header">
+    <View style={[styles.panel, dark && styles.panelDark]} role="region" accessibilityLabel="People in this call">
+      <Text style={[styles.heading, { color: text }]} accessibilityRole="header" {...ariaLevel(2)}>
         Waiting to join {requested.length > 0 ? `(${requested.length})` : ''}
       </Text>
       <View accessibilityLiveRegion="polite">
@@ -109,7 +110,7 @@ export function CallAdmissionPanel(props: {
             style={[styles.person, dark && styles.personDark, fresh.has(p.participantId) && (dark ? styles.personFreshDark : styles.personFresh)]}
           >
             <View style={styles.personInfo}>
-              <Ionicons name="person-circle-outline" size={20} color={muted} />
+              <Ionicons aria-hidden name="person-circle-outline" size={20} color={muted} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.label, { color: text }]}>{p.label}</Text>
                 {fresh.has(p.participantId) && <Text style={styles.newTag}>New request</Text>}
@@ -138,13 +139,13 @@ export function CallAdmissionPanel(props: {
         ))}
       </View>
 
-      <Text style={[styles.heading, { color: text, marginTop: 8 }]} accessibilityRole="header">In the call</Text>
+      <Text style={[styles.heading, { color: text, marginTop: 8 }]} accessibilityRole="header" {...ariaLevel(2)}>In the call</Text>
       {admitted.length === 0 ? (
         <Text style={[styles.empty, { color: muted }]}>No one else has been admitted yet.</Text>
       ) : admitted.map(p => (
         <View key={p.participantId} style={[styles.person, dark && styles.personDark]}>
           <View style={styles.personInfo}>
-            <View style={[styles.dot, { backgroundColor: p.connected ? '#22C55E' : '#94A3B8' }]} />
+            <View style={[styles.dot, { backgroundColor: p.connected ? '#22C55E' : '#94A3B8' }]} {...decorative} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[styles.label, { color: text }]}>{p.label}</Text>
               <Text style={[styles.sub, { color: muted }]}>{p.connected ? 'Connected' : 'Admitted, not connected'}</Text>
@@ -165,7 +166,7 @@ export function CallAdmissionPanel(props: {
       {pendingRemoval.map(p => (
         <View key={p.participantId} style={[styles.person, dark && styles.personDark]}>
           <View style={styles.personInfo}>
-            <Ionicons name="time-outline" size={18} color={C.amber} />
+            <Ionicons aria-hidden name="time-outline" size={18} color={C.amber} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[styles.label, { color: text }]}>{p.label}</Text>
               <Text style={[styles.sub, { color: C.amber }]}>Removal pending</Text>

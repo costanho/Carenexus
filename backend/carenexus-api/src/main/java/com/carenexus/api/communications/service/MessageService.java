@@ -1,6 +1,7 @@
 package com.carenexus.api.communications.service;
 
 import com.carenexus.api.auth.model.User;
+import com.carenexus.api.common.exception.BadRequestException;
 import com.carenexus.api.common.service.AuditService;
 import com.carenexus.api.communications.dto.request.MarkThreadReadRequest;
 import com.carenexus.api.communications.dto.request.SendMessageRequest;
@@ -58,7 +59,7 @@ public class MessageService {
         Caller caller = accessService.requireCaller();
         ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
         if (before != null && after != null) {
-            throw new RuntimeException("Use either before or after, not both");
+            throw new BadRequestException("Use either before or after, not both");
         }
         int size = limit == null ? 30 : Math.min(Math.max(limit, 1), 100);
         int boundary = access.member().historyStart();
@@ -104,8 +105,9 @@ public class MessageService {
     // ==================== SEND ====================
 
     /**
-     * One transaction: message, thread pointers, sender read position, un-archive + notification for every other
-     * active member who still passes the access rule, audit. A repeated clientMessageId returns the stored message.
+     * One transaction: message, thread pointers, sender read position (and the sender's notifications of this
+     * thread marked read), un-archive + notification for every other active member who still passes the access
+     * rule, audit. A repeated clientMessageId returns the stored message and changes nothing.
      */
     public SendResult sendMessage(Integer threadId, SendMessageRequest request) {
         Caller caller = accessService.requireCaller();
@@ -116,7 +118,7 @@ public class MessageService {
 
         String clientMessageId = request != null && request.getClientMessageId() != null ? request.getClientMessageId().trim() : "";
         if (!ThreadService.CLIENT_ID.matcher(clientMessageId).matches()) {
-            throw new RuntimeException("A valid clientMessageId is required");
+            throw new BadRequestException("A valid clientMessageId is required");
         }
         Optional<Message> duplicate = messageRepository.findByThreadIdAndSenderSystemIdAndClientMessageId(
                 threadId, caller.systemId(), clientMessageId);
@@ -126,10 +128,10 @@ public class MessageService {
 
         String body = request.getBody() != null ? request.getBody().trim() : "";
         if (body.isEmpty()) {
-            throw new RuntimeException("Message cannot be empty");
+            throw new BadRequestException("Message cannot be empty");
         }
         if (body.length() > maxBodyLength) {
-            throw new RuntimeException("Messages can be at most " + maxBodyLength + " characters");
+            throw new BadRequestException("Messages can be at most " + maxBodyLength + " characters");
         }
         boolean urgent = Boolean.TRUE.equals(request.getUrgent());
         LocalDateTime now = LocalDateTime.now();
@@ -155,6 +157,9 @@ public class MessageService {
         ThreadMember senderMember = access.member();
         senderMember.setLastReadMessageId(message.getMessageId());
         memberRepository.save(senderMember);
+        // Sending is reading: the sender's own unread notifications of this thread are read up to the new message,
+        // so the Messages badge drops even when the client never posts /read (its read position is already newest).
+        notificationRepository.markThreadReadUpTo(caller.systemId(), threadId, message.getMessageId(), now);
 
         List<ThreadMember> others = memberRepository.findActiveByThreadId(threadId).stream()
                 .filter(m -> !m.getSystemId().equals(caller.systemId()))
@@ -203,7 +208,7 @@ public class MessageService {
         Caller caller = accessService.requireCaller();
         ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
         if (request == null || request.getLastReadMessageId() == null) {
-            throw new RuntimeException("lastReadMessageId is required");
+            throw new BadRequestException("lastReadMessageId is required");
         }
         int value = request.getLastReadMessageId();
         ThreadMember member = access.member();

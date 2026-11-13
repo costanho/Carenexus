@@ -1,35 +1,58 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useCurrentUser } from '@/hooks/use-current-user';
-import { useCaregiverDependents, type CaregiverDependent } from '@/hooks/use-caregiver-dependents';
-import { ErrorState, LoadingState } from './proxy-states';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { StyleSheet, Text, View } from 'react-native';
+import {
+  EditableSection, EmailRow, initialsOf, NamePhoneFields, ProfileForm, ProfileGrid, ProfileIdentity,
+  ProfileTabsBody, profileCell, useProfileSave, useProfileTab,
+} from '@/components/web/profile/profile-shared';
+import {
+  Banner, Button, Card, colors, decorative, EmptyView, ErrorView, fontSize, FormActions, FormError, Icon,
+  InfoRow, type IoniconsName, LoadingView, radius, Screen, SectionCard, space, StatusBadge, statusLabel,
+  statusTone, useUiTheme,
+} from '@/components/web/ui';
+import { usePendingAccessRequestCount } from '@/hooks/use-caregiver-access-requests';
+import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { type UpdateUserProfile, useMyProfile, type UserProfile } from '@/hooks/use-my-profile';
+import { isGrantActive } from '@/lib/caregiver/permissions';
+import type { SectionProps } from '@/lib/nav/sections';
+import { formatClinicDate } from '@/lib/time/clinic';
+import {
+  type AccountDetailsForm, accountDetailsChanges, accountDetailsDefaults, accountDetailsSchema,
+} from '@/lib/validation/profile';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const PURPLE = '#7C3AED';
-const PURPLE_BG  = '#F5F3FF';
-const GREEN  = '#047857';
-const RED    = '#B91C1C';
-const ORANGE = '#B45309';
+// The caregiver's own account: name and phone (editable), sign-in email, how they described themselves at
+// registration, the patients they are linked to and the access requests they sent. Everything is read from
+// GET /api/profile, so the phone and the account status are the stored ones. The Security tab is shown when
+// the dashboard passes a `securityPanel`. A `patient` URL param (the link of a "your access changed"
+// notification) marks that loved one in the list.
+
+export interface PatientProxyProfileSettingsProps extends Partial<SectionProps> {
+  /** Opens another section of the caregiver dashboard; without it `navigate` is used. */
+  onNavigate?:      (key: string) => void;
+  onSelectPatient?: (dep: CaregiverDependent) => void;
+  /** Content of the Security tab (`?tab=security`); without it the screen has no tabs. */
+  securityPanel?:   ReactNode;
+}
 
 const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
-  for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
-function initials(name: string) {
-  return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
-function healthDotColor(s: string | null) {
-  if (s === 'STABLE')   return GREEN;
-  if (s === 'MONITOR')  return ORANGE;
-  if (s === 'CRITICAL') return RED;
-  return '#6B7280';
-}
+
+/**
+ * Health status of a linked patient: a dot in the status palette on the avatar, plus an icon and the status
+ * word in a text shade that reads on a light surface, so colour is never the only cue.
+ */
+interface HealthLook { label: string; dot: string; text: string; icon: IoniconsName }
+const HEALTH: Record<string, HealthLook> = {
+  STABLE:   { label: 'Stable',   dot: '#16A34A', text: '#166534', icon: 'checkmark-circle' },
+  MONITOR:  { label: 'Monitor',  dot: '#F59E0B', text: '#92400E', icon: 'alert-circle' },
+  CRITICAL: { label: 'Critical', dot: '#DC2626', text: '#991B1B', icon: 'warning' },
+};
+
 function accessLabel(level: string) {
   if (level === 'FULL_ACCESS') return 'Full Access';
   if (level === 'VIEW_ONLY')   return 'View Only';
@@ -37,199 +60,294 @@ function accessLabel(level: string) {
   return 'Custom';
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function capitalise(text: string | null | undefined): string {
+  const t = (text ?? '').trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+}
+
+// ─── Personal information ─────────────────────────────────────────────────────
+
+const FIELDS = ['firstName', 'lastName', 'phone'] as const;
+
+function AccountDetailsEdit({ profile, save, onDone, onCancel }: {
+  profile:  UserProfile;
+  save:     (changes: UpdateUserProfile) => Promise<unknown>;
+  onDone:   (saved: boolean) => void;
+  onCancel: () => void;
+}) {
+  const schema = useMemo(() => accountDetailsSchema({ hasPhone: !!profile.phone }), [profile.phone]);
+  const { control, handleSubmit, setError, setFocus } = useForm<AccountDetailsForm>({
+    resolver: zodResolver(schema),
+    defaultValues: accountDetailsDefaults(profile),
+  });
+  const { submit, pending, formError } = useProfileSave({
+    handleSubmit, setError, fields: FIELDS,
+    changesOf: (values: AccountDetailsForm) => accountDetailsChanges(profile, values),
+    save, onDone,
+  });
+  useEffect(() => { setFocus('firstName'); }, [setFocus]);
+
   return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+    <ProfileForm>
+      <FormError message={formError} />
+      <NamePhoneFields control={control} onSubmit={submit} phoneRequired={!!profile.phone} />
+      <FormActions submitLabel="Save changes" onSubmit={submit} onCancel={onCancel} submitting={pending} />
+    </ProfileForm>
+  );
+}
+
+function AccountDetailsView({ profile, onOpenSecurity }: { profile: UserProfile; onOpenSecurity?: () => void }) {
+  return (
+    <View>
+      <InfoRow label="First name" value={profile.firstName} />
+      <InfoRow label="Last name" value={profile.lastName} />
+      <InfoRow label="Phone number" value={profile.phone} />
+      <EmailRow email={profile.email} onOpenSecurity={onOpenSecurity} />
+      {/* Recorded at registration only; the row is left out when nothing was recorded. */}
+      {profile.relationship ? <InfoRow label="Relationship" value={capitalise(profile.relationship)} /> : null}
+      <InfoRow label="Role" value="Caregiver" />
+      <InfoRow label="Account status">
+        <StatusBadge
+          label={profile.isActive ? 'Active' : 'Inactive'}
+          tone={statusTone('account', profile.isActive ? 'ACTIVE' : 'INACTIVE')}
+        />
+      </InfoRow>
     </View>
   );
 }
 
-export default function PatientProxyProfileSettings({
-  onNavigate,
-  onSelectPatient,
-}: {
-  onNavigate?:      (key: string) => void;
-  onSelectPatient?: (dep: CaregiverDependent) => void;
-}) {
-  const { user }       = useCurrentUser();
-  const { dependents, loading, error, refetch } = useCaregiverDependents();
+// ─── Linked patients ──────────────────────────────────────────────────────────
 
-  const fullName = user ? `${user.first_name} ${user.last_name}` : '...';
-  const bg       = user ? avatarColor(fullName) : '#7C3AED';
-  const ini      = user ? initials(fullName) : '??';
+function LinkedPatientRow({ dep, first, highlighted = false, onManage }: {
+  dep:          CaregiverDependent;
+  first:        boolean;
+  /** The loved one a notification link points at. */
+  highlighted?: boolean;
+  onManage?:    () => void;
+}) {
+  const { accent, accentBg } = useUiTheme();
+  const name = dep.patientName ?? 'Unknown';
+  const health = dep.patientHealthStatus ? HEALTH[dep.patientHealthStatus] ?? null : null;
+  const relationship = capitalise(dep.relationship);
+  // A grant that is no longer in force is labelled with why: revoked, or past its end date.
+  const ended = isGrantActive(dep) ? null : dep.accessStatus && dep.accessStatus !== 'ACTIVE' ? dep.accessStatus : 'EXPIRED';
+  const expiry = ended ? null : dep.expiresAt ? `Expires ${formatClinicDate(dep.expiresAt, 'on an unknown date')}` : 'No expiry';
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Hero */}
-      <View style={styles.hero}>
-        <View style={styles.heroOverlay}>
-          <View style={styles.avatarWrap}>
-            {user?.avatar_url ? (
-              <Image source={{ uri: user.avatar_url }} style={styles.avatar} />
+    <View
+      style={[styles.depRow, !first && styles.depDivider, highlighted && [styles.depHighlight, { backgroundColor: accentBg, borderColor: accent }]]}
+      role="listitem"
+    >
+      <View style={styles.depAvatarWrap} {...decorative}>
+        <View style={[styles.depAvatar, { backgroundColor: avatarColor(name) }]}>
+          <Text style={styles.depInitials}>{initialsOf(name) || '?'}</Text>
+        </View>
+        {health ? <View style={[styles.depDot, { backgroundColor: health.dot }]} /> : null}
+      </View>
+      <View style={styles.depMain}>
+        <Text style={styles.depName}>{name}</Text>
+        {highlighted ? <Text style={[styles.depLinked, { color: accent }]}>From your notification</Text> : null}
+        {relationship ? <Text style={styles.depRel}>{relationship}</Text> : null}
+        <View style={styles.depMeta}>
+          <StatusBadge label={accessLabel(dep.accessLevel)} tone="neutral" icon={null} />
+          {ended ? <StatusBadge label={statusLabel(ended)} tone={statusTone('access', ended)} /> : null}
+          {health ? (
+            <View style={styles.healthTag}>
+              <Icon name={health.icon} size={13} color={health.text} />
+              <Text style={[styles.healthText, { color: health.text }]}>{health.label}</Text>
+            </View>
+          ) : null}
+          {expiry ? <Text style={styles.depExpiry}>{expiry}</Text> : null}
+        </View>
+      </View>
+      {onManage ? (
+        <Button
+          label="Manage" accessibilityLabel={`Manage access for ${name}`}
+          variant="secondary" size="sm" onPress={onManage}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// ─── Access requests ──────────────────────────────────────────────────────────
+
+/** The requests for access the caregiver sent to existing patients: how many wait for an answer, and a link. */
+function AccessRequestsCard({ onOpen }: { onOpen: () => void }) {
+  const pending = usePendingAccessRequestCount();
+  const count = pending.data;
+  let summary;
+  if (pending.loading && count === null) {
+    summary = <LoadingView compact label="Loading your access requests" />;
+  } else if (pending.error && count === null) {
+    summary = <ErrorView compact message={pending.error} onRetry={pending.refetch} />;
+  } else if (count && count > 0) {
+    summary = (
+      <View style={styles.requestsRow}>
+        <StatusBadge label={`${count} pending`} tone="warning" icon="time-outline" />
+        <Text style={styles.requestsText}>
+          {count === 1 ? 'One request is waiting for the patient to answer.' : `${count} requests are waiting for the patients to answer.`}
+        </Text>
+      </View>
+    );
+  } else {
+    summary = <Text style={styles.requestsText}>No requests are waiting for an answer.</Text>;
+  }
+  return (
+    <SectionCard
+      title="Access Requests"
+      subtitle="Requests you sent to patients who already use CareNexus"
+      style={profileCell}
+      action={(
+        <Button
+          label="View access requests"
+          icon="mail-open-outline"
+          variant="secondary"
+          size="sm"
+          accessibilityLabel={count && count > 0 ? `View access requests, ${count} pending` : 'View access requests'}
+          onPress={onOpen}
+        />
+      )}
+    >
+      {summary}
+    </SectionCard>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+export default function PatientProxyProfileSettings({
+  onNavigate, onSelectPatient, params, navigate, theme, securityPanel,
+}: PatientProxyProfileSettingsProps) {
+  const { profile, loading, refreshing, error, refetch, updateProfile } = useMyProfile();
+  const dependents = useCaregiverDependents();
+  const { tab, setTab } = useProfileTab(params, !!securityPanel);
+  const [editing, setEditing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // The registry passes the two callbacks; a plain `SectionProps` mount gets the same behaviour from `navigate`.
+  const openSection = onNavigate ?? (navigate ? (key: string) => navigate(key) : undefined);
+  const selectPatient = onSelectPatient
+    ?? (navigate ? (dep: CaregiverDependent) => navigate('patient-profile', { patient: dep.patientSystemId }) : undefined);
+  const openSecurity = securityPanel ? () => setTab('security') : undefined;
+  const linkedPatient = params?.patient?.trim() || null;
+
+  const fullName = profile ? `${profile.firstName} ${profile.lastName}`.trim() : '';
+
+  return (
+    <Screen
+      title="Profile & Settings"
+      subtitle="Your account details and the people you care for"
+      theme={theme}
+      role="proxy"
+      actions={profile ? (
+        <Button
+          label="Refresh" icon="refresh-outline" variant="secondary" size="sm"
+          onPress={() => { refetch(); dependents.refetch(); }} loading={refreshing}
+        />
+      ) : undefined}
+    >
+      <ProfileTabsBody tab={tab} onTabChange={setTab} securityPanel={securityPanel}>
+        {profile && error ? <Banner tone="danger" text={error} action={{ label: 'Retry', onPress: refetch }} /> : null}
+        {notice ? <Banner tone="success" text={notice} onDismiss={() => setNotice(null)} /> : null}
+
+        {loading ? (
+          <Card><LoadingView compact label="Loading your profile" /></Card>
+        ) : !profile ? (
+          <Card><ErrorView compact message={error ?? 'Profile not found.'} onRetry={refetch} /></Card>
+        ) : (
+          <ProfileIdentity
+            name={fullName}
+            initials={initialsOf(profile.firstName, profile.lastName)}
+            tagline="Caregiver"
+            facts={profile.systemId ? [{ label: 'Caregiver ID', value: profile.systemId }] : []}
+          />
+        )}
+
+        <ProfileGrid>
+          {profile ? (
+            <EditableSection
+              title="Personal Information"
+              editing={editing}
+              onEdit={() => { setNotice(null); setEditing(true); }}
+              editLabel="Edit personal information"
+            >
+              {editing ? (
+                <AccountDetailsEdit
+                  profile={profile}
+                  save={updateProfile}
+                  onCancel={() => setEditing(false)}
+                  onDone={saved => { setEditing(false); if (saved) setNotice('Your personal information was saved.'); }}
+                />
+              ) : (
+                <AccountDetailsView profile={profile} onOpenSecurity={openSecurity} />
+              )}
+            </EditableSection>
+          ) : null}
+
+          <SectionCard
+            title="Linked Patients"
+            subtitle="Patients you have been authorised to manage as proxy"
+            style={profileCell}
+            action={openSection ? (
+              <Button
+                label="Add Linked Patient" icon="add" variant="secondary" size="sm"
+                onPress={() => openSection('add-dependent')}
+              />
+            ) : undefined}
+          >
+            {dependents.loading ? (
+              <LoadingView compact label="Loading linked patients" />
+            ) : dependents.error ? (
+              <ErrorView compact message={dependents.error} onRetry={dependents.refetch} />
+            ) : dependents.dependents.length === 0 ? (
+              <EmptyView
+                compact
+                icon="people-outline"
+                title="No linked patients yet"
+                sub="Patients appear here once you add them or they give you access."
+              />
             ) : (
-              <View style={[styles.avatar, { backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }]}>
-                <Text style={styles.avatarText}>{ini}</Text>
+              <View role="list" aria-label="Linked patients">
+                {dependents.dependents.map((dep, index) => (
+                  <LinkedPatientRow
+                    key={dep.accessId}
+                    dep={dep}
+                    first={index === 0}
+                    highlighted={dep.patientSystemId === linkedPatient}
+                    onManage={selectPatient ? () => selectPatient(dep) : undefined}
+                  />
+                ))}
               </View>
             )}
-          </View>
-          <View>
-            <Text style={styles.heroName}>{fullName}</Text>
-            <Text style={styles.heroRole}>Proxy / Caregiver</Text>
-          </View>
-        </View>
-      </View>
+          </SectionCard>
 
-      <View style={styles.body}>
-        {/* Personal info */}
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <Text style={styles.cardTitle} accessibilityRole="header">Personal Information</Text>
-          </View>
-          <InfoRow label="First Name"    value={user?.first_name ?? '—'} />
-          <View style={styles.sep} />
-          <InfoRow label="Last Name"     value={user?.last_name  ?? '—'} />
-          <View style={styles.sep} />
-          <InfoRow label="Email Address" value={user?.email       ?? '—'} />
-          <View style={styles.sep} />
-          <InfoRow label="Phone Number"  value={user?.phone       ?? '—'} />
-          <View style={styles.sep} />
-          <InfoRow label="Role"          value="Proxy / Caregiver" />
-          <View style={styles.sep} />
-          <InfoRow label="Account Status" value={user?.is_active ? 'Active' : 'Inactive'} />
-        </View>
-
-        {/* Linked patients */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle} accessibilityRole="header">Linked Patients</Text>
-          <Text style={styles.cardSub}>Patients you have been authorised to manage as proxy</Text>
-
-          {loading ? (
-            <LoadingState compact label="Loading linked patients" />
-          ) : error ? (
-            <ErrorState compact message={error} onRetry={refetch} />
-          ) : dependents.length === 0 ? (
-            <Text style={styles.emptyText}>No linked patients yet.</Text>
-          ) : (
-            dependents.map((dep, i) => {
-              const name      = dep.patientName ?? 'Unknown';
-              const dotColor  = healthDotColor(dep.patientHealthStatus);
-              const label     = accessLabel(dep.accessLevel);
-              const bg2       = avatarColor(name);
-              const rel       = dep.relationship
-                ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
-                : '';
-              const expiry = dep.expiresAt
-                ? `Expires ${new Date(dep.expiresAt).toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                : 'No expiry';
-
-              return (
-                <View key={dep.accessId}>
-                  {i > 0 && <View style={styles.sep} />}
-                  <View style={styles.depRow}>
-                    <View style={styles.depAvatarWrap}>
-                      <View style={[styles.depAvatar, { backgroundColor: bg2, alignItems: 'center', justifyContent: 'center' }]}>
-                        <Text style={{ color: WHITE, fontSize: 14, fontWeight: '700' }}>{initials(name)}</Text>
-                      </View>
-                      <View style={[styles.depDot, { backgroundColor: dotColor }]} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.depName}>{name}</Text>
-                      <Text style={styles.depRel}>{rel}</Text>
-                      <View style={styles.depMetaRow}>
-                        <View style={styles.accessBadge}>
-                          <Text style={styles.accessText}>{label}</Text>
-                        </View>
-                        <Text style={styles.depExpiry}>{expiry}</Text>
-                      </View>
-                    </View>
-                    {onSelectPatient && (
-                      <TouchableOpacity
-                        style={styles.manageBtn}
-                        activeOpacity={0.8}
-                        onPress={() => onSelectPatient(dep)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Manage access for ${name}`}
-                      >
-                        <Text style={styles.manageBtnText}>Manage</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              );
-            })
-          )}
-
-          {onNavigate && (
-            <TouchableOpacity
-              style={styles.addBtn}
-              activeOpacity={0.8}
-              onPress={() => onNavigate('add-dependent')}
-              accessibilityRole="button"
-            >
-              <Ionicons name="add" size={16} color={PURPLE} importantForAccessibility="no" />
-              <Text style={styles.addBtnText}>Add Linked Patient</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Security */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle} accessibilityRole="header">Security</Text>
-          <View style={styles.secRow}>
-            <Ionicons name="lock-closed-outline" size={16} color={GRAY} importantForAccessibility="no" />
-            <Text style={[styles.secSub, { flex: 1, marginTop: 0, marginLeft: 8 }]}>
-              Password changes and two-factor authentication are not available in the app yet.
-            </Text>
-          </View>
-        </View>
-      </View>
-    </ScrollView>
+          {openSection ? <AccessRequestsCard onOpen={() => openSection('access-requests')} /> : null}
+        </ProfileGrid>
+      </ProfileTabsBody>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll:     { flex: 1, backgroundColor: BG },
-  container:  { paddingBottom: 48 },
-
-  hero:        { backgroundColor: '#0D1B2E', padding: 32, paddingBottom: 28 },
-  heroOverlay: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-  avatarWrap:  { position: 'relative' },
-  avatar:      { width: 80, height: 80, borderRadius: 40, borderWidth: 3, borderColor: WHITE },
-  avatarText:  { color: WHITE, fontSize: 26, fontWeight: '700' },
-  heroName:    { fontSize: 22, fontWeight: '700', color: WHITE },
-  heroRole:    { fontSize: 13, color: '#94A3B8', marginTop: 4 },
-
-  body:      { padding: 24, gap: 20 },
-  card:      { backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 20, gap: 0 },
-  cardHead:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: TEXT },
-  cardSub:   { fontSize: 12, color: GRAY, marginTop: 2, marginBottom: 16 },
-
-  infoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-  infoLabel: { fontSize: 13, color: GRAY },
-  infoValue: { fontSize: 13, fontWeight: '600', color: TEXT },
-  sep:       { height: 1, backgroundColor: BORDER },
-
-  depRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  depAvatarWrap:{ position: 'relative' },
-  depAvatar:   { width: 48, height: 48, borderRadius: 24, backgroundColor: BORDER },
-  depDot:      { width: 11, height: 11, borderRadius: 6, borderWidth: 2, borderColor: WHITE, position: 'absolute', bottom: 1, right: 1 },
-  depName:     { fontSize: 14, fontWeight: '700', color: TEXT },
-  depRel:      { fontSize: 12, color: PURPLE, fontWeight: '500', marginTop: 2 },
-  depMetaRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
-  accessBadge: { backgroundColor: PURPLE_BG, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2 },
-  accessText:  { fontSize: 11, color: PURPLE, fontWeight: '600' },
-  depExpiry:   { fontSize: 11, color: GRAY },
-  manageBtn:   { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  manageBtnText:{ fontSize: 12, color: TEXT, fontWeight: '500' },
-  addBtn:      { flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 16, borderWidth: 1, borderColor: PURPLE, borderRadius: 10, paddingVertical: 10 },
-  addBtnText:  { fontSize: 13, color: PURPLE, fontWeight: '600' },
-  emptyText:   { fontSize: 13, color: GRAY, paddingVertical: 8 },
-
-  secRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  secSub:      { fontSize: 12, color: GRAY, marginTop: 2 },
-
-
+  depRow:        { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.md, paddingVertical: space.md },
+  depDivider:    { borderTopWidth: 1, borderTopColor: colors.border },
+  depAvatarWrap: { position: 'relative', flexShrink: 0 },
+  depAvatar:     { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  depInitials:   { color: '#FFFFFF', fontSize: fontSize.md, fontWeight: '700' },
+  depDot: {
+    position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: radius.pill,
+    borderWidth: 2, borderColor: colors.surface,
+  },
+  depMain:    { flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 0, gap: 2 },
+  depHighlight: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.md },
+  depName:    { fontSize: fontSize.md, fontWeight: '700', color: colors.text },
+  depLinked:  { fontSize: fontSize.xs, fontWeight: '700' },
+  requestsRow:  { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  requestsText: { flexShrink: 1, fontSize: fontSize.sm, color: colors.text, lineHeight: 19 },
+  depRel:     { fontSize: fontSize.sm, color: colors.textMuted },
+  depMeta:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: space.sm, rowGap: space.xs, marginTop: 2 },
+  healthTag:  { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  healthText: { fontSize: fontSize.xs, fontWeight: '600' },
+  depExpiry:  { fontSize: fontSize.xs, color: colors.textMuted },
 });

@@ -1,8 +1,8 @@
 import { type Browser, type BrowserContextOptions, expect, type Locator, type Page, request } from '@playwright/test';
-import { type Api, harareLocal } from './api';
+import { type Api, currentLegalVersions, harareLocal } from './api';
 import { API_URL, type DemoUser, JAMES, THOMAS } from './env';
 import { type MonitoredPage, PageMonitor, futureDay } from './smoke';
-import { login } from './ui';
+import { login, mediaPermissions } from './ui';
 
 // Helpers for fix-patient.spec.ts (patient web fixes). Test data starts with FIX_PREFIX; the
 // spec cancels its appointments and removes its caregiver grants in afterAll, and the global
@@ -20,7 +20,7 @@ export interface CountingPage extends MonitoredPage {
 }
 
 export async function signedInCountingPage(browser: Browser, user: DemoUser, options: BrowserContextOptions = {}): Promise<CountingPage> {
-  const context = await browser.newContext({ permissions: ['camera', 'microphone'], ...options });
+  const context = await browser.newContext({ permissions: mediaPermissions(browser), ...options });
   const page = await context.newPage();
   const urls: string[] = [];
   const apiOrigin = new URL(API_URL).origin;
@@ -160,10 +160,15 @@ export async function registerFixCaregiver(): Promise<DemoUser> {
     systemId: '',
     name:     'Fix Carer',
   };
+  // The current legal versions are accepted at registration, as the web form does, so sign-in goes straight home.
+  const legal = await currentLegalVersions();
   const ctx = await request.newContext({ baseURL: API_URL });
   try {
     const res = await ctx.post('/api/auth/register', {
-      data: { firstName: 'Fix', lastName: 'Carer', email: user.email, password: user.password, role: 'proxy' },
+      data: {
+        firstName: 'Fix', lastName: 'Carer', email: user.email, password: user.password, role: 'proxy',
+        ...(legal ? { acceptedTermsVersion: legal.terms, acceptedPrivacyVersion: legal.privacy } : {}),
+      },
     });
     expect(res.status(), 'register throwaway caregiver').toBeLessThan(300);
     user.systemId = (await res.json()).user?.system_id ?? '';

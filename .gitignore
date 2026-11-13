@@ -89,3 +89,19 @@ erd-output/
 # UI/UX audit report and before/after screenshots (docs/ui-ux/)
 !docs/ui-ux/
 !docs/ui-ux/**
+
+# Project docs written as Markdown
+!docs/api/
+!docs/api/**
+!docs/architecture/
+!docs/architecture/**
+!docs/billing/
+!docs/billing/**
+!docs/security/
+!docs/security/**
+!docs/reviews/
+!docs/reviews/**
+!docs/compliance/
+!docs/compliance/**
+!TODO.md
+!backend/carenexus-api/src/main/resources/db/seed/README.md

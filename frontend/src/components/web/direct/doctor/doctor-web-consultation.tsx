@@ -1,501 +1,363 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { type DoctorConsultation, useDoctorConsultations } from '@/hooks/use-doctor-consultations';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import {
+  Button, Card, colors, EmptyView, ErrorView, fontSize, IconButton, PagedList, radius, ROLE_THEME, type RoleTheme,
+  Screen, SelectField, space, Tabs, type TabItem, useUiTheme,
+} from '@/components/web/ui';
+import {
+  type ConsultationStatus, type ConsultationTarget, patientNameFallback, useConsultationStats,
+  useDoctorConsultations, useDoctorPatientOptions,
+} from '@/hooks/use-doctor-consultations';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import { noteSectionNavigation } from '@/lib/nav/nav-focus';
+import type { SectionParams, SectionParamsInput, SectionProps } from '@/lib/nav/sections';
+import { ConsultationCard } from './consultation/consultation-card';
+import { ConsultationEditor } from './consultation/consultation-editor';
+import { idParam } from './consultation/consultation-format';
+import type { ConsultationNav } from './consultation/consultation-view';
+import { NewConsultationPanel } from './consultation/new-consultation-panel';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BG2    = '#F3F4F6';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const ORANGE = '#B45309';
-const RED    = '#B91C1C';
-const TEAL   = '#0F766E';
-const AMBER  = '#B45309';
+// Doctor dashboard, Consultations section.
+//
+// URL params (CONTRACTS 12.1):
+//   id=<consultationId> or appointmentId=<appointmentId> (with mode=edit)  opens the editor on that consultation,
+//                                                         or on the appointment's consultation (starting one
+//                                                         when it has none);
+//   patient=<PAT id>                                      lists only that patient's consultations (server-side);
+//   tab=draft|in-progress|completed|cancelled             the status filter of the list;
+//   panel=<tab>                                           (with the editor) opens the patient detail panel over
+//                                                         the editor on that tab (overview, history, vitals, ...).
 
-type IoniconsName    = React.ComponentProps<typeof Ionicons>['name'];
-type ConsultStatus   = DoctorConsultation['status'];
-type StatusFilter    = 'ALL' | ConsultStatus;
+type StatusTab = 'all' | 'draft' | 'in-progress' | 'completed' | 'cancelled';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const TAB_STATUS: Record<StatusTab, ConsultationStatus | null> = {
+  'all':         null,
+  'draft':       'DRAFT',
+  'in-progress': 'IN_PROGRESS',
+  'completed':   'COMPLETED',
+  'cancelled':   'CANCELLED',
+};
 
-function statusConfig(s: ConsultStatus) {
-  switch (s) {
-    case 'DRAFT':       return { bg: '#FEF3C7', color: AMBER,  icon: 'document-outline'        as IoniconsName, label: 'Draft'       };
-    case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,   icon: 'sync-outline'            as IoniconsName, label: 'In Progress' };
-    case 'COMPLETED':   return { bg: '#D1FAE5', color: GREEN,  icon: 'checkmark-circle-outline' as IoniconsName, label: 'Completed'   };
-    default:            return { bg: BG2,       color: GRAY,   icon: 'document-text-outline'   as IoniconsName, label: 'Unknown'     };
-  }
+function tabOf(value: string | undefined): StatusTab {
+  return value && value in TAB_STATUS ? (value as StatusTab) : 'all';
 }
 
-function apptTypeConfig(t: DoctorConsultation['appointment_type']) {
-  switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline'  as IoniconsName, label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
-    case 'VIDEO':     return { icon: 'videocam-outline'   as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
-    case 'PHONE':     return { icon: 'call-outline'       as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
-    // Type not known (appointment not in the schedule response): a neutral label, not "Unknown".
-    default:          return { icon: 'calendar-outline'   as IoniconsName, label: 'Appointment', color: GRAY, bg: BG2     };
-  }
+/** The `panel` URL param: the tab of the patient panel opened over the editor, or null when it is closed. */
+function panelParam(value: string | undefined): string | null {
+  const tab = (value ?? '').trim();
+  return tab && /^[a-z-]{1,30}$/.test(tab) ? tab : null;
 }
 
-function formatDateTime(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  });
+/** A PAT id from the URL, or null. Anything that cannot be a system id is ignored rather than sent. */
+function patientParam(value: string | undefined): string | null {
+  const id = (value ?? '').trim();
+  return id && id.length <= 20 ? id : null;
 }
 
-function formatDateShort(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+/** The list filters carried by the URL, as params for opening the list again. */
+function listFilters(params: SectionParams): SectionParamsInput {
+  const tab = tabOf(params.tab);
+  return { patient: patientParam(params.patient) ?? undefined, tab: tab === 'all' ? undefined : tab };
 }
 
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+interface InnerProps {
+  params:    SectionParams;
+  nav:       ConsultationNav;
+  setParams: (params: SectionParamsInput) => void;
+  /** Opens a section in place of the current history entry. */
+  replace:   (section: string, params?: SectionParamsInput) => void;
+  theme:     RoleTheme;
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
-function avatarColor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+// ─── Back to the list ─────────────────────────────────────────────────────────
+//
+// The list opens the editor as a history entry of its own. The editor's Back button then goes back through
+// history, so the in-app button and the browser's Back button leave the same trail. An editor reached any other
+// way (a link, another section, a reload) replaces its own entry with the list instead of stacking a copy of it.
+//
+// Every history move mounts a fresh copy of the dashboard, so what the list opened is kept here, per editor URL.
+
+/** Editors (see `editorKey`) whose history entry was added by the list. */
+const openedFromList = new Set<string>();
+/** When the list last opened an editor, and when the browser last moved through history (Back or Forward). */
+let listOpenedAt = 0;
+let historyMovedAt = 0;
+let historyListening = false;
+/** An editor that mounts this soon after either event belongs to it. */
+const MOUNT_WINDOW_MS = 1500;
+
+/** Identifies the editor a URL opens: one consultation, or the consultation of one appointment. */
+function editorKey(params: SectionParams): string | null {
+  if (params.id !== undefined) return `id:${params.id}`;
+  if (params.appointmentId !== undefined) return `appointment:${params.appointmentId}`;
+  return null;
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+function listenForHistoryMoves(): void {
+  if (historyListening || Platform.OS !== 'web' || typeof window === 'undefined') return;
+  historyListening = true;
+  window.addEventListener('popstate', () => { historyMovedAt = Date.now(); });
+}
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-}) {
+/** Called by the list just before it opens an editor with a new history entry. */
+function noteOpenedFromList(key: string): void {
+  listenForHistoryMoves();
+  openedFromList.add(key);
+  listOpenedAt = Date.now();
+}
+
+/** Called when an editor mounts: true when the entry it is shown in was added by the list. Safe to call twice. */
+function entryAddedByList(key: string | null): boolean {
+  if (key === null || !openedFromList.has(key)) return false;
+  const now = Date.now();
+  // Just opened from the list, or returned to with Back or Forward: the entry before it is still the list.
+  if (now - listOpenedAt < MOUNT_WINDOW_MS || now - historyMovedAt < MOUNT_WINDOW_MS) return true;
+  // Opened some other way (a link, another section): this entry was not added by the list.
+  openedFromList.delete(key);
+  return false;
+}
+
+// ─── Editor ───────────────────────────────────────────────────────────────────
+
+function ConsultationEditorScreen({ params, nav, setParams, replace, theme }: InnerProps) {
+  const consultationId = idParam(params.id);
+  const appointmentId = idParam(params.appointmentId);
+  const target = useMemo<ConsultationTarget | null>(() => {
+    if (consultationId !== null) return { consultationId };
+    if (params.id === undefined && appointmentId !== null) return { appointmentId };
+    return null;
+  }, [consultationId, appointmentId, params.id]);
+
+  const router = useRouter();
+  const [fromList] = useState(() => entryAddedByList(editorKey(params)));
+  // The editor can switch consultation in place (an appointment's consultation, a cancelled one reopened): the
+  // entry is still the one the list added, so Back from it after a Forward still returns to the list.
+  const key = editorKey(params);
+  useEffect(() => {
+    if (fromList && key !== null) openedFromList.add(key);
+  }, [fromList, key]);
+
+  // Back to the list this editor was opened from: the patient and status filters stay in the URL.
+  const onBack = useCallback(() => {
+    if (fromList && Platform.OS === 'web' && router.canGoBack()) {
+      // The list's copy of the dashboard mounts again and its section takes keyboard focus.
+      noteSectionNavigation();
+      router.back();
+      return;
+    }
+    replace('consultations', listFilters(params));
+  }, [fromList, router, replace, params]);
+
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
+    <Screen
+      title="Consultation"
+      subtitle="Record the visit, then complete it to add it to the patient's records."
+      theme={theme}
+      actions={<Button label="Back to consultations" icon="arrow-back" variant="secondary" onPress={onBack} />}
+    >
+      {target ? (
+        <ConsultationEditor
+          target={target}
+          nav={nav}
+          setParams={setParams}
+          onBack={onBack}
+          panel={panelParam(params.panel)}
+          onPanelChange={tab => setParams({ panel: tab ?? undefined })}
+        />
+      ) : (
+        <EmptyView
+          icon="document-text-outline"
+          title="This link does not point to a consultation"
+          sub="Open the consultation from the list instead."
+          action={{ label: 'Back to consultations', onPress: onBack, icon: 'arrow-back' }}
+        />
+      )}
+    </Screen>
+  );
+}
+
+// ─── List ─────────────────────────────────────────────────────────────────────
+
+function StatTile({ label, value }: { label: string; value: number }) {
+  return (
+    <Card style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </Card>
+  );
+}
+
+function PatientChip({ name, onRemove }: { name: string; onRemove: () => void }) {
+  const { accent, accentBg } = useUiTheme();
+  return (
+    <View style={[styles.chip, { backgroundColor: accentBg, borderColor: accent }]}>
+      <Text style={styles.chipText} numberOfLines={1}>Patient: {name}</Text>
+      <IconButton label={`Remove patient filter, ${name}`} icon="close" size="sm" onPress={onRemove} />
     </View>
   );
 }
 
-// ─── Clinical Section ─────────────────────────────────────────────────────────
+function ConsultationListScreen({ params, nav, setParams, theme }: InnerProps) {
+  const tab = tabOf(params.tab);
+  const status = TAB_STATUS[tab];
+  const patient = patientParam(params.patient);
 
-function ClinicalRow({ icon, iconColor, label, content }: {
-  icon: IoniconsName; iconColor: string; label: string; content: string;
-}) {
-  return (
-    <View style={styles.clinicalRow}>
-      <View style={styles.clinicalLabelRow}>
-        <View style={[styles.clinicalIconBg, { backgroundColor: iconColor + '18' }]}>
-          <Ionicons name={icon} size={13} color={iconColor} />
+  const list = useDoctorConsultations({ status, patientSystemId: patient, pageSize: 20 });
+  const stats = useConsultationStats();
+  const patients = useDoctorPatientOptions();
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const refreshList = list.refetch;
+  const refreshStats = stats.refetch;
+  const refresh = useCallback(() => { refreshList(); refreshStats(); }, [refreshList, refreshStats]);
+
+  // The editor is a history entry of its own, so Back (the browser's or the editor's) returns to this list with
+  // its filters.
+  const filters = useMemo<SectionParamsInput>(
+    () => ({ patient: patient ?? undefined, tab: tab === 'all' ? undefined : tab }),
+    [patient, tab],
+  );
+  const openConsultation = useCallback((consultationId: number) => {
+    noteOpenedFromList(`id:${consultationId}`);
+    nav.navigate('consultations', { ...filters, id: consultationId, mode: 'edit' });
+  }, [nav, filters]);
+  const openAppointment = useCallback((appointmentId: number) => {
+    setPickerOpen(false);
+    noteOpenedFromList(`appointment:${appointmentId}`);
+    nav.navigate('consultations', { ...filters, appointmentId, mode: 'edit' });
+  }, [nav, filters]);
+
+  // The counts cover all of the doctor's consultations, so they are shown only while no patient is selected.
+  const counts = patient ? null : stats.data;
+  const tabs = useMemo<TabItem<StatusTab>[]>(() => [
+    { key: 'all',         label: 'All' },
+    { key: 'draft',       label: 'Draft', badge: counts?.draftCount },
+    { key: 'in-progress', label: 'In progress', badge: counts?.inProgressCount },
+    { key: 'completed',   label: 'Completed' },
+    { key: 'cancelled',   label: 'Cancelled' },
+  ], [counts]);
+
+  const patientOptions = useMemo(
+    () => patients.options.map(o => ({ value: o.patientSystemId, label: o.fullName || o.patientSystemId })),
+    [patients.options],
+  );
+  const patientName = patient ? patients.nameOf(patient) ?? patientNameFallback(patient) : null;
+  const filtered = status !== null || patient !== null;
+
+  const header = (
+    <View style={styles.filters}>
+      <Tabs
+        tabs={tabs}
+        active={tab}
+        onChange={key => setParams({ tab: key === 'all' ? undefined : key })}
+        label="Consultation status"
+      />
+      {patient && patientName ? (
+        <PatientChip name={patientName} onRemove={() => setParams({ patient: undefined })} />
+      ) : patientOptions.length > 0 ? (
+        <View style={styles.patientSelect}>
+          <SelectField
+            label="Patient"
+            value=""
+            onChange={value => setParams({ patient: value || undefined })}
+            options={patientOptions}
+            placeholder="All patients"
+          />
         </View>
-        <Text style={styles.clinicalLabel}>{label}</Text>
-      </View>
-      <Text style={styles.clinicalContent}>{content}</Text>
+      ) : patients.error ? (
+        <Button label="Retry loading the patient filter" icon="refresh-outline" variant="ghost" size="sm" onPress={patients.refetch} />
+      ) : null}
     </View>
   );
-}
-
-// ─── Consultation Card ────────────────────────────────────────────────────────
-
-function ConsultCard({ consultation }: { consultation: DoctorConsultation }) {
-  const [expanded, setExpanded] = useState(false);
-  const sc = statusConfig(consultation.status);
-  const tc = apptTypeConfig(consultation.appointment_type);
-  const ac = avatarColor(consultation.patient_name);
-
-  const dateLabel = consultation.completed_at
-    ? formatDateShort(consultation.completed_at)
-    : consultation.started_at
-      ? formatDateShort(consultation.started_at)
-      : formatDateShort(consultation.created_at);
-
-  const hasDetails =
-    consultation.chief_complaint ||
-    consultation.history_of_present_illness ||
-    consultation.physical_examination ||
-    consultation.diagnosis ||
-    consultation.treatment_plan ||
-    consultation.clinical_notes ||
-    consultation.follow_up_instructions;
 
   return (
-    <View style={styles.card}>
-      {/* Card Header */}
-      <View style={styles.cardHeader}>
-        {/* Avatar */}
-        <View style={[styles.avatar, { backgroundColor: ac }]}>
-          <Text style={styles.avatarText}>{initials(consultation.patient_name)}</Text>
-        </View>
-
-        {/* Patient + meta */}
-        <View style={styles.cardMeta}>
-          <Text style={styles.patientName}>{consultation.patient_name}</Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaDate}>{dateLabel}</Text>
-            {!!consultation.duration_minutes && (
-              <View style={styles.metaPill}>
-                <Ionicons name="time-outline" size={11} color={GRAY} />
-                <Text style={styles.metaPillText}>{consultation.duration_minutes} min</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Badges */}
-        <View style={styles.badgeGroup}>
-          <View style={[styles.badge, { backgroundColor: tc.bg }]}>
-            <Ionicons name={tc.icon} size={11} color={tc.color} />
-            <Text style={[styles.badgeText, { color: tc.color }]}>{tc.label}</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: sc.bg }]}>
-            <Ionicons name={sc.icon} size={11} color={sc.color} />
-            <Text style={[styles.badgeText, { color: sc.color }]}>{sc.label}</Text>
-          </View>
-          {!!consultation.follow_up_required && (
-            <View style={[styles.badge, { backgroundColor: '#FEE2E2' }]}>
-              <Ionicons name="arrow-forward-circle-outline" size={11} color={RED} />
-              <Text style={[styles.badgeText, { color: RED }]}>Follow-up</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Chief complaint / clinical notes preview */}
-      {!!(consultation.chief_complaint || consultation.clinical_notes) && (
-        <View style={styles.previewBox}>
-          <Text style={styles.previewLabel}>
-            {consultation.chief_complaint ? 'Chief Complaint' : 'Clinical Notes'}
-          </Text>
-          <Text style={styles.previewText} numberOfLines={expanded ? undefined : 2}>
-            {consultation.chief_complaint ?? consultation.clinical_notes}
-          </Text>
-        </View>
+    <Screen
+      title="Consultations"
+      subtitle="Your full consultation history and active sessions"
+      theme={theme}
+      actions={(
+        <>
+          <Button label="Refresh" icon="refresh-outline" variant="secondary" onPress={refresh} />
+          <Button label="New consultation" icon="add" onPress={() => setPickerOpen(true)} />
+        </>
       )}
-
-      {/* Diagnosis preview (completed) */}
-      {!!consultation.diagnosis && (
-        <View style={[styles.previewBox, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
-          <Text style={[styles.previewLabel, { color: GREEN }]}>Diagnosis</Text>
-          <Text style={styles.previewText} numberOfLines={expanded ? undefined : 2}>
-            {consultation.diagnosis}
-          </Text>
+    >
+      {counts ? (
+        <View style={styles.stats} role="group" aria-label="Your consultations by status">
+          <StatTile label="Total" value={counts.totalConsultations} />
+          <StatTile label="Completed" value={counts.completedCount} />
+          <StatTile label="In progress" value={counts.inProgressCount} />
+          <StatTile label="Draft" value={counts.draftCount} />
+          <StatTile label="Cancelled" value={counts.cancelledCount} />
         </View>
-      )}
-
-      {/* Expanded clinical details */}
-      {expanded && (
-        <View style={styles.expandedSection}>
-          <View style={styles.sectionDivider} />
-          <Text style={styles.sectionTitle}>Clinical Details</Text>
-
-          {!!consultation.history_of_present_illness && (
-            <ClinicalRow
-              icon="journal-outline" iconColor={BLUE}
-              label="History of Present Illness"
-              content={consultation.history_of_present_illness}
-            />
-          )}
-          {!!consultation.physical_examination && (
-            <ClinicalRow
-              icon="body-outline" iconColor="#6D28D9"
-              label="Physical Examination"
-              content={consultation.physical_examination}
-            />
-          )}
-          {!!consultation.clinical_notes && (
-            <ClinicalRow
-              icon="clipboard-outline" iconColor={TEAL}
-              label="Clinical Notes"
-              content={consultation.clinical_notes}
-            />
-          )}
-          {!!consultation.treatment_plan && (
-            <ClinicalRow
-              icon="medkit-outline" iconColor={ORANGE}
-              label="Treatment Plan"
-              content={consultation.treatment_plan}
-            />
-          )}
-          {!!consultation.follow_up_instructions && (
-            <ClinicalRow
-              icon="arrow-forward-circle-outline" iconColor={RED}
-              label="Follow-up Instructions"
-              content={consultation.follow_up_instructions}
-            />
-          )}
-
-          {/* Follow-up date */}
-          {!!consultation.follow_up_date && (
-            <View style={styles.followUpRow}>
-              <Ionicons name="calendar-outline" size={14} color={RED} />
-              <Text style={styles.followUpText}>
-                Follow-up due: <Text style={{ fontWeight: '600' }}>{formatDateShort(consultation.follow_up_date)}</Text>
-              </Text>
-            </View>
-          )}
-
-          {/* Timestamps */}
-          <View style={styles.timestampRow}>
-            {!!consultation.started_at && (
-              <Text style={styles.timestamp}>Started: {formatDateTime(consultation.started_at)}</Text>
-            )}
-            {!!consultation.completed_at && (
-              <Text style={styles.timestamp}>Completed: {formatDateTime(consultation.completed_at)}</Text>
-            )}
-          </View>
+      ) : !patient && stats.error && !stats.data ? (
+        <View style={styles.statsError}>
+          <ErrorView message={stats.error} onRetry={stats.refetch} compact />
         </View>
-      )}
+      ) : null}
 
-      {/* Expand toggle */}
-      {hasDetails && (
-        <TouchableOpacity
-          style={styles.expandBtn}
-          onPress={() => setExpanded(e => !e)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.expandBtnText}>{expanded ? 'Show less' : 'View full details'}</Text>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={BLUE} />
-        </TouchableOpacity>
-      )}
-    </View>
+      <PagedList
+        state={list.paged}
+        keyOf={c => c.consultation_id}
+        renderItem={c => <ConsultationCard consultation={c} onOpen={openConsultation} />}
+        header={header}
+        label="Consultations"
+        noAccessMessage="You don't have access to these consultations."
+        empty={filtered
+          ? {
+              icon: 'document-text-outline',
+              title: 'No consultations match these filters',
+              sub: 'Choose another status or remove the patient filter.',
+            }
+          : {
+              icon: 'document-text-outline',
+              title: 'No consultations yet',
+              sub: 'Open a consultation for an appointment once it has started.',
+              action: { label: 'New consultation', onPress: () => setPickerOpen(true), icon: 'add' },
+            }}
+      />
+
+      <NewConsultationPanel
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={openAppointment}
+        patientSystemId={patient}
+        nameOf={patients.nameOf}
+      />
+    </Screen>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Section ──────────────────────────────────────────────────────────────────
 
-export default function DoctorWebConsultation() {
-  const { consultations, loading, error, refetch } = useDoctorConsultations();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-  const [search,       setSearch]       = useState('');
+export default function DoctorWebConsultation(props: Partial<SectionProps>) {
+  // The registry may render this screen with or without SectionProps; the shell's navigation fills the gaps.
+  const sectionNav = useSectionNav();
+  const params = props.params ?? sectionNav.params;
+  const navigate = props.navigate ?? sectionNav.navigate;
+  const theme = props.theme ?? ROLE_THEME.doctor;
+  const { hasSection, setParams, replace } = sectionNav;
+  const nav = useMemo<ConsultationNav>(() => ({ navigate, hasSection }), [navigate, hasSection]);
 
-  const stats = useMemo(() => ({
-    total:      consultations.length,
-    completed:  consultations.filter(c => c.status === 'COMPLETED').length,
-    inProgress: consultations.filter(c => c.status === 'IN_PROGRESS').length,
-    draft:      consultations.filter(c => c.status === 'DRAFT').length,
-    followUp:   consultations.filter(c => c.follow_up_required === 1).length,
-  }), [consultations]);
-
-  const filtered = useMemo(() => {
-    return consultations
-      .filter(c => statusFilter === 'ALL' || c.status === statusFilter)
-      .filter(c => !search || c.patient_name.toLowerCase().includes(search.toLowerCase()));
-  }, [consultations, statusFilter, search]);
-
-  const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'ALL',         label: 'All'         },
-    { key: 'COMPLETED',   label: 'Completed'   },
-    { key: 'IN_PROGRESS', label: 'In Progress' },
-    { key: 'DRAFT',       label: 'Draft'       },
-  ];
-
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-  }
-
-  if (error) {
-    return (
-      <View style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={48} color={RED} />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">Consultations</Text>
-          <Text style={styles.pageSub}>Your full consultation history and active sessions</Text>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats Row */}
-      <View style={styles.statsRow}>
-        <StatCard icon="document-text-outline"   iconBg="#EEF2FF" iconColor={BLUE}  label="Total"       value={stats.total}      />
-        <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed"   value={stats.completed}  />
-        <StatCard icon="sync-outline"            iconBg="#CCFBF1" iconColor={TEAL}  label="In Progress" value={stats.inProgress} />
-        <StatCard icon="document-outline"        iconBg="#FEF3C7" iconColor={AMBER} label="Draft"       value={stats.draft}      />
-        <StatCard icon="arrow-forward-circle-outline" iconBg="#FEE2E2" iconColor={RED} label="Follow-up"  value={stats.followUp}   />
-      </View>
-
-      {/* Filter + Search */}
-      <View style={styles.filterCard}>
-        <View style={styles.filterRow}>
-          {/* Status pills */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {statusFilters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, statusFilter === f.key && styles.pillActive]}
-                onPress={() => setStatusFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, statusFilter === f.key && styles.pillTextActive]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Search */}
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={16} color={LGRAY} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search patient…"
-              placeholderTextColor={LGRAY}
-              value={search}
-              onChangeText={setSearch}
-            />
-            {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
-                <Ionicons name="close-circle" size={16} color={LGRAY} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </View>
-
-      {/* Result count */}
-      <Text style={styles.resultCount}>{filtered.length} consultation{filtered.length !== 1 ? 's' : ''}</Text>
-
-      {/* List */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="document-text-outline" size={56} color={BORDER} />
-          <Text style={styles.emptyTitle}>No consultations found</Text>
-          <Text style={styles.emptySub}>Try adjusting your filters</Text>
-        </View>
-      ) : (
-        <View style={styles.list}>
-          {filtered.map(c => <ConsultCard key={c.consultation_id} consultation={c} />)}
-        </View>
-      )}
-    </ScrollView>
-  );
+  const editing = params.id !== undefined || params.appointmentId !== undefined;
+  return editing
+    ? <ConsultationEditorScreen params={params} nav={nav} setParams={setParams} replace={replace} theme={theme} />
+    : <ConsultationListScreen params={params} nav={nav} setParams={setParams} replace={replace} theme={theme} />;
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  stats:     { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  stat:      { flexGrow: 1, flexShrink: 1, flexBasis: 120, gap: 2, padding: space.md },
+  statValue: { fontSize: fontSize.title, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.sm, color: colors.textMuted },
+  statsError: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
+  filters:       { gap: space.md, minWidth: 0 },
+  patientSelect: { maxWidth: 360, width: '100%' },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: space.xs, maxWidth: '100%',
+    paddingLeft: space.md, paddingRight: space.xs, paddingVertical: 2, borderWidth: 1, borderRadius: radius.pill,
   },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
-
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 100,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 14, gap: 6,
-  },
-  statIconBg: { width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 26, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 12, color: GRAY },
-
-  filterCard: { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16, marginBottom: 16 },
-  filterRow:  { flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
-  pill:       { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillActive: { backgroundColor: '#EEF2FF', borderColor: BLUE },
-  pillText:   { fontSize: 13, color: GRAY, fontWeight: '500' },
-  pillTextActive: { color: BLUE },
-  searchBox: {
-    flex: 1, minWidth: 180,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: BG,
-  },
-  searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
-
-  resultCount: { fontSize: 13, color: GRAY, marginBottom: 12, fontWeight: '500' },
-
-  list: { gap: 14 },
-
-  // Card
-  card: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    gap: 12, padding: 16,
-  },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  avatarText: { color: WHITE, fontSize: 15, fontWeight: '700' },
-  cardMeta:   { flex: 1, gap: 4 },
-  patientName:{ fontSize: 16, fontWeight: '700', color: TEXT },
-  metaRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  metaDate:   { fontSize: 12, color: GRAY },
-  metaPill:   { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metaPillText: { fontSize: 11, color: GRAY },
-  badgeGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, flexShrink: 0, justifyContent: 'flex-end' },
-  badge:      { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  badgeText:  { fontSize: 11, fontWeight: '600' },
-
-  previewBox: {
-    marginHorizontal: 16, marginBottom: 12,
-    backgroundColor: BG, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 10, padding: 12,
-  },
-  previewLabel: { fontSize: 11, fontWeight: '700', color: GRAY, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  previewText:  { fontSize: 13, color: TEXT, lineHeight: 20 },
-
-  expandedSection: { paddingHorizontal: 16, paddingBottom: 4 },
-  sectionDivider:  { height: 1, backgroundColor: BORDER, marginBottom: 14 },
-  sectionTitle:    { fontSize: 13, fontWeight: '700', color: TEXT, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
-
-  clinicalRow:      { marginBottom: 14 },
-  clinicalLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
-  clinicalIconBg:   { width: 22, height: 22, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  clinicalLabel:    { fontSize: 12, fontWeight: '700', color: TEXT },
-  clinicalContent:  { fontSize: 13, color: GRAY, lineHeight: 20, paddingLeft: 29 },
-
-  followUpRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, backgroundColor: '#FEE2E2', borderRadius: 8, padding: 10 },
-  followUpText:{ fontSize: 12, color: RED },
-
-  timestampRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 14 },
-  timestamp:    { fontSize: 11, color: LGRAY },
-
-  expandBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 4, paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: BORDER,
-    backgroundColor: BG,
-  },
-  expandBtnText: { fontSize: 13, color: BLUE, fontWeight: '500' },
-
-  emptyState: { alignItems: 'center', gap: 8, paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:   { fontSize: 14, color: GRAY },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  chipText: { flexShrink: 1, minWidth: 0, fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
 });

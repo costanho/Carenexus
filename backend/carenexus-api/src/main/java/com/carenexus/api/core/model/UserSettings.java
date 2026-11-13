@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "user_settings", uniqueConstraints = {
@@ -111,7 +112,30 @@ public class UserSettings {
     @Builder.Default
     private Boolean accessChangeAlerts = true;
 
-    /** UI key weekly_summary digest */
+    /** Invoice, payment and insurance claim notifications (notification category BILLING). */
+    @Column(name = "billing_notifications", nullable = false)
+    @Builder.Default
+    private Boolean billingNotifications = true;
+
+    /**
+     * Quiet hours: non-critical email, SMS and push messages are held until the window ends. In-app notifications
+     * are not affected. The window is wall-clock time in {@link #timezone} (clinic zone when unset or invalid) and
+     * may cross midnight (start 22:00, end 07:00).
+     */
+    @Column(name = "quiet_hours_enabled", nullable = false)
+    @Builder.Default
+    private Boolean quietHoursEnabled = false;
+
+    @Column(name = "quiet_hours_start")
+    private LocalTime quietHoursStart;
+
+    @Column(name = "quiet_hours_end")
+    private LocalTime quietHoursEnd;
+
+    // Legacy columns: weekly_summary, profile_visibility, data_sharing_enabled, two_factor_enabled, language and
+    // theme are no longer exposed or changed by the settings API (nothing reads them). They stay mapped so the
+    // stored values are kept as they are.
+
     @Column(name = "weekly_summary", nullable = false)
     @Builder.Default
     private Boolean weeklySummary = false;
@@ -132,9 +156,12 @@ public class UserSettings {
     @Builder.Default
     private String language = "en";
 
+    /**
+     * IANA zone id chosen by the user (for example Africa/Nairobi); null means the clinic zone
+     * ({@code carenexus.scheduling.time-zone}). Read by the notification fan-out (quiet hours) and reminder text.
+     */
     @Column(name = "timezone", length = 50)
-    @Builder.Default
-    private String timezone = "UTC";
+    private String timezone;
 
     @Column(name = "theme", nullable = false, length = 20)
     @Builder.Default

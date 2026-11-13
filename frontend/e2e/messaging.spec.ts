@@ -1,12 +1,19 @@
 import { expect, test } from '@playwright/test';
 import {
-  type Clients, disposeAll, loginAll, markThreadRead, messagesWithBody, privateThreadThomasJames, restoreSarahConsent,
+  type Clients, clientId, disposeAll, loginAll, markThreadRead, messagesWithBody, privateThreadThomasJames,
+  restoreSarahConsent,
 } from './support/api';
-import { JAMES, LABELS, THOMAS, runTag } from './support/env';
+import { JAMES, LABELS, SARAH, THOMAS, runTag } from './support/env';
 import { escapeRe, newUserPage, openMessages, type UserPage } from './support/ui';
 
 // a. Private thread Thomas (patient) <-> Dr. James Banda: delivery through polling, unread badge,
 //    read marking, urgent highlight and copy, and a retry that must not create a duplicate.
+// b. Leaving a care team conversation: a doctor and a caregiver see "Leave conversation" on their own member row
+//    (the patient does not), and a caregiver who leaves loses access.
+//
+// Tables written: messages, thread_members (read positions) and notifications in the Thomas / Dr. Banda private
+// thread; a "Leave check e2e-…" care team conversation (message_threads, thread_members, messages, notifications);
+// refresh_tokens and audit_log for every sign-in. scripts/dev-reset-e2e-data.sh removes the tagged rows.
 
 const URGENT_HELPER =
   'Urgent highlights your message for the care team. It does not make a reply faster. For emergencies, call your local emergency number.';
@@ -79,8 +86,11 @@ test.describe('messaging: patient <-> doctor private thread', () => {
     await composer.fill(urgentBody);
     const sentAt = Date.now();
     await thomas.page.getByRole('button', { name: 'Send urgent message', exact: true }).click();
-    const urgentBubble = james.page.getByLabel(new RegExp(`^${escapeRe(THOMAS.name)}, .*, urgent: ${escapeRe(urgentBody)}$`));
+    // A bubble is a group named "<sender>, <date and time>[, urgent]"; its text is read as shown.
+    const urgentBubble = james.page.getByRole('group', { name: new RegExp(`^${escapeRe(THOMAS.name)}, .*, urgent$`) })
+      .filter({ hasText: urgentBody });
     await expect(urgentBubble).toBeVisible({ timeout: 9_000 }); // 5 s poll + render margin
+    await expect(urgentBubble.getByText(urgentBody, { exact: true })).toBeVisible();
     expect(Date.now() - sentAt).toBeLessThan(9_000);
     await expect(urgentBubble.getByText('Urgent', { exact: true })).toBeVisible();
     // Highlighted style: the urgent bubble uses a red border (not just the tag).
@@ -115,5 +125,61 @@ test.describe('messaging: patient <-> doctor private thread', () => {
     await james.page.waitForTimeout(6_000);
     await expect(james.page.getByText(retryBody, { exact: true })).toHaveCount(1);
     await expect(thomas.page.getByText(retryBody, { exact: true })).toHaveCount(1);
+  });
+});
+
+test.describe('messaging: leaving a care team conversation', () => {
+  let api: Clients;
+  const pages: UserPage[] = [];
+
+  test.beforeAll(async () => {
+    api = await loginAll();
+    await restoreSarahConsent(api.thomas);
+  });
+
+  test.afterAll(async () => {
+    for (const p of pages) await p.context.close().catch(() => {});
+    if (api) await restoreSarahConsent(api.thomas).catch(() => {});
+    await disposeAll(api);
+  });
+
+  test('a doctor and a caregiver see Leave conversation on their own member row; the patient does not', async ({ browser }) => {
+    const subject = `Leave check ${runTag()}`;
+    const thread = await api.thomas.ok(api.thomas.post('/api/communications/threads', {
+      patientSystemId: THOMAS.systemId, type: 'CARE_TEAM', subject,
+      memberSystemIds: [JAMES.systemId, SARAH.systemId], clientThreadId: clientId(),
+    }), 'create care team thread');
+    await api.thomas.ok(api.thomas.post(`/api/communications/threads/${thread.threadId}/messages`,
+      { clientMessageId: clientId(), body: `${subject} opening message` }), 'opening message');
+
+    const row = new RegExp(`^${escapeRe(subject)}, `);
+    for (const user of [JAMES, SARAH]) {
+      const up = await newUserPage(browser, user);
+      pages.push(up);
+      await openMessages(up.page);
+      await up.page.getByRole('button', { name: row }).first().click();
+      await expect(up.page.getByRole('heading', { name: subject, exact: true })).toBeVisible();
+      await up.page.getByRole('button', { name: 'Show members' }).click();
+      const members = up.page.getByRole('group', { name: 'Conversation members' });
+      await expect(members.getByText(/\(you\)$/)).toBeVisible();
+      await expect(members.getByRole('button', { name: 'Leave conversation', exact: true }), `${user.role} can leave`).toBeVisible();
+    }
+
+    // The patient cannot leave their own care team conversation.
+    const thomas = await newUserPage(browser, THOMAS);
+    pages.push(thomas);
+    await openMessages(thomas.page);
+    await thomas.page.getByRole('button', { name: row }).first().click();
+    await thomas.page.getByRole('button', { name: 'Show members' }).click();
+    await expect(thomas.page.getByRole('group', { name: 'Conversation members' })).toBeVisible();
+    await expect(thomas.page.getByRole('button', { name: 'Leave conversation', exact: true })).toHaveCount(0);
+
+    // Sarah leaves: the web confirm dialog is accepted (newUserPage accepts dialogs) and she loses access.
+    const sarah = pages[1].page;
+    await sarah.getByRole('button', { name: 'Leave conversation', exact: true }).click();
+    await expect.poll(async () => (await api.sarah.get(`/api/communications/threads/${thread.threadId}`)).status,
+      { message: 'Sarah no longer has access after leaving' }).toBe(403);
+    const t = await api.thomas.ok(api.thomas.get(`/api/communications/threads/${thread.threadId}`), 'thread after leave');
+    expect((t.members as any[]).map(m => m.systemId)).not.toContain(SARAH.systemId);
   });
 });

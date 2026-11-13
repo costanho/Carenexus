@@ -73,6 +73,16 @@ public class DependentAccess {
     @Builder.Default
     private Boolean canManageCarePlan = false;
 
+    /** View the patient's invoices, payments and insurance claims (PatientPermission.BILLING). */
+    @Column(name = "can_view_billing", nullable = false)
+    @Builder.Default
+    private Boolean canViewBilling = false;
+
+    /** Pay invoices and manage payment methods and claims for the patient (PatientPermission.MANAGE_BILLING). */
+    @Column(name = "can_manage_billing", nullable = false)
+    @Builder.Default
+    private Boolean canManageBilling = false;
+
     /** Requested permission to join video calls; effective only with the patient's approval (calls_approved_*). */
     @Column(name = "can_join_calls", nullable = false)
     @Builder.Default
@@ -91,6 +101,14 @@ public class DependentAccess {
 
     @Column(name = "calls_approved_by_system_id", length = 20)
     private String callsApprovedBySystemId;
+
+    /**
+     * When the caregiver who created this dependent attested to being the patient's parent or legal guardian (V43).
+     * Required for a managed dependent (no sign-in details); null when not attested. Cleared when the patient
+     * re-grants a revoked row.
+     */
+    @Column(name = "guardian_attested_at", columnDefinition = "timestamptz")
+    private Instant guardianAttestedAt;
 
     @Column(name = "authorized_date", nullable = false)
     private LocalDateTime authorizedDate;

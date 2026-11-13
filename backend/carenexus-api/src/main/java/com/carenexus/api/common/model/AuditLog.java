@@ -34,6 +34,10 @@ public class AuditLog {
     @Column(name = "patient_system_id", length = 20)
     private String patientSystemId;  // patient whose data was touched (clinical audit), null otherwise
 
+    /** Account an account/security event is about (AuditService.logAccountEvent); null for clinical rows. V23. */
+    @Column(name = "target_system_id", length = 20)
+    private String targetSystemId;
+
     @Column(name = "actor_role", length = 20)
     private String actorRole;  // role of the caller at the time of the action
 

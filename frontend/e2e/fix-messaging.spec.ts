@@ -15,11 +15,19 @@ import { escapeRe, login, newUserPage, openMessages, type UserPage } from './sup
 // archive state in the open thread's header, notification click-through and panel focus,
 // new-conversation flows per role (including a caregiver-doctor private conversation the patient
 // cannot open), the caregiver patient filter and the caregiver who loses messaging mid-session.
+//
+// Tables written: two "e2e-fix-… thread A/B" care team conversations and e2e-fix-… conversations started from the
+// UI (message_threads, thread_members, messages, archived flags), the messages sent in the Thomas / Dr. Banda private
+// thread and a caregiver-doctor private thread, the notifications they raise (read_at updated); dependent_access,
+// consent_records and caregiver_activity_log (Sarah's messaging consent, turned off and restored); refresh_tokens and
+// audit_log for every sign-in. scripts/dev-reset-e2e-data.sh removes the tagged rows.
 
 const URGENT_HELPER =
   'Urgent highlights your message for the care team. It does not make a reply faster. For emergencies, call your local emergency number.';
 const OFFLINE_BANNER = "You're offline. Messages will refresh when you reconnect.";
 const NO_ACCESS = 'You no longer have access to this conversation.';
+/** A person in the new-conversation form is named "<name>, <role>". */
+const DOCTOR_OPTION = new RegExp(`^${escapeRe(LABELS.doctor)}, `);
 
 test.describe('messaging fixes', () => {
   let api: Clients;
@@ -323,14 +331,14 @@ test.describe('messaging fixes', () => {
 
     const p = thomas.page;
     await openMessages(p);
-    await p.getByRole('button', { name: 'Start a new conversation' }).first().click();
-    await p.getByRole('radio', { name: /^Private conversation, between a doctor and the patient or one caregiver$/ }).click();
-    await p.getByRole('radio', { name: LABELS.doctor, exact: true }).click();
+    await p.getByRole('button', { name: 'New conversation', exact: true }).first().click();
+    await p.getByRole('radio', { name: /^Private, Between a doctor and the patient or one caregiver$/ }).click();
+    await p.getByRole('radio', { name: DOCTOR_OPTION }).click();
     await p.getByLabel('First message, optional').fill(first);
     // Urgent helper is announced: it sits in a polite live region.
-    await p.getByRole('switch', { name: 'Mark first message as urgent' }).click();
+    await p.getByRole('switch', { name: 'Mark as urgent, first message' }).click();
     await expect(p.locator('[aria-live="polite"]').filter({ hasText: URGENT_HELPER })).toBeVisible();
-    await p.getByRole('switch', { name: 'Mark first message as urgent' }).click();
+    await p.getByRole('switch', { name: 'Mark as urgent, first message' }).click();
     const createdRes = p.waitForResponse(r => r.url().endsWith('/api/communications/threads') && r.request().method() === 'POST');
     await p.getByRole('button', { name: 'Start conversation' }).click();
     expect((await createdRes).status()).toBeLessThan(300);
@@ -347,10 +355,10 @@ test.describe('messaging fixes', () => {
     await expect(p.getByText(reply, { exact: true })).toBeVisible({ timeout: 12_000 });
 
     // Doctor's new-conversation type option: accessible name matches its visible text.
-    await j.getByRole('button', { name: 'Start a new conversation' }).first().click();
+    await j.getByRole('button', { name: 'New conversation', exact: true }).first().click();
     await j.getByLabel('Search patients').fill('Thomas');
     await j.getByRole('radio', { name: THOMAS.name, exact: true }).first().click();
-    await expect(j.getByRole('radio', { name: /^Private conversation, between a doctor and the patient or one caregiver$/ })).toBeVisible();
+    await expect(j.getByRole('radio', { name: /^Private, Between a doctor and the patient or one caregiver$/ })).toBeVisible();
     await expect(j.getByText('Between a doctor and the patient or one caregiver', { exact: true })).toBeVisible();
   });
 
@@ -367,9 +375,9 @@ test.describe('messaging fixes', () => {
       return route.fallback();
     });
 
-    await page.getByRole('button', { name: 'Start a new conversation' }).first().click();
-    await page.getByRole('radio', { name: /^Private conversation/ }).click();
-    await page.getByRole('radio', { name: LABELS.doctor, exact: true }).click();
+    await page.getByRole('button', { name: 'New conversation', exact: true }).first().click();
+    await page.getByRole('radio', { name: /^Private, / }).click();
+    await page.getByRole('radio', { name: DOCTOR_OPTION }).click();
     await page.getByLabel('Subject, optional').fill(subject);
     await page.getByRole('button', { name: 'Start conversation' }).click();
     await expect.poll(() => bodies.length).toBe(1);
@@ -378,8 +386,8 @@ test.describe('messaging fixes', () => {
     await expect.poll(() => bodies.length).toBe(2);
     expect(bodies[1].clientThreadId).toBe(bodies[0].clientThreadId);
 
-    await page.getByRole('radio', { name: /^Care team conversation/ }).click();
-    await page.getByRole('checkbox', { name: LABELS.doctor, exact: true }).click();
+    await page.getByRole('radio', { name: /^Care team, / }).click();
+    await page.getByRole('checkbox', { name: DOCTOR_OPTION }).click();
     const createdRes = page.waitForResponse(r => r.url().endsWith('/api/communications/threads') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Start conversation' }).click();
     const res = await createdRes;
@@ -396,10 +404,10 @@ test.describe('messaging fixes', () => {
     const { page } = await open(SARAH, browser);
     await openMessages(page);
     const first = `${fixTag()} caregiver private question`;
-    await page.getByRole('button', { name: 'Start a new conversation' }).first().click();
+    await page.getByRole('button', { name: 'New conversation', exact: true }).first().click();
     await page.getByRole('radio', { name: THOMAS.name, exact: true }).first().click();
-    await page.getByRole('radio', { name: /^Private conversation/ }).click();
-    await page.getByRole('radio', { name: LABELS.doctor, exact: true }).click();
+    await page.getByRole('radio', { name: /^Private, / }).click();
+    await page.getByRole('radio', { name: DOCTOR_OPTION }).click();
     await page.getByLabel('First message, optional').fill(first);
     const createdRes = page.waitForResponse(r => r.url().endsWith('/api/communications/threads') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'Start conversation' }).click();
@@ -421,24 +429,24 @@ test.describe('messaging fixes', () => {
   test('caregiver patient filter narrows the inbox to one loved one', async ({ browser }) => {
     const { page } = await open(SARAH, browser);
     await openMessages(page);
-    const toggle = page.getByRole('button', { name: 'Filter by patient: All patients', exact: true });
+    const toggle = page.getByRole('button', { name: 'Patient: All patients, change patient filter', exact: true });
     await expect(toggle).toBeVisible();
     await toggle.click();
     const filtered = page.waitForRequest(r => r.url().includes('/api/communications/threads?') && r.url().includes(`patientSystemId=${THOMAS.systemId}`));
     await page.getByRole('radiogroup', { name: 'Filter by patient' }).getByRole('radio', { name: THOMAS.name, exact: true }).click();
     await filtered;
-    await expect(page.getByRole('button', { name: `Filter by patient: ${THOMAS.name}`, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Patient: ${THOMAS.name}, change patient filter`, exact: true })).toBeVisible();
     const rows = page.getByRole('list', { name: 'Conversations' }).getByRole('button', { name: /, (Private|Care team) · / });
     await expect(rows.first()).toBeVisible();
     for (const name of await rows.evaluateAll(els => els.map(e => e.getAttribute('aria-label') ?? ''))) {
       expect(name).toContain(`· ${THOMAS.name}`);
     }
 
-    await page.getByRole('button', { name: `Filter by patient: ${THOMAS.name}`, exact: true }).click();
+    await page.getByRole('button', { name: `Patient: ${THOMAS.name}, change patient filter`, exact: true }).click();
     const all = page.waitForRequest(r => r.url().includes('/api/communications/threads?') && !r.url().includes('patientSystemId='));
     await page.getByRole('radiogroup', { name: 'Filter by patient' }).getByRole('radio', { name: 'All patients', exact: true }).click();
     await all;
-    await expect(page.getByRole('button', { name: 'Filter by patient: All patients', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Patient: All patients, change patient filter', exact: true })).toBeVisible();
   });
 
   test('caregiver whose messaging is turned off mid-session: no access in the thread, reason in the empty inbox', async ({ browser }) => {

@@ -1,0 +1,12 @@
+Subject: Your CareNexus data export is ready
+
+Hello {{firstName}},
+
+The copy of your CareNexus data that you asked for is ready. It is a JSON file with your account details, profile, settings, emergency contacts, your own clinical records, caregiver access, the messages you sent, notifications and your activity log.
+
+Sign in and open Privacy and data to download it:
+{{link}}
+
+The file is available until {{expiresAt}}. After that it is deleted and you can request a new one.
+
+If you did not ask for this export, change your password and contact support.

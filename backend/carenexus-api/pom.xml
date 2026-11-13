@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.3.3</version>
+		<version>4.1.2</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.carenexus</groupId>
@@ -28,13 +28,37 @@
 	</scm>
 	<properties>
 		<java.version>17</java.version>
-		<!-- livekit-server 0.16.0 needs okhttp 5 and Kotlin 2.3; Spring Boot 3.3.3 manages older versions. -->
+		<jjwt.version>0.13.0</jjwt.version>
+		<!-- springdoc 3.2.x is the line built against Spring Boot 4.1. -->
+		<springdoc.version>3.2.0</springdoc.version>
+		<livekit-server.version>0.17.0</livekit-server.version>
+		<!-- The okhttp line the LiveKit SDK is built against. Spring Boot 4 no longer manages okhttp, and without
+		     this retrofit would pull okhttp 4.12 next to the SDK's okhttp-jvm 5. -->
 		<okhttp.version>5.3.2</okhttp.version>
-		<kotlin.version>2.3.0</kotlin.version>
-		<!-- Spring Boot 3.3.3 manages Testcontainers 1.19.8, whose Docker client (API 1.32) is rejected by
-		     current Docker Engines such as the GitHub Actions runners. 1.21.4 negotiates a supported API. -->
-		<testcontainers.version>1.21.4</testcontainers.version>
+		<!-- Kotlin stdlib (LiveKit SDK runtime). Boot 4.1 manages 2.3.21, which the NVD matches to CVE-2026-53914
+		     (CVSS 9.8, Kotlin before 2.4.20). The flaw is in the compiler's build cache, not the stdlib, but the
+		     scan gate cannot tell them apart, so stay on a fixed 2.4.x stdlib. -->
+		<kotlin.version>2.4.21</kotlin.version>
+		<!-- Swagger UI webjar bundled by springdoc 3.2.0 is 5.34.0 with DOMPurify 3.4.16 (CVE-2026-116802/-116803/
+		     -116804); 5.34.1 bundles DOMPurify 3.4.17. -->
+		<swagger-ui.version>5.34.1</swagger-ui.version>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>com.squareup.okhttp3</groupId>
+				<artifactId>okhttp-bom</artifactId>
+				<version>${okhttp.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.webjars</groupId>
+				<artifactId>swagger-ui</artifactId>
+				<version>${swagger-ui.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -42,51 +66,70 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
+		<!-- Spring Boot 4 defaults to Jackson 3 (tools.jackson). The code base, its custom deserializers and its
+		     @JsonDeserialize annotations are written against Jackson 2, so this module keeps a Jackson 2 ObjectMapper
+		     bean and spring.http.converters.preferred-json-mapper=jackson2 keeps it on the HTTP path. Both are
+		     deprecated in Boot 4; moving the code to Jackson 3 is recorded in docs/security/DEPENDENCIES.md. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-jackson2</artifactId>
+		</dependency>
+		<!-- Bean Validation (jakarta.validation + Hibernate Validator) for request DTOs and constrained parameters -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.30</version>
             <scope>provided</scope>
         </dependency>
+		<!-- Since Spring Boot 4 the Flyway auto-configuration lives in its own module (spring-boot-flyway). -->
 		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
-			<version>0.12.3</version>
+			<version>${jjwt.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-impl</artifactId>
-			<version>0.12.3</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-jackson</artifactId>
-			<version>0.12.3</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-aop</artifactId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+		<!-- Prometheus scrape format for /actuator/prometheus (ADMIN only, see SecurityConfig) -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>2.4.0</version>
+			<version>${springdoc.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
@@ -97,7 +140,7 @@
 		<dependency>
 			<groupId>io.livekit</groupId>
 			<artifactId>livekit-server</artifactId>
-			<version>0.16.0</version>
+			<version>${livekit-server.version}</version>
 		</dependency>
 
 		<dependency>
@@ -110,6 +153,18 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- MockMvc auto-configuration (@AutoConfigureMockMvc) moved to its own test module in Spring Boot 4. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- @AutoConfigureMetrics (metrics export in tests, formerly @AutoConfigureObservability). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-micrometer-metrics-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-testcontainers</artifactId>
@@ -117,7 +172,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>testcontainers-postgresql</artifactId>
 			<scope>test</scope>
 		</dependency>
     </dependencies>
@@ -151,5 +206,70 @@
 
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+		  Dependency vulnerability scan (OWASP dependency-check against the NVD, plus the CISA known-exploited
+		  list and RetireJS for the bundled Swagger UI scripts). CI job "Backend dependency scan" runs it:
+		      ./mvnw -B -ntp -Pdependency-check dependency-check:check
+		  The build fails when any compile or runtime dependency has a vulnerability with a CVSS score of 9 or
+		  higher; lower scores are only reported (target/dependency-check-report.html and .json). Test-scope
+		  dependencies are not scanned. The NVD data comes from the NVD's own JSON 2.0 data feeds, which need no
+		  API key (dependency-check 13.0.0 sends an empty apiKey header when no key is configured, and the NVD API
+		  now answers that with 404 "Invalid apiKey"). To use the NVD API instead, pass
+		  -Ddependency-check.nvdDatafeedUrl= (empty) and set NVD_API_KEY. Accepted residual findings and how they
+		  are recorded: docs/security/DEPENDENCIES.md.
+		-->
+		<profile>
+			<id>dependency-check</id>
+			<properties>
+				<!-- -Ddependency-check.failBuildOnCVSS=7 locally to see everything high fail the build. -->
+				<dependency-check.failBuildOnCVSS>9</dependency-check.failBuildOnCVSS>
+				<!-- Outside ~/.m2 so CI can cache the vulnerability database on its own schedule. -->
+				<dependency-check.dataDirectory>${user.home}/.cache/dependency-check</dependency-check.dataDirectory>
+				<!-- Sonatype OSS Index needs an account; enable with -Ddependency-check.ossIndex=true plus
+				     -DossIndexUsername / -DossIndexPassword (or an ossIndexServerId in settings.xml). -->
+				<dependency-check.ossIndex>false</dependency-check.ossIndex>
+				<!-- {0} is the year, or "modified"; the files are refreshed by the NVD several times a day. -->
+				<dependency-check.nvdDatafeedUrl>https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz</dependency-check.nvdDatafeedUrl>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.owasp</groupId>
+						<artifactId>dependency-check-maven</artifactId>
+						<version>13.0.0</version>
+						<configuration>
+							<failBuildOnCVSS>${dependency-check.failBuildOnCVSS}</failBuildOnCVSS>
+							<formats>
+								<format>HTML</format>
+								<format>JSON</format>
+							</formats>
+							<prettyPrint>true</prettyPrint>
+							<dataDirectory>${dependency-check.dataDirectory}</dataDirectory>
+							<nvdDatafeedUrl>${dependency-check.nvdDatafeedUrl}</nvdDatafeedUrl>
+							<nvdApiKeyEnvironmentVariable>NVD_API_KEY</nvdApiKeyEnvironmentVariable>
+							<skipTestScope>true</skipTestScope>
+							<ossIndexAnalyzerEnabled>${dependency-check.ossIndex}</ossIndexAnalyzerEnabled>
+							<!-- Analyzers for ecosystems this module does not ship (.NET, npm lock files inside jars). -->
+							<assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+							<nuspecAnalyzerEnabled>false</nuspecAnalyzerEnabled>
+							<nugetconfAnalyzerEnabled>false</nugetconfAnalyzerEnabled>
+							<nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
+							<nodeAuditAnalyzerEnabled>false</nodeAuditAnalyzerEnabled>
+						</configuration>
+						<executions>
+							<execution>
+								<id>dependency-check</id>
+								<goals>
+									<goal>check</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>

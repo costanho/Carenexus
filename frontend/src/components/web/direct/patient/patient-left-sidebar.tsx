@@ -1,8 +1,12 @@
-import { Ionicons } from '@expo/vector-icons';
+import { useMemo } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useCurrentUser } from '@/hooks/use-current-user';
+import { decorative, Icon } from '@/components/web/ui';
 import { useLogout } from '@/hooks/use-logout';
-import { useUnreadCounts } from '@/hooks/use-notifications';
+import { navGroups, navItemLabel, type SectionDef } from '@/lib/nav/sections';
+import {
+  rememberNavFocus, useNavBadges, useNavFocusRestore, useShellUser, useSidebarScrollMemory,
+} from '../../layout/shell-support';
+import { registry } from '../../sections/patient.sections';
 
 const TEAL       = '#0F766E';
 const TEAL_BG    = '#E8F5F4';
@@ -11,82 +15,49 @@ const ICON_GRAY  = '#6B7280';
 const TEXT       = '#111827';
 const WHITE      = '#FFFFFF';
 const LOGOUT_RED = '#B91C1C';
-const DISABLED_GRAY = '#D1D5DB';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-// `disabled` marks features that have no screen/backend yet: shown greyed out with a "Soon" pill, not navigable.
-type NavItem      = { key: string; label: string; icon: IoniconsName; active?: boolean; disabled?: boolean };
-type NavSection   = { title: string; items: NavItem[] };
+// react-native-web ignores accessibilityState.selected, so the active item is announced through aria-current.
+const CURRENT_PAGE = { 'aria-current': 'page' } as object;
 
-const sections: NavSection[] = [
-  {
-    title: 'APPOINTMENTS',
-    items: [
-      { key: 'book-appointment', label: 'Book Appointment',    icon: 'calendar-outline' },
-      { key: 'my-appointments',  label: 'My Appointments',     icon: 'calendar-number-outline' },
-    ],
-  },
-  {
-    title: 'CONSULTATIONS',
-    items: [
-      { key: 'join-consultation',    label: 'Join Consultation',    icon: 'videocam-outline' },
-      { key: 'consultation-history', label: 'Consultation History', icon: 'document-text-outline' },
-    ],
-  },
-  {
-    title: 'MY HEALTH',
-    items: [
-      { key: 'medical-records', label: 'Medical Records', icon: 'folder-open-outline' },
-      { key: 'prescriptions',   label: 'Prescriptions',   icon: 'medkit-outline' },
-      { key: 'lab-results',     label: 'Lab Results',     icon: 'flask-outline' },
-      { key: 'imaging-results', label: 'Imaging Results', icon: 'image-outline' },
-      { key: 'referrals',       label: 'Referrals',       icon: 'git-compare-outline', disabled: true },
-    ],
-  },
-  {
-    title: 'CARE & SUPPORT',
-    items: [
-      { key: 'my-proxies',    label: 'My Proxies (Caregivers)', icon: 'people-outline' },
-      { key: 'messages',      label: 'Messages',                icon: 'chatbubble-outline' },
-      { key: 'notifications', label: 'Notifications',           icon: 'notifications-outline' },
-    ],
-  },
-  {
-    title: 'ACCOUNT',
-    items: [
-      { key: 'profile-settings', label: 'Profile & Settings', icon: 'settings-outline' },
-    ],
-  },
-];
+/**
+ * Accessible name of a sidebar item. It starts with the visible label and contains the visible count, so a
+ * count shown as "99+" is named "99+ unread" rather than the exact number (WCAG 2.5.3 Label in Name).
+ */
+function sidebarItemName(item: SectionDef, badge: number): string {
+  return badge > 99 ? `${item.label}, 99+ unread` : navItemLabel(item, badge);
+}
+
+/** "RECORDS & RESULTS" -> "Records & results", so a screen reader reads the group name as words. */
+function groupName(title: string): string {
+  const lower = title.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
 
 function SidebarItem({
   item, collapsed, isActive, onNavigate, badge = 0,
 }: {
-  item: NavItem; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void; badge?: number;
+  item: SectionDef; collapsed: boolean; isActive: boolean; onNavigate: (key: string) => void; badge?: number;
 }) {
-  const disabled = !!item.disabled;
-  const color = disabled ? DISABLED_GRAY : isActive ? TEAL : ICON_GRAY;
+  const ref = useNavFocusRestore(item.key);
   return (
     <TouchableOpacity
+      ref={ref as never}
       style={[styles.navItem, isActive && styles.navItemActive, collapsed && styles.navItemCollapsed]}
       activeOpacity={0.7}
-      onPress={disabled ? undefined : () => onNavigate(item.key)}
-      disabled={disabled}
+      onPress={() => { rememberNavFocus(item.key); onNavigate(item.key); }}
       accessibilityRole="button"
-      accessibilityLabel={disabled ? `${item.label}, coming soon` : badge > 0 ? `${item.label}, ${badge} unread` : item.label}
-      accessibilityState={{ selected: isActive, disabled }}
+      accessibilityLabel={sidebarItemName(item, badge)}
+      accessibilityState={{ selected: isActive }}
+      {...(isActive ? CURRENT_PAGE : null)}
     >
       <View>
-        <Ionicons name={item.icon} size={18} color={color} />
-        {collapsed && badge > 0 && <View style={styles.badgeDot} />}
+        <Icon name={item.icon} size={18} color={isActive ? TEAL : ICON_GRAY} />
+        {collapsed && badge > 0 && <View style={styles.badgeDot} {...decorative} />}
       </View>
       {!collapsed && (
-        <Text style={[styles.navLabel, isActive && styles.navLabelActive, disabled && styles.navLabelDisabled]}>{item.label}{' '}</Text>
+        <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{item.label}{' '}</Text>
       )}
-      {!collapsed && disabled && (
-        <View style={styles.soonPill}><Text style={styles.soonPillText}>Coming soon</Text></View>
-      )}
-      {!collapsed && !disabled && badge > 0 && (
+      {!collapsed && badge > 0 && (
         <View style={styles.badge}><Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text></View>
       )}
     </TouchableOpacity>
@@ -95,16 +66,19 @@ function SidebarItem({
 
 export interface PatientSidebarProps {
   collapsed?:   boolean;
-  onClose?:     () => void;
+  /** Key of the section being shown. */
   activeKey?:   string;
   onNavigate?:  (key: string) => void;
 }
 
-export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashboard', onNavigate }: PatientSidebarProps) {
-  const { user } = useCurrentUser();
+/** Patient navigation. Every item comes from the section registry (components/web/sections/patient.sections.tsx). */
+export function PatientSidebar({ collapsed = false, activeKey = registry.homeKey, onNavigate }: PatientSidebarProps) {
+  const { user } = useShellUser();
   const { handleLogout, loading } = useLogout();
-  // The top navbar bell polls the counts; the sidebar only reads them.
-  const { unreadCount, unreadMessageCount } = useUnreadCounts(false);
+  const badges = useNavBadges();
+  const scroll = useSidebarScrollMemory('patient');
+  const { home, groups } = useMemo(() => navGroups(registry), []);
+  const navigate  = onNavigate ?? (() => {});
   const fullName  = user ? `${user.first_name} ${user.last_name}` : '...';
   const avatarUri = user?.avatar_url ?? null;
 
@@ -112,8 +86,8 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       {/* Logo */}
       <View style={[styles.logoSection, collapsed && styles.logoCollapsed]}>
-        <View style={styles.logoIconWrapper}>
-          <Ionicons name="heart-outline" size={18} color={TEAL} />
+        <View style={styles.logoIconWrapper} {...decorative}>
+          <Icon name="heart-outline" size={18} color={TEAL} />
         </View>
         {!collapsed && (
           <View style={styles.flex1}>
@@ -124,61 +98,65 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
             <Text style={styles.logoDirect}>DIRECT</Text>
           </View>
         )}
-        {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close menu">
-            <Ionicons name="close" size={20} color={ICON_GRAY} />
-          </TouchableOpacity>
-        )}
       </View>
 
       <View style={styles.divider} />
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+      {/* The navigation landmark; each group of items is a named group. */}
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        role="navigation"
+        aria-label="Patient navigation"
+        {...scroll}
+      >
         {/* Profile */}
         {!collapsed ? (
           <View style={styles.profileSection}>
             {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={styles.avatar} />
-              : <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
+              ? <Image source={{ uri: avatarUri }} style={styles.avatar} {...decorative} />
+              : <View style={[styles.avatar, styles.avatarFallback]} {...decorative}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
             }
             <View style={styles.flex1}>
               <Text style={styles.helloText}>Hello,</Text>
-              <Text style={styles.nameText}>{fullName} 👋</Text>
+              {/* The wave is decoration; screen readers would otherwise read "waving hand". */}
+              <Text style={styles.nameText}>{fullName} <Text {...decorative}>👋</Text></Text>
               <Text style={styles.roleText}>Patient</Text>
             </View>
           </View>
         ) : (
           <View style={styles.avatarCollapsed}>
             {avatarUri
-              ? <Image source={{ uri: avatarUri }} style={styles.avatarSmall} />
-              : <View style={[styles.avatarSmall, styles.avatarFallback]}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
+              ? <Image source={{ uri: avatarUri }} style={styles.avatarSmall} {...decorative} />
+              : <View style={[styles.avatarSmall, styles.avatarFallback]} {...decorative}><Text style={styles.avatarInitial}>{user?.first_name?.[0] ?? '?'}</Text></View>
             }
           </View>
         )}
 
-        {/* Dashboard */}
+        {/* Home */}
         <SidebarItem
           collapsed={collapsed}
-          item={{ key: 'dashboard', label: 'Dashboard', icon: 'home' }}
-          isActive={activeKey === 'dashboard'}
-          onNavigate={onNavigate ?? (() => {})}
+          item={home}
+          isActive={activeKey === home.key}
+          onNavigate={navigate}
         />
 
-        {/* Sections */}
-        {sections.map((section) => (
-          <View key={section.title}>
+        {/* Groups */}
+        {groups.map(group => (
+          // The group name is spoken once, from the group; the capitalised heading text is its visual form.
+          <View key={group.title} role="group" aria-label={groupName(group.title)}>
             {!collapsed
-              ? <Text style={styles.sectionTitle}>{section.title}</Text>
+              ? <Text style={styles.sectionTitle} {...decorative}>{group.title}</Text>
               : <View style={styles.sectionDivider} />
             }
-            {section.items.map((item) => (
+            {group.items.map(item => (
               <SidebarItem
                 key={item.key}
                 collapsed={collapsed}
                 item={item}
                 isActive={activeKey === item.key}
-                onNavigate={onNavigate ?? (() => {})}
-                badge={item.key === 'messages' ? unreadMessageCount : item.key === 'notifications' ? unreadCount : 0}
+                onNavigate={navigate}
+                badge={item.badge ? badges[item.badge] : 0}
               />
             ))}
           </View>
@@ -196,11 +174,13 @@ export function PatientSidebar({ collapsed = false, onClose, activeKey = 'dashbo
           activeOpacity={0.7}
           disabled={loading}
           accessibilityRole="button"
-          accessibilityLabel="Sign out"
+          // Starts with the visible words in both states ("Sign Out", "Signing out…").
+          accessibilityLabel={loading ? 'Signing out' : 'Sign out'}
           accessibilityState={{ disabled: loading }}
+          aria-busy={loading}
         >
           <View style={styles.logoutIconWrap}>
-            <Ionicons
+            <Icon
               name={loading ? 'hourglass-outline' : 'log-out-outline'}
               size={17}
               color={LOGOUT_RED}
@@ -238,7 +218,6 @@ const styles = StyleSheet.create({
   logoCare:   { color: TEXT },
   logoNexus:  { color: TEAL },
   logoDirect: { fontSize: 11, fontWeight: '600', color: TEAL, letterSpacing: 2 },
-  closeBtn:   { padding: 4 },
 
   divider: { height: 1, backgroundColor: '#E5E7EB', marginHorizontal: 16 },
   scroll:  { flex: 1, paddingHorizontal: 8 },
@@ -272,12 +251,9 @@ const styles = StyleSheet.create({
   },
   sectionDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 8, marginHorizontal: 8 },
 
-  navLabelDisabled: { color: GRAY_LABEL },
   badge:        { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: TEAL, alignItems: 'center', justifyContent: 'center' },
   badgeText:    { color: WHITE, fontSize: 11, fontWeight: '700' },
   badgeDot:     { position: 'absolute', top: -2, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626', borderWidth: 1, borderColor: WHITE },
-  soonPill:     { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  soonPillText: { fontSize: 10, fontWeight: '700', color: GRAY_LABEL, letterSpacing: 0.4 },
 
   logoutFooter: { paddingBottom: 16 },
   logoutBtn: {

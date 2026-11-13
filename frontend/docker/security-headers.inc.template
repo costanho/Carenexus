@@ -1,0 +1,21 @@
+# Security headers of every response of the web container. Rendered at container start into
+# /etc/nginx/conf.d/security-headers.inc and included by each location of default.conf (nginx drops server-level
+# add_header lines in a location that adds its own, so they are included per location).
+#
+# Content-Security-Policy:
+#   connect-src   the page's own origin plus ${CSP_CONNECT_SRC}: the API origin (EXPO_PUBLIC_API_URL) and the
+#                 LiveKit URLs. Set CSP_CONNECT_SRC per environment, for example
+#                 "https://api.example.com https://<project>.livekit.cloud wss://<project>.livekit.cloud".
+#   script-src    'self' plus 'unsafe-inline', so any inline script the Expo static export writes into its HTML
+#                 pages still runs; no 'unsafe-eval'. Tighten to hashes once the export is pinned.
+#   style-src     'unsafe-inline' because react-native-web writes its styles into <style> elements at runtime.
+#   img/media/frame/worker blob:  downloads, the printable receipt frame and LiveKit media use blob: URLs.
+# Strict-Transport-Security is not set here: the container serves plain HTTP. The TLS terminator in front of it
+# sets HSTS.
+
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Permissions-Policy "camera=(self), microphone=(self), display-capture=(), geolocation=(), payment=(), usb=()" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ${CSP_CONNECT_SRC}; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;

@@ -1,5 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
 import { type StyleProp, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Icon } from '@/components/web/ui';
 
 const AMBER   = '#B45309';
 const AMBER_L = '#FFFBEB';
@@ -13,7 +13,7 @@ const AMBER_B = '#FDE68A';
 export function CallTimePending({ style }: { style?: StyleProp<ViewStyle> }) {
   return (
     <View style={[styles.box, style]}>
-      <Ionicons name="time-outline" size={15} color={AMBER} importantForAccessibility="no" />
+      <Icon name="time-outline" size={15} color={AMBER} />
       <Text style={styles.text}>
         Video call not open yet. The clinic needs to confirm this appointment time first.
       </Text>

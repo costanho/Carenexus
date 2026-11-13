@@ -1,0 +1,7 @@
+Subject: A change of your CareNexus sign-in email was requested
+
+Hello {{firstName}},
+
+Someone signed in to your CareNexus account asked to change its sign-in email to {{maskedNewEmail}}.
+
+Nothing changes until the new address is confirmed. If this was not you, cancel the pending change under Account security in your settings and change your password.

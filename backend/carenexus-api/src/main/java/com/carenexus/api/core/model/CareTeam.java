@@ -23,14 +23,29 @@ public class CareTeam {
     @Column(name = "patient_system_id", nullable = false, length = 20)
     private String patientSystemId;
 
+    /** CareNexus account of the provider (a doctor); null for an external provider entered by name (V42). */
     @Column(name = "provider_system_id", length = 20)
     private String providerSystemId;
+
+    /** External provider (no account): name, required when {@code providerSystemId} is null (V42 CHECK). */
+    @Column(name = "provider_name", length = 150)
+    private String providerName;
+
+    /** External provider phone; null for an account provider. */
+    @Column(name = "provider_phone", length = 20)
+    private String providerPhone;
+
+    /** External provider organisation; null for an account provider. */
+    @Column(name = "provider_organisation", length = 200)
+    private String providerOrganisation;
 
     @Column(name = "facility_id")
     private Integer facilityId;
 
     /**
-     * DB CHECK (V10): PRIMARY_DOCTOR, DOCTOR, SPECIALIST, NURSE, LAB, PHARMACY, THERAPIST, CAREGIVER, ASSIGNED_CAREGIVER
+     * DB CHECK (V10): PRIMARY_DOCTOR, DOCTOR, SPECIALIST, NURSE, LAB, PHARMACY, THERAPIST, CAREGIVER, ASSIGNED_CAREGIVER.
+     * The care-team API writes only DOCTOR, NURSE, LAB, PHARMACY, SPECIALIST and THERAPIST; a legacy PRIMARY_DOCTOR
+     * row reads as DOCTOR + primary. At most one active row per patient has {@code isPrimary} (V42 index).
      */
     @Column(name = "role", nullable = false, length = 50)
     private String role;

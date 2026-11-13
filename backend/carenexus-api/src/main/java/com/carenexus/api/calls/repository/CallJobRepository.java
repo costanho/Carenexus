@@ -15,10 +15,14 @@ import java.util.Optional;
 @Repository
 public interface CallJobRepository extends JpaRepository<CallJob, Long> {
 
-    /** Claim due jobs; concurrent workers skip rows another worker holds. Call inside a transaction. */
-    @Query(value = "SELECT * FROM call_jobs WHERE status = 'PENDING' AND next_attempt_at <= now() " +
+    /**
+     * Claim jobs due at {@code now}; concurrent workers skip rows another worker holds. Call inside a transaction.
+     * {@code now} comes from the same JVM clock that wrote {@code next_attempt_at}, so a clock difference between the
+     * application host and the database cannot make a job run early or late.
+     */
+    @Query(value = "SELECT * FROM call_jobs WHERE status = 'PENDING' AND next_attempt_at <= :now " +
             "ORDER BY next_attempt_at LIMIT :limit FOR UPDATE SKIP LOCKED", nativeQuery = true)
-    List<CallJob> lockDueJobs(@Param("limit") int limit);
+    List<CallJob> lockDueJobs(@Param("now") Instant now, @Param("limit") int limit);
 
     /** Jobs left RUNNING by a crashed worker go back to PENDING. */
     @Modifying

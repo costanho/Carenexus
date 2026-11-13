@@ -1,333 +1,281 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Image, ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useDoctorProfile } from '@/hooks/use-doctor-profile';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { StyleSheet, Text, View } from 'react-native';
+import {
+  EditableSection, EmailRow, initialsOf, NamePhoneFields, ProfileForm, ProfileGrid, ProfileIdentity,
+  ProfileTabsBody, profileCell, useProfileSave, useProfileTab,
+} from '@/components/web/profile/profile-shared';
+import {
+  Banner, Button, Card, colors, ErrorView, fontSize, FormActions, FormError, Icon, InfoRow, type IoniconsName,
+  LoadingView, Screen, SectionCard, space, StatusBadge, statusTone, TextField, useUiTheme,
+} from '@/components/web/ui';
+import {
+  type DoctorProfileDto, type UpdateDoctorProfileBody, useDoctorProfile, type VerificationStatus,
+} from '@/hooks/use-doctor-profile';
+import { doctorDisplayName } from '@/hooks/use-doctors';
+import type { SectionProps } from '@/lib/nav/sections';
+import { formatClinicDate } from '@/lib/time/clinic';
+import {
+  type DoctorProfileForm, doctorProfileChanges, doctorProfileDefaults, doctorProfileSchema, PROFILE_LIMITS,
+} from '@/lib/validation/profile';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const AMBER  = '#B45309';
-const TEAL   = '#0F766E';
-const NAVY   = '#0D1B2E';
-const PURPLE = '#6D28D9';
-const RED    = '#B91C1C';
+// The doctor's own profile. Name, phone, specialization and bio are editable in place; the licence and the
+// verification status are managed by an administrator and shown read-only. The sign-in email is changed from
+// the Security tab, which is shown when the dashboard passes a `securityPanel`.
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
-const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
-function avatarColor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string) {
-  return name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
-function formatDate(iso: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-function memberSince(iso: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+export interface DoctorWebProfileProps extends Partial<SectionProps> {
+  /** Content of the Security tab (`?tab=security`); without it the screen has no tabs. */
+  securityPanel?: ReactNode;
+  /** The consultation fee editor, shown beside the professional details when the dashboard provides one. */
+  feeSlot?: ReactNode;
 }
 
-// ─── Info Row ─────────────────────────────────────────────────────────────────
+const VERIFICATION_LABELS: Record<VerificationStatus, string> = {
+  PENDING:   'Pending review',
+  APPROVED:  'Verified',
+  REJECTED:  'Not approved',
+  SUSPENDED: 'Suspended',
+};
 
-function InfoRow({ icon, label, value, mono }: { icon: IoniconsName; label: string; value: string; mono?: boolean }) {
+/** "Zimbabwe" for "ZW"; the code itself when the browser cannot name the region. */
+function countryName(code: string | null): string | null {
+  if (!code) return null;
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+function StatCard({ icon, label, value }: { icon: IoniconsName; label: string; value: number }) {
+  const { accent, accentBg } = useUiTheme();
   return (
-    <View style={styles.infoRow}>
-      <View style={styles.infoIconWrap}>
-        <Ionicons name={icon} size={15} color={BLUE} />
+    <Card style={styles.stat}>
+      <View style={[styles.statIcon, { backgroundColor: accentBg }]}>
+        <Icon name={icon} size={18} color={accent} />
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={[styles.infoValue, mono && { fontFamily: 'monospace' as any }]}>{value}</Text>
+      <View style={styles.statText}>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statLabel}>{label}</Text>
       </View>
-    </View>
+    </Card>
   );
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+// ─── Profile details ──────────────────────────────────────────────────────────
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
+const FIELDS = ['firstName', 'lastName', 'phone', 'specialization', 'bio'] as const;
+
+function ProfileDetailsEdit({ profile, focusField, save, onDone, onCancel }: {
+  profile:    DoctorProfileDto;
+  /** The field that takes focus when the form opens. */
+  focusField: 'firstName' | 'bio';
+  save:       (changes: UpdateDoctorProfileBody) => Promise<unknown>;
+  onDone:     (saved: boolean) => void;
+  onCancel:   () => void;
+}) {
+  const schema = useMemo(
+    () => doctorProfileSchema({ hasPhone: !!profile.phone, hasSpecialization: !!profile.specialization }),
+    [profile.phone, profile.specialization],
+  );
+  const { control, handleSubmit, setError, setFocus } = useForm<DoctorProfileForm>({
+    resolver: zodResolver(schema),
+    defaultValues: doctorProfileDefaults(profile),
+  });
+  const { submit, pending, formError } = useProfileSave({
+    handleSubmit, setError, fields: FIELDS,
+    changesOf: (values: DoctorProfileForm) => doctorProfileChanges(profile, values),
+    save, onDone,
+  });
+  useEffect(() => { setFocus(focusField); }, [setFocus, focusField]);
+
+  return (
+    <ProfileForm>
+      <FormError message={formError} />
+      <NamePhoneFields control={control} onSubmit={submit} phoneRequired={!!profile.phone} />
+      <TextField
+        label="Specialization" control={control} name="specialization" required={!!profile.specialization}
+        maxLength={PROFILE_LIMITS.specialization} autoComplete="off" onSubmit={submit}
+      />
+      <TextField
+        label="Bio" control={control} name="bio" multiline rows={6}
+        maxLength={PROFILE_LIMITS.bio} showCount
+        hint="Patients see your bio when they choose a doctor. Leave it empty to remove it."
+      />
+      <FormActions submitLabel="Save changes" onSubmit={submit} onCancel={onCancel} submitting={pending} />
+    </ProfileForm>
+  );
+}
+
+function ProfileDetailsView({ profile, onOpenSecurity, onAddBio }: {
+  profile:         DoctorProfileDto;
+  onOpenSecurity?: () => void;
+  onAddBio:        () => void;
 }) {
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={22} color={iconColor} />
+    <View style={styles.details}>
+      <View>
+        <InfoRow label="First name" value={profile.firstName} />
+        <InfoRow label="Last name" value={profile.lastName} />
+        <InfoRow label="Phone number" value={profile.phone} />
+        <EmailRow email={profile.email} onOpenSecurity={onOpenSecurity} />
+        <InfoRow label="Specialization" value={profile.specialization} />
       </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <View style={styles.bio}>
+        <Text style={styles.bioLabel}>Bio</Text>
+        {profile.bio ? (
+          <Text style={styles.bioText}>{profile.bio}</Text>
+        ) : (
+          <View style={styles.bioEmpty}>
+            <Text style={styles.note}>
+              You have not added a bio yet. Patients see it when they choose a doctor.
+            </Text>
+            <Button label="Add a bio" icon="add" variant="secondary" size="sm" onPress={onAddBio} />
+          </View>
+        )}
+      </View>
     </View>
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
-export default function DoctorWebProfile() {
-  const { profile, stats, loading, error, refetch } = useDoctorProfile();
+export default function DoctorWebProfile({ params, theme, securityPanel, feeSlot }: DoctorWebProfileProps) {
+  const { raw: profile, stats, loading, refreshing, error, refetch, updateProfile } = useDoctorProfile();
+  const { tab, setTab } = useProfileTab(params, !!securityPanel);
+  const [editing, setEditing] = useState<'firstName' | 'bio' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-
-  if (error || !profile) return (
-    <View style={styles.center}>
-      <Ionicons name="alert-circle-outline" size={52} color={RED} />
-      <Text style={styles.errorText}>{error ?? 'Profile not found'}</Text>
-      <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-        <Text style={styles.retryBtnText}>Retry</Text>
-      </TouchableOpacity>
-    </View>
+  const frame = (children: ReactNode, actions?: ReactNode) => (
+    <Screen
+      title="Profile"
+      subtitle="Your professional profile and contact details"
+      theme={theme}
+      role="doctor"
+      actions={actions}
+    >
+      {children}
+    </Screen>
   );
 
-  const ac = avatarColor(profile.full_name);
+  if (loading) return frame(<LoadingView label="Loading profile" />);
+  if (!profile) return frame(<ErrorView message={error ?? 'Profile not found.'} onRetry={refetch} />);
 
-  return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+  const displayName = doctorDisplayName(profile.firstName, profile.lastName);
+  const joined = profile.doctorCreatedAt ?? profile.userCreatedAt;
+  const openSecurity = securityPanel ? () => setTab('security') : undefined;
+  const startEdit = (field: 'firstName' | 'bio') => { setNotice(null); setEditing(field); };
 
-      {/* Hero banner */}
-      <View style={styles.heroBanner}>
-        <View style={styles.heroOverlay} />
-        <View style={styles.heroContent}>
-          {/* Avatar */}
-          <View style={styles.avatarRing}>
-            {profile.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.avatarImg} />
-            ) : (
-              <View style={[styles.avatarFallback, { backgroundColor: ac }]}>
-                <Text style={styles.avatarInitials}>{initials(profile.full_name)}</Text>
-              </View>
-            )}
-          </View>
+  return frame(
+    <ProfileTabsBody tab={tab} onTabChange={setTab} securityPanel={securityPanel}>
+      {error ? <Banner tone="danger" text={error} action={{ label: 'Retry', onPress: refetch }} /> : null}
+      {notice ? <Banner tone="success" text={notice} onDismiss={() => setNotice(null)} /> : null}
 
-          {/* Name + spec */}
-          <View style={{ flex: 1, gap: 6 }}>
-            <View style={styles.nameRow}>
-              <Text style={styles.heroName}>{profile.full_name}</Text>
-              {!!profile.is_active && (
-                <View style={styles.activeBadge}>
-                  <View style={styles.activeDot} />
-                  <Text style={styles.activeText}>Active</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.heroSpec}>{profile.specialization}</Text>
-            <View style={styles.heroMeta}>
-              <Ionicons name="shield-checkmark-outline" size={13} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.heroMetaText}>{profile.license_no}</Text>
-              <Text style={styles.heroMetaDivider}>·</Text>
-              <Ionicons name="calendar-outline" size={13} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.heroMetaText}>Since {memberSince(profile.created_at)}</Text>
-            </View>
-          </View>
+      <ProfileIdentity
+        name={displayName}
+        initials={initialsOf(profile.firstName, profile.lastName)}
+        tagline={profile.specialization}
+        badges={(
+          <>
+            {profile.verificationStatus ? (
+              <StatusBadge
+                label={VERIFICATION_LABELS[profile.verificationStatus]}
+                tone={statusTone('verification', profile.verificationStatus)}
+              />
+            ) : null}
+            <StatusBadge
+              label={profile.isActive ? 'Active' : 'Inactive'}
+              tone={statusTone('account', profile.isActive ? 'ACTIVE' : 'INACTIVE')}
+            />
+          </>
+        )}
+        facts={joined ? [{ label: 'Member since', value: formatClinicDate(joined, '—') }] : []}
+      />
 
-          {/* Refresh */}
-          <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Refresh">
-            <Ionicons name="refresh-outline" size={15} color={WHITE} />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.stats} role="group" aria-label="Your practice in numbers">
+        <StatCard icon="calendar-number-outline" label="Appointments" value={stats.appointments} />
+        <StatCard icon="people-outline" label="Patients" value={stats.patients} />
+        <StatCard icon="videocam-outline" label="Consultations" value={stats.consultations} />
+        <StatCard icon="medkit-outline" label="Prescriptions" value={stats.prescriptions} />
       </View>
 
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        <StatCard icon="calendar-number-outline" iconBg="#EEF2FF" iconColor={BLUE}   label="Appointments"  value={stats.appointments}  />
-        <StatCard icon="people-outline"           iconBg="#D1FAE5" iconColor={GREEN}  label="Patients"      value={stats.patients}      />
-        <StatCard icon="videocam-outline"         iconBg="#F5F3FF" iconColor={PURPLE} label="Consultations" value={stats.consultations} />
-        <StatCard icon="medkit-outline"           iconBg="#FEF3C7" iconColor={AMBER}  label="Prescriptions" value={stats.prescriptions} />
-      </View>
-
-      {/* Two-column layout */}
-      <View style={styles.twoCol}>
-
-        {/* Left: About + Contact */}
-        <View style={styles.leftCol}>
-
-          {/* About */}
-          {!!profile.bio && (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={[styles.cardIconWrap, { backgroundColor: '#EEF2FF' }]}>
-                  <Ionicons name="person-outline" size={16} color={BLUE} />
-                </View>
-                <Text style={styles.cardTitle} accessibilityRole="header">About</Text>
-              </View>
-              <Text style={styles.bioText}>{profile.bio}</Text>
-            </View>
+      <ProfileGrid>
+        <EditableSection
+          title="Profile Details"
+          subtitle="Your name, contact number, specialization and bio."
+          editing={editing !== null}
+          onEdit={() => startEdit('firstName')}
+          editLabel="Edit profile details"
+        >
+          {editing !== null ? (
+            <ProfileDetailsEdit
+              profile={profile}
+              focusField={editing}
+              save={updateProfile}
+              onCancel={() => setEditing(null)}
+              onDone={saved => { setEditing(null); if (saved) setNotice('Your profile was saved.'); }}
+            />
+          ) : (
+            <ProfileDetailsView profile={profile} onOpenSecurity={openSecurity} onAddBio={() => startEdit('bio')} />
           )}
+        </EditableSection>
 
-          {/* Contact Information */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#D1FAE5' }]}>
-                <Ionicons name="call-outline" size={16} color={GREEN} />
-              </View>
-              <Text style={styles.cardTitle} accessibilityRole="header">Contact Information</Text>
-            </View>
-            <View style={{ gap: 4 }}>
-              <InfoRow icon="mail-outline"      label="Email Address" value={profile.email}            />
-              <InfoRow icon="call-outline"      label="Phone Number"  value={profile.phone ?? 'Not provided'} />
-            </View>
+        <SectionCard title="Professional Details" style={profileCell}>
+          <View>
+            <InfoRow label="Licence number" value={profile.licenseNo} />
+            <InfoRow label="Licensing body" value={profile.licensingBody} />
+            <InfoRow label="Licence country" value={countryName(profile.licenseCountry)} />
+            <InfoRow label="Verification" emptyText="Not available">
+              {profile.verificationStatus ? (
+                <StatusBadge
+                  label={VERIFICATION_LABELS[profile.verificationStatus]}
+                  tone={statusTone('verification', profile.verificationStatus)}
+                />
+              ) : undefined}
+            </InfoRow>
           </View>
+          <Text style={styles.note}>
+            Your licence details and verification status are managed by an administrator. Contact an
+            administrator if they need to be corrected.
+          </Text>
+        </SectionCard>
+      </ProfileGrid>
 
-        </View>
+      <ProfileGrid>
+        {feeSlot ? <View style={profileCell}>{feeSlot}</View> : null}
 
-        {/* Right: Professional Details */}
-        <View style={styles.rightCol}>
-
-          {/* Professional Details */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#F5F3FF' }]}>
-                <Ionicons name="ribbon-outline" size={16} color={PURPLE} />
-              </View>
-              <Text style={styles.cardTitle} accessibilityRole="header">Professional Details</Text>
-            </View>
-            <View style={{ gap: 4 }}>
-              <InfoRow icon="briefcase-outline"        label="Specialization"  value={profile.specialization}          />
-              <InfoRow icon="shield-checkmark-outline" label="License Number"  value={profile.license_no} mono         />
-              <InfoRow icon="calendar-outline"         label="Member Since"    value={memberSince(profile.created_at)} />
-              <InfoRow icon="checkmark-circle-outline" label="Account Status"  value={profile.is_active ? 'Active' : 'Inactive'} />
-            </View>
+        <SectionCard title="Account Details" style={profileCell}>
+          <View>
+            <InfoRow label="Doctor ID" value={profile.doctorSystemId} />
+            <InfoRow label="Joined" value={formatClinicDate(joined, '')} />
+            <InfoRow label="Last updated" value={formatClinicDate(profile.userUpdatedAt, '')} />
           </View>
-
-          {/* Account Details */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.cardIconWrap, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="information-circle-outline" size={16} color={AMBER} />
-              </View>
-              <Text style={styles.cardTitle} accessibilityRole="header">Account Details</Text>
-            </View>
-            <View style={{ gap: 4 }}>
-              <InfoRow icon="finger-print-outline" label="Doctor ID"  value={profile.doctor_system_id} mono />
-              <InfoRow icon="person-outline"       label="User ID"    value={`#${profile.user_id}`}   mono />
-              <InfoRow icon="time-outline"         label="Joined"     value={formatDate(profile.created_at)} />
-            </View>
-          </View>
-
-        </View>
-      </View>
-
-    </ScrollView>
+        </SectionCard>
+      </ProfileGrid>
+    </ProfileTabsBody>,
+    <Button
+      label="Refresh" icon="refresh-outline" variant="secondary" size="sm"
+      onPress={refetch} loading={refreshing}
+    />,
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  note: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 17 },
 
-  // Hero
-  heroBanner: {
-    backgroundColor: NAVY,
-    paddingTop: 32,
-    paddingBottom: 28,
-    paddingHorizontal: 28,
-    overflow: 'hidden',
-  },
-  heroOverlay: {
-    position: 'absolute',
-    top: -40, right: -40,
-    width: 220, height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(79,110,247,0.12)',
-  },
-  heroContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 22,
-  },
-  avatarRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 3,
-    borderColor: 'rgba(45,212,191,0.6)',
-    overflow: 'hidden',
-  },
-  avatarImg:      { width: '100%', height: '100%' },
-  avatarFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { color: WHITE, fontSize: 30, fontWeight: '700' },
+  stats:     { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  stat:      { flexGrow: 1, flexShrink: 1, flexBasis: 150, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.md },
+  statIcon:  { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  statText:  { flexShrink: 1, minWidth: 0 },
+  statValue: { fontSize: fontSize.xl, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.xs, color: colors.textMuted },
 
-  nameRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  heroName:    { fontSize: 24, fontWeight: '700', color: WHITE },
-  activeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.2)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)' },
-  // On the navy hero the darker GREEN fails contrast; a light green reads (over 6:1).
-  activeDot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34D399' },
-  activeText:  { fontSize: 11, fontWeight: '600', color: '#34D399' },
-
-  heroSpec:        { fontSize: 15, color: '#8BA3BE', fontWeight: '500' },
-  heroMeta:        { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  heroMetaText:    { fontSize: 12, color: 'rgba(255,255,255,0.55)' },
-  heroMetaDivider: { fontSize: 12, color: 'rgba(255,255,255,0.3)' },
-
-  refreshBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center', justifyContent: 'center',
-    alignSelf: 'flex-start',
-  },
-
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 8,
-    flexWrap: 'wrap',
-  },
-  statCard: {
-    flex: 1, minWidth: 100,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 14, padding: 16, gap: 6, alignItems: 'flex-start',
-  },
-  statIconBg: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 28, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 12, color: GRAY },
-
-  // Layout
-  twoCol:   { flexDirection: 'row', gap: 16, paddingHorizontal: 24, paddingTop: 16, flexWrap: 'wrap' },
-  leftCol:  { flex: 2, minWidth: 280, gap: 16 },
-  rightCol: { flex: 1, minWidth: 240, gap: 16 },
-
-  // Card
-  card: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, padding: 20, gap: 16,
-  },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  cardIconWrap: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: TEXT },
-
-  bioText: { fontSize: 14, color: GRAY, lineHeight: 22 },
-
-  // Info row
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: BG,
-  },
-  infoIconWrap: {
-    width: 32, height: 32, borderRadius: 8,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center', justifyContent: 'center',
-    marginTop: 2,
-  },
-  infoLabel: { fontSize: 11, color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
-  infoValue: { fontSize: 14, color: TEXT, fontWeight: '500' },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  details:  { gap: space.md },
+  bio:      { gap: space.xs },
+  bioLabel: { fontSize: fontSize.sm, color: colors.textMuted },
+  bioText:  { fontSize: fontSize.md, color: colors.text, lineHeight: 21 },
+  bioEmpty: { gap: space.sm, alignItems: 'flex-start' },
 });

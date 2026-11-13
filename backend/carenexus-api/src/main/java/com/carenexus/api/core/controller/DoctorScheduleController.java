@@ -1,170 +1,112 @@
 package com.carenexus.api.core.controller;
 
-import com.carenexus.api.common.exception.ResourceNotFoundException;
-import com.carenexus.api.common.service.AuthorizationService;
+import com.carenexus.api.common.dto.ErrorResponse;
+import com.carenexus.api.common.dto.PageResponse;
 import com.carenexus.api.core.dto.response.DoctorDashboardResponse;
 import com.carenexus.api.core.dto.response.ScheduleEntryResponse;
-import com.carenexus.api.core.model.Doctor;
-import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.service.DoctorScheduleService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * The calling doctor's schedule (API contract be-doctor-schedule). Route security limits {@code /api/doctors/**} to
+ * DOCTOR and ADMIN; every route is "self" (no doctor id in the path) and the service checks
+ * {@code requireDoctorSelf(caller)}. An ADMIN has no doctor profile and gets 404 {@code Doctor profile not found}.
+ * The per-doctor-id twins and the today / upcoming / past / date-range / status / patient lists were removed: use
+ * {@code /window} or {@code GET /api/doctors/appointments/search}.
+ */
 @RestController
 @RequestMapping("/api/doctors/schedule")
 @RequiredArgsConstructor
+@Tag(name = "Doctor schedule", description = "The calling doctor's schedule and home dashboard")
 public class DoctorScheduleController {
 
     private final DoctorScheduleService doctorScheduleService;
-    private final DoctorRepository doctorRepository;
-    private final AuthorizationService authorizationService;
 
-    /** Self routes: caller must be a DOCTOR (or ADMIN) with a doctor profile. */
-    private String getDoctorSystemIdFromUserId(String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR, AuthorizationService.ADMIN);
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-        return doctor.getSystemId();
-    }
-
-    /** /{doctorSystemId}/... routes: only that doctor themselves, or an admin. */
-    private void requireDoctorSelf(String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-    }
-
+    /** @deprecated use {@code GET /api/doctors/schedule/window} (paged) or {@code /api/doctors/appointments/search}. */
+    @Deprecated
     @GetMapping
-    public ResponseEntity<List<ScheduleEntryResponse>> getMySchedule(
-            @RequestAttribute("systemId") String systemId) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
+    @Operation(summary = "Get the whole schedule (deprecated array)", deprecated = true,
+            description = "Deprecated: use GET /api/doctors/schedule/window or GET /api/doctors/appointments/search. "
+                    + "The 200 most recent appointments of the calling doctor (every status, scheduledAt then "
+                    + "appointmentId descending), each APPOINTMENT row followed by one CONSULTATION row per "
+                    + "consultation of that appointment, oldest first. Audited as a list read.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Schedule rows (legacy layout)"),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired access token",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Caller is not a doctor or an administrator",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Doctor profile not found (for example an administrator)",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<List<ScheduleEntryResponse>> getMySchedule() {
+        return ResponseEntity.ok(doctorScheduleService.getLegacySchedule());
     }
 
-    @GetMapping("/{doctorSystemId}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorSchedule(@PathVariable String doctorSystemId) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/today")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyTodaySchedule(
-            @RequestAttribute("systemId") String systemId) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/today")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorTodaySchedule(@PathVariable String doctorSystemId) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorTodaySchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/upcoming")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyUpcomingSchedule(
-            @RequestAttribute("systemId") String systemId) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/upcoming")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorUpcomingSchedule(@PathVariable String doctorSystemId) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorUpcomingSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/past")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyPastSchedule(
-            @RequestAttribute("systemId") String systemId) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/past")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorPastSchedule(@PathVariable String doctorSystemId) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorPastSchedule(doctorSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/date-range")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleByDateRange(
-            @RequestAttribute("systemId") String systemId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorSystemId, startDate, endDate);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/date-range")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleByDateRange(
-            @PathVariable String doctorSystemId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByDateRange(doctorSystemId, startDate, endDate);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/status/{status}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleByStatus(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String status) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorSystemId, status.toUpperCase());
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/status/{status}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleByStatus(
-            @PathVariable String doctorSystemId,
-            @PathVariable String status) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByStatus(doctorSystemId, status.toUpperCase());
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/patient/{patientSystemId}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getMyScheduleWithPatient(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String patientSystemId) {
-        String doctorSystemId = getDoctorSystemIdFromUserId(systemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorSystemId, patientSystemId);
-        return ResponseEntity.ok(schedule);
-    }
-
-    @GetMapping("/{doctorSystemId}/patient/{patientSystemId}")
-    public ResponseEntity<List<ScheduleEntryResponse>> getDoctorScheduleWithPatient(
-            @PathVariable String doctorSystemId,
-            @PathVariable String patientSystemId) {
-        requireDoctorSelf(doctorSystemId);
-        List<ScheduleEntryResponse> schedule = doctorScheduleService.getDoctorScheduleByPatient(doctorSystemId, patientSystemId);
-        return ResponseEntity.ok(schedule);
+    @GetMapping("/window")
+    @Operation(summary = "Get the schedule of a date-time window (paged)",
+            description = "The calling doctor's appointments whose start lies in [from, to), every status, one "
+                    + "APPOINTMENT row per appointment with its linked consultation, facility, contact phone, manual "
+                    + "reminder time and needs-outcome flag. from and to are clinic wall-clock yyyy-MM-ddTHH:mm:ss. "
+                    + "Sorted by scheduledAt then appointmentId (asc unless order=desc). Audited as a list read.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "One page of schedule rows"),
+            @ApiResponse(responseCode = "400", description = "from or to missing or invalid, to not after from, invalid "
+                    + "order, page or size",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired access token",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Caller is not a doctor or an administrator",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Doctor profile not found (for example an administrator)",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<PageResponse<ScheduleEntryResponse>> getScheduleWindow(
+            @Parameter(description = "Inclusive lower bound on scheduledAt, clinic wall-clock", example = "2026-11-20T00:00:00",
+                    required = true)
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @Parameter(description = "Exclusive upper bound on scheduledAt, clinic wall-clock", example = "2026-11-21T00:00:00",
+                    required = true)
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @Parameter(description = "asc (default) or desc") @RequestParam(required = false) String order,
+            @Parameter(description = "Zero-based page; negative is read as 0") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size, clamped to 1..100") @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(doctorScheduleService.getScheduleWindow(from, to, order, page, size));
     }
 
     @GetMapping("/dashboard")
-    public ResponseEntity<DoctorDashboardResponse> getMyDashboard(
-            @RequestAttribute("systemId") String systemId) {
-        getDoctorSystemIdFromUserId(systemId);
-        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
-        return ResponseEntity.ok(dashboard);
-    }
-
-    @GetMapping("/{systemId}/dashboard")
-    public ResponseEntity<DoctorDashboardResponse> getDoctorDashboard(@PathVariable String systemId) {
-        requireDoctorSelf(systemId);
-        DoctorDashboardResponse dashboard = doctorScheduleService.getDoctorDashboard(systemId);
-        return ResponseEntity.ok(dashboard);
+    @Operation(summary = "Get the doctor home dashboard",
+            description = "Profile of the calling doctor, counts from the database (totalAppointments, the true "
+                    + "upcomingAppointments count, needsOutcomeCount, completed and pending consultations), today's "
+                    + "appointments (clinic day, every status, newest first, at most 200) and the next 10 active "
+                    + "appointments, both in the legacy layout. Audited as a list read.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The dashboard"),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired access token",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Caller is not a doctor or an administrator",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Doctor profile not found (for example an administrator), "
+                    + "or User not found",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<DoctorDashboardResponse> getMyDashboard() {
+        return ResponseEntity.ok(doctorScheduleService.getDashboard());
     }
 }

@@ -1,16 +1,23 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ariaLevel, decorative } from '@/components/web/ui/a11y';
+import { Icon, type IoniconsName } from '@/components/web/ui/icon';
 import {
   useCaregiverActivity,
-  useCaregiverDependents,
   type CaregiverAppointment,
   type CaregiverConsultation,
   type CaregiverDependent,
 } from '@/hooks/use-caregiver-dependents';
 import { useCareTeamConversation } from '@/hooks/use-caregiver-messaging';
+import { useSectionNav } from '@/hooks/use-section-nav';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { useDependents } from '@/components/web/sections/proxy-dependents';
 import { describeCallJoin } from '@/lib/calls/join';
+import { effectivePermission } from '@/lib/caregiver/permissions';
+import type { SectionParamsInput } from '@/lib/nav/sections';
+import { formatClinicDateTime, formatClinicTime, isAfterClinicNow, isClinicToday, toClinicLocal } from '@/lib/time/clinic';
+import { formatDateOnly } from '@/lib/ui/date-only';
+import { DependentHighlights } from './dependent-records';
 import { MessageCareTeamButton } from './message-care-team-button';
 import { EmptyState, ErrorState, LoadingState } from './proxy-states';
 
@@ -26,7 +33,11 @@ const GREEN  = '#047857';
 const ORANGE = '#B45309';
 const RED    = '#B91C1C';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+// Off-screen but read by screen readers (not display: none or opacity 0, which would hide it from them too).
+const VISUALLY_HIDDEN = {
+  position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, overflow: 'hidden', borderWidth: 0,
+  whiteSpace: 'nowrap',
+} as object;
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
@@ -36,8 +47,8 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor = GRAY 
 }) {
   return (
     <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={22} color={iconColor} />
+      <View style={[styles.statIconBg, { backgroundColor: iconBg }]} {...decorative}>
+        <Icon name={icon} size={22} color={iconColor} />
       </View>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={styles.statValue}>{value}</Text>
@@ -48,15 +59,20 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor = GRAY 
 
 // ─── Section Card ─────────────────────────────────────────────────────────────
 
-function Card({ title, action, onAction, children, style }: {
-  title: string; action?: string; onAction?: () => void; children: React.ReactNode; style?: object;
+/**
+ * A titled card of the home page. The title is a level-2 heading under the page's (visually hidden) level-1
+ * heading. `actionLabel` is the action's accessible name when the visible word alone is ambiguous; it must
+ * start with the visible text.
+ */
+function Card({ title, action, actionLabel, onAction, children, style }: {
+  title: string; action?: string; actionLabel?: string; onAction?: () => void; children: React.ReactNode; style?: object;
 }) {
   return (
     <View style={[styles.card, style]}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header" {...ariaLevel(2)}>{title}</Text>
         {action && (
-          <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button">
+          <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button" accessibilityLabel={actionLabel}>
             <Text style={styles.cardAction}>{action}</Text>
           </TouchableOpacity>
         )}
@@ -70,19 +86,22 @@ function Card({ title, action, onAction, children, style }: {
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
 function ScheduleRow({ appt, person, canJoinCalls }: { appt: CaregiverAppointment; person: string; canJoinCalls: boolean }) {
-  const time    = new Date(appt.scheduledAt).toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' });
+  // Appointment times are clinic wall-clock values: shown as they are, never shifted into the device's zone.
+  const time    = formatClinicTime(appt.scheduledAt, 'Time not set');
   const join    = canJoinCalls ? describeCallJoin(appt, false) : null;
   return (
     <View style={styles.scheduleRow}>
-      <View style={[styles.scheduleAvatar, { backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }]}>
+      <View style={[styles.scheduleAvatar, { backgroundColor: avatarColor(person), alignItems: 'center', justifyContent: 'center' }]} {...decorative}>
         <Text style={{ color: WHITE, fontSize: 14, fontWeight: '700' }}>{initials(person)}</Text>
       </View>
       <View style={[styles.scheduleTimePill, { borderColor: BORDER }]}>
         <Text style={[styles.scheduleTime, { color: TEXT }]}>{time}</Text>
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={styles.scheduleText}>
         <Text style={styles.scheduleTitle}>{appt.reasonForVisit ?? 'Appointment'}</Text>
-        <Text style={styles.schedulePerson}>{person}</Text>
+        <Text style={styles.schedulePerson}>
+          {appt.status === 'RESCHEDULED' ? `${person} • Rescheduled` : person}
+        </Text>
       </View>
       <CallJoinButton
         info={join}
@@ -98,32 +117,51 @@ function ScheduleRow({ appt, person, canJoinCalls }: { appt: CaregiverAppointmen
 
 // ─── Update Row ───────────────────────────────────────────────────────────────
 
-function UpdateRow({ icon, iconBg, iconColor, title, sub, time }: {
+function UpdateRow({ icon, iconBg, iconColor, title, sub, time, onPress, openLabel }: {
   icon: IoniconsName; iconBg: string; iconColor: string; title: string; sub: string; time: string;
+  /** Makes the row a button that opens the item. */
+  onPress?: () => void;
+  /** What the button opens, for assistive technology ("Open consultation details"). */
+  openLabel?: string;
 }) {
-  return (
-    <View style={styles.updateRow}>
-      <View style={[styles.updateIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={15} color={iconColor} importantForAccessibility="no" />
+  const content = (
+    <>
+      <View style={[styles.updateIcon, { backgroundColor: iconBg }]} {...decorative}>
+        <Icon name={icon} size={15} color={iconColor} />
       </View>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.updateTitle}>{title}</Text>
         {sub ? <Text style={styles.updateSub} numberOfLines={1}>{sub}</Text> : null}
       </View>
       <Text style={styles.updateTime}>{time}</Text>
-    </View>
+    </>
+  );
+  if (!onPress) return <View style={styles.updateRow}>{content}</View>;
+  return (
+    <TouchableOpacity
+      style={styles.updateRow}
+      activeOpacity={0.7}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={[title, sub, time, openLabel].filter(Boolean).join(', ')}
+    >
+      {content}
+      <Icon name="chevron-forward" size={16} color={GRAY} />
+    </TouchableOpacity>
   );
 }
 
-function formatShortDate(iso: string | null) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-ZW', { day: 'numeric', month: 'short' });
+/** "10 Nov" for a clinic date-time; empty when missing. */
+function formatShortDate(value: string | null) {
+  return formatDateOnly(toClinicLocal(value), { day: 'numeric', month: 'short' }, '');
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+/** Appointments that are still going to happen: a rescheduled appointment is as upcoming as a scheduled one. */
+const UPCOMING_STATUSES = new Set(['SCHEDULED', 'RESCHEDULED']);
+
+/** Sort key of a clinic date-time (ISO wall-clock strings order as text). */
+function clinicKey(value: string | null | undefined): string {
+  return toClinicLocal(value) ?? '';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -173,8 +211,28 @@ function LiveLovedOneRow({ dep, onSelect, compact, message }: {
   const gender   = dep.patientGender
     ? dep.patientGender.charAt(0) + dep.patientGender.slice(1).toLowerCase()
     : '';
+  const healthWord = dep.patientHealthStatus
+    ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
+    : 'Unknown';
+  const relationship = dep.relationship
+    ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
+    : '';
+  const ageGender = [age, gender].filter(Boolean).join(', ');
 
   // The profile link and "Message Care Team" are sibling buttons (a button inside a button is not operable).
+  // The name repeats every fact the card shows in visible reading order (the loved one's name, access level,
+  // age and gender, then the three stats with their visible labels) and puts the action, "open profile",
+  // last, so the visible text stays a contiguous part of the accessible name (WCAG 2.5.3 label in name).
+  // A stat with no value ("—" on screen) is announced as "not recorded".
+  const rowLabel = [
+    name,
+    access,
+    ageGender,
+    `health status ${healthWord}`,
+    `blood type ${dep.patientBloodType ?? 'not recorded'}`,
+    `relationship ${relationship || 'not recorded'}`,
+    'open profile',
+  ].filter(Boolean).join(', ');
   return (
     <View style={styles.lovedOneCard}>
       <TouchableOpacity
@@ -182,10 +240,10 @@ function LiveLovedOneRow({ dep, onSelect, compact, message }: {
         activeOpacity={0.8}
         onPress={() => onSelect?.(dep)}
         accessibilityRole="button"
-        accessibilityLabel={`Open profile for ${name}`}
+        accessibilityLabel={rowLabel}
       >
         <View style={styles.lovedOneLeft}>
-          <View style={styles.lovedOneAvatarWrapper}>
+          <View style={styles.lovedOneAvatarWrapper} {...decorative}>
             <View style={[styles.lovedOneAvatar, { backgroundColor: avatarColor(name), alignItems: 'center', justifyContent: 'center' }]}>
               <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{initials(name)}</Text>
             </View>
@@ -203,19 +261,15 @@ function LiveLovedOneRow({ dep, onSelect, compact, message }: {
           <View style={styles.lovedOneStat}>
             <Text style={styles.lovedOneStatLabel}>Health Status</Text>
             <View style={styles.lovedOneStatVal}>
-              <Ionicons name="heart-outline" size={14} color={dotColor} />
-              <Text style={[styles.lovedOneStatText, { color: dotColor }]}>
-                {dep.patientHealthStatus
-                  ? dep.patientHealthStatus.charAt(0) + dep.patientHealthStatus.slice(1).toLowerCase()
-                  : 'Unknown'}
-              </Text>
+              <Icon name="heart-outline" size={14} color={dotColor} />
+              <Text style={[styles.lovedOneStatText, { color: dotColor }]}>{healthWord}</Text>
             </View>
           </View>
           {!compact && <View style={styles.statDivider} />}
           <View style={styles.lovedOneStat}>
             <Text style={styles.lovedOneStatLabel}>Blood Type</Text>
             <View style={styles.lovedOneStatVal}>
-              <Ionicons name="water-outline" size={14} color={GRAY} />
+              <Icon name="water-outline" size={14} color={GRAY} />
               <Text style={styles.lovedOneStatText}>{dep.patientBloodType ?? '—'}</Text>
             </View>
           </View>
@@ -223,16 +277,12 @@ function LiveLovedOneRow({ dep, onSelect, compact, message }: {
           <View style={styles.lovedOneStat}>
             <Text style={styles.lovedOneStatLabel}>Relationship</Text>
             <View style={styles.lovedOneStatVal}>
-              <Ionicons name="people-outline" size={14} color={GRAY} />
-              <Text style={styles.lovedOneStatText}>
-                {dep.relationship
-                  ? dep.relationship.charAt(0).toUpperCase() + dep.relationship.slice(1)
-                  : '—'}
-              </Text>
+              <Icon name="people-outline" size={14} color={GRAY} />
+              <Text style={styles.lovedOneStatText}>{relationship || '—'}</Text>
             </View>
           </View>
         </View>
-        {!compact && <Ionicons name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />}
+        {!compact && <Icon name="chevron-forward" size={18} color={GRAY} style={{ marginLeft: 8 }} />}
       </TouchableOpacity>
       {message && (
         <View style={styles.lovedOneActions}>
@@ -249,7 +299,8 @@ const SHOW_LIMIT = 3;
 const UPDATES_LIMIT = 4;
 
 export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenThread }: {
-  onNavigate?:      (key: string) => void;
+  /** Opens a section of the caregiver dashboard, with its URL params (a loved one, a tab, a record). */
+  onNavigate?:      (key: string, params?: SectionParamsInput) => void;
   onSelectPatient?: (dep: CaregiverDependent) => void;
   /** Switches the dashboard to Messages on this thread (used by "Message Care Team"). */
   onOpenThread?:    (threadId: number) => void;
@@ -260,7 +311,14 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
   const careTeam = useCareTeamConversation(onOpenThread);
   const [errorFor, setErrorFor] = useState<number | null>(null);
   const messageCareTeam = (dep: CaregiverDependent) => { setErrorFor(dep.accessId); careTeam.open(dep); };
-  const { dependents, loading: lovedLoading, error: lovedError, refetch: refetchLoved } = useCaregiverDependents();
+  // The list the dashboard shell already loaded for the sidebar (reloaded when stale), not a request of its own.
+  const { dependents, loading: lovedLoading, error: lovedError, refetch: refetchLoved } = useDependents();
+  const nav = useSectionNav();
+  /** Opens a section with its params (a loved one, a tab, a record); without the prop through the dashboard's own navigation. */
+  const open = (key: string, params?: SectionParamsInput) => {
+    if (onNavigate) onNavigate(key, params);
+    else nav.navigate(key, params);
+  };
   const { appointments, consultations, loading: actLoading, error: actError, refetch: refetchActivity } = useCaregiverActivity();
   const [lovedExpanded, setLovedExpanded] = useState(false);
 
@@ -268,24 +326,24 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
     dependents.find(d => d.patientSystemId === patientSystemId)?.patientName ?? fallback ?? 'Your loved one';
 
   const { upcoming, todays, nextSub } = useMemo(() => {
-    const now   = new Date();
-    const sched = appointments
-      .filter(a => a.status === 'SCHEDULED')
-      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-    const future = sched.filter(a => new Date(a.scheduledAt).getTime() > now.getTime());
-    const today  = sched.filter(a => isSameDay(new Date(a.scheduledAt), now));
-    let sub = 'No upcoming';
-    if (future.length > 0) {
-      const next = new Date(future[0].scheduledAt);
-      sub = `Next: ${next.toLocaleDateString('en-ZW', { weekday: 'short', day: 'numeric', month: 'short' })} ${next.toLocaleTimeString('en-ZW', { hour: '2-digit', minute: '2-digit' })}`;
-    }
+    // Scheduled and rescheduled appointments, soonest first. "Upcoming" and "today" are judged in clinic time,
+    // the clock the appointment times are written in, not the device's.
+    const active = appointments
+      .filter(a => UPCOMING_STATUSES.has(a.status))
+      .sort((a, b) => clinicKey(a.scheduledAt).localeCompare(clinicKey(b.scheduledAt)));
+    const future = active.filter(a => isAfterClinicNow(a.scheduledAt));
+    const today  = active.filter(a => isClinicToday(a.scheduledAt));
+    const sub = future.length > 0
+      ? `Next: ${formatClinicDateTime(future[0].scheduledAt, 'time to be confirmed')}`
+      : 'No upcoming';
     return { upcoming: future.length, todays: today, nextSub: sub };
   }, [appointments]);
 
+  const consultationWhen = (c: CaregiverConsultation) => c.completedAt ?? c.startedAt ?? c.createdAt;
   const recentConsultations = useMemo(
     () => [...consultations]
-      .sort((a, b) => new Date(b.completedAt ?? b.startedAt ?? b.createdAt ?? 0).getTime()
-                    - new Date(a.completedAt ?? a.startedAt ?? a.createdAt ?? 0).getTime())
+      .sort((a, b) => clinicKey(b.completedAt ?? b.startedAt ?? b.createdAt)
+        .localeCompare(clinicKey(a.completedAt ?? a.startedAt ?? a.createdAt)))
       .slice(0, UPDATES_LIMIT),
     [consultations],
   );
@@ -295,6 +353,9 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      {/* The page heading for screen readers: the home has no visible title (the top bar greets instead), and
+          every card title below is a level-2 heading under it. */}
+      <Text style={VISUALLY_HIDDEN} accessibilityRole="header" {...ariaLevel(1)}>Caregiver dashboard</Text>
 
       {/* Stat Cards */}
       <View style={styles.statsRow}>
@@ -345,9 +406,10 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
                   activeOpacity={0.7}
                   onPress={() => setLovedExpanded(e => !e)}
                   accessibilityRole="button"
-                  accessibilityState={{ expanded: lovedExpanded }}
+                  // react-native-web ignores accessibilityState; the state is announced through aria-expanded.
+                  aria-expanded={lovedExpanded}
                 >
-                  <Ionicons name={lovedExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} importantForAccessibility="no" />
+                  <Icon name={lovedExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} />
                   <Text style={styles.viewAllText}>
                     {lovedExpanded ? 'Show less' : `+${dependents.length - SHOW_LIMIT} more`}
                   </Text>
@@ -355,13 +417,26 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
               )}
             </>
           )}
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('health-summary')} accessibilityRole="button">
+          <TouchableOpacity
+            style={styles.viewAllBtn}
+            activeOpacity={0.7}
+            onPress={() => open('health-summary')}
+            accessibilityRole="button"
+            // The arrow is decoration; the name is the visible words without it.
+            accessibilityLabel="View health summary"
+          >
             <Text style={styles.viewAllText}>View health summary →</Text>
           </TouchableOpacity>
         </Card>
 
         {/* Today's Schedule — from caregiver activity */}
-        <Card title="Today's Schedule" action="View all" onAction={() => onNavigate?.('appointments')} style={[styles.colNarrow, !isLarge && styles.colFull]}>
+        <Card
+          title="Today's Schedule"
+          action="View all"
+          actionLabel="View all appointments"
+          onAction={() => open('appointments')}
+          style={[styles.colNarrow, !isLarge && styles.colFull]}
+        >
           {actLoading ? (
             <LoadingState compact label="Loading schedule" />
           ) : actError ? (
@@ -375,16 +450,31 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
                 <ScheduleRow
                   appt={a}
                   person={nameFor(a.patientSystemId, a.patientName)}
-                  canJoinCalls={dependents.some(d => d.patientSystemId === a.patientSystemId && d.joinCallsAllowed)}
+                  canJoinCalls={dependents.some(d => d.patientSystemId === a.patientSystemId && effectivePermission(d, 'canJoinCalls'))}
                 />
               </View>
             ))
           )}
-          <TouchableOpacity style={styles.viewAllBtn} activeOpacity={0.7} onPress={() => onNavigate?.('appointments')} accessibilityRole="button">
+          <TouchableOpacity
+            style={styles.viewAllBtn}
+            activeOpacity={0.7}
+            onPress={() => open('appointments')}
+            accessibilityRole="button"
+            accessibilityLabel="View all appointments"
+          >
             <Text style={styles.viewAllText}>View all appointments →</Text>
           </TouchableOpacity>
         </Card>
       </View>
+
+      {/* Per loved one: active medications and recent lab results, or a note when they are not shared */}
+      {!lovedLoading && !lovedError && dependents.length > 0 && (
+        <DependentHighlights
+          dependents={dependents}
+          onOpenMedications={dep => open('medications', { patient: dep.patientSystemId })}
+          onOpenLabResults={(dep, resultId) => open('documents-results', { tab: 'labs', patient: dep.patientSystemId, id: resultId })}
+        />
+      )}
 
       {/* Bottom row: Recent Updates (consultations) + quick links */}
       <View style={[styles.row, isMedium && styles.rowHorizontal]}>
@@ -403,7 +493,12 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
                   icon="document-text-outline" iconBg="#EDE9FE" iconColor={PURPLE}
                   title={consultTitle(c)}
                   sub={[nameFor(c.patientSystemId, c.patientName), c.chiefComplaint].filter(Boolean).join(' • ')}
-                  time={formatShortDate(c.completedAt ?? c.startedAt ?? c.createdAt)}
+                  time={formatShortDate(consultationWhen(c))}
+                  // Opens the consultation (diagnosis, treatment plan, follow-up) in Documents & Results.
+                  openLabel="Open consultation details"
+                  onPress={c.patientSystemId ? () => open('documents-results', {
+                    tab: 'consultations', patient: c.patientSystemId ?? undefined, id: c.consultationId,
+                  }) : undefined}
                 />
               </View>
             ))
@@ -418,12 +513,12 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
           ].map((l, i) => (
             <View key={l.key}>
               {i > 0 && <View style={styles.sep} />}
-              <TouchableOpacity style={styles.linkRow} activeOpacity={0.7} onPress={() => onNavigate?.(l.key)} accessibilityRole="button">
-                <View style={[styles.updateIcon, { backgroundColor: PURPLE_BG }]}>
-                  <Ionicons name={l.icon} size={15} color={PURPLE} importantForAccessibility="no" />
+              <TouchableOpacity style={styles.linkRow} activeOpacity={0.7} onPress={() => open(l.key)} accessibilityRole="button">
+                <View style={[styles.updateIcon, { backgroundColor: PURPLE_BG }]} {...decorative}>
+                  <Icon name={l.icon} size={15} color={PURPLE} />
                 </View>
                 <Text style={[styles.updateTitle, { flex: 1 }]}>{l.label}</Text>
-                <Ionicons name="chevron-forward" size={16} color={GRAY} importantForAccessibility="no" />
+                <Icon name="chevron-forward" size={16} color={GRAY} />
               </TouchableOpacity>
             </View>
           ))}
@@ -433,21 +528,21 @@ export function PatientProxyMainDashboard({ onNavigate, onSelectPatient, onOpenT
       {/* Proxy Access Banner */}
       {dependents.length > 0 && (
       <View style={styles.banner}>
-        <View style={styles.bannerIconWrapper}>
-          <Ionicons name="shield-outline" size={28} color={PURPLE} importantForAccessibility="no" />
+        <View style={styles.bannerIconWrapper} {...decorative}>
+          <Icon name="shield-outline" size={28} color={PURPLE} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={styles.bannerText}>
           <Text style={styles.bannerTitle}>
             {dependents.length === 1
               ? `You are a ${accessLabel(dependents[0].accessLevel)} proxy for ${dependents[0].patientName ?? 'your loved one'}`
               : `You are a proxy for ${dependents.length} loved ones`}
           </Text>
           <Text style={styles.bannerSub}>
-            Depending on the permissions each loved one has granted, you can view their appointments, prescriptions, lab results and health profile.
+            Depending on the permissions each loved one has granted, you can view their appointments, medications, lab and imaging results, medical records, consultations and health profile.
           </Text>
         </View>
-        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8} onPress={() => onNavigate?.('profile-settings')} accessibilityRole="button">
-          <Ionicons name="people-outline" size={15} color={PURPLE} importantForAccessibility="no" />
+        <TouchableOpacity style={styles.manageBtn} activeOpacity={0.8} onPress={() => open('profile-settings')} accessibilityRole="button">
+          <Icon name="people-outline" size={15} color={PURPLE} />
           <Text style={styles.manageBtnText}>View Access</Text>
         </TouchableOpacity>
       </View>
@@ -526,7 +621,9 @@ const styles = StyleSheet.create({
   statDivider:     { width: 1, height: 40, backgroundColor: BORDER },
 
   // Schedule
-  scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // Wraps so the video-call button moves under the appointment at 375 px instead of running past the edge.
+  scheduleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
+  scheduleText: { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 },
   scheduleAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: BORDER },
   scheduleTimePill: {
     borderWidth: 1, borderRadius: 8,
@@ -543,7 +640,7 @@ const styles = StyleSheet.create({
   videoBtnText: { fontSize: 12, fontWeight: '600', color: GREEN },
 
   // Updates & Meds
-  updateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  updateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, minWidth: 0 },
   linkRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
   updateIcon:{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   updateTitle:{ fontSize: 13, fontWeight: '600', color: TEXT },
@@ -553,8 +650,9 @@ const styles = StyleSheet.create({
   // Care team
 
   // Banner
+  // Wraps so "View Access" moves under the text on a phone.
   banner: {
-    flexDirection: 'row', alignItems: 'center', gap: 16,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 16,
     backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
     borderRadius: 16, padding: 20,
   },
@@ -563,6 +661,7 @@ const styles = StyleSheet.create({
     backgroundColor: PURPLE_BG, borderWidth: 1, borderColor: PURPLE_LIGHT,
     alignItems: 'center', justifyContent: 'center',
   },
+  bannerText:  { flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 },
   bannerTitle: { fontSize: 15, fontWeight: '700', color: TEXT, marginBottom: 4 },
   bannerSub:   { fontSize: 12, color: GRAY, lineHeight: 18 },
   manageBtn: {

@@ -12,6 +12,7 @@ import {
 import { formatClinicDateTime, formatClinicTime, formatClinicWallClock } from '@/lib/calls/format';
 import type { CallStatusResponse, CallTokenResponse } from '@/lib/calls/types';
 import { confirmAction } from '@/lib/ui/dialogs';
+import { accessibleName, ariaLevel } from '@/components/web/ui/a11y';
 import { CallAdmissionPanel } from './call-admission-panel';
 import { CallDeviceCheck, type DeviceChoices } from './call-device-check.web';
 import { CallRoom } from './call-room.web';
@@ -348,7 +349,7 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
             accessibilityLabel="Back to dashboard"
             style={styles.backBtn}
           >
-            <Ionicons name="arrow-back" size={18} color={C.indigo} />
+            <Ionicons aria-hidden name="arrow-back" size={18} color={C.indigo} />
             <Text style={styles.backText}>Back to dashboard</Text>
           </TouchableOpacity>
         </View>
@@ -362,7 +363,7 @@ export function CallScreen({ appointmentId }: { appointmentId: number }): React.
         <View style={[styles.columns, wide && styles.columnsWide]}>
           <View style={[styles.col, wide && styles.colMain]}>
             <Card>
-              <Text style={styles.h1} accessibilityRole="header">Video consultation</Text>
+              <Text style={styles.h1} accessibilityRole="header" {...ariaLevel(1)}>Video consultation</Text>
               <InfoRow icon="medkit-outline" label="Doctor" value={status.doctorName ?? '—'} />
               <InfoRow icon="person-outline" label="Patient" value={status.patientName ?? '—'} />
               <InfoRow
@@ -464,7 +465,7 @@ function PrimaryArea(props: {
     }
     return (
       <View style={styles.stack}>
-        <Text style={styles.h2} accessibilityRole="header">Confirm appointment time</Text>
+        <Text style={styles.h2} accessibilityRole="header" {...ariaLevel(2)}>Confirm appointment time</Text>
         <Text style={styles.body}>
           This appointment was booked before video calls were set up here. Confirm the time so the call can open.
         </Text>
@@ -604,10 +605,10 @@ function Choice(props: { selected: boolean; onPress: () => void; title: string; 
       accessibilityRole="radio"
       accessibilityState={{ checked: props.selected }}
       aria-checked={props.selected}
-      accessibilityLabel={props.title}
+      accessibilityLabel={accessibleName(props.title, props.sub)}
       style={[styles.choice, props.selected && styles.choiceOn]}
     >
-      <Ionicons name={props.selected ? 'radio-button-on' : 'radio-button-off'} size={18} color={props.selected ? C.indigo : C.faint} />
+      <Ionicons aria-hidden name={props.selected ? 'radio-button-on' : 'radio-button-off'} size={18} color={props.selected ? C.indigo : C.faint} />
       <View style={{ flex: 1 }}>
         <Text style={styles.strong}>{props.title}</Text>
         <Text style={styles.muted}>{props.sub}</Text>
@@ -619,7 +620,7 @@ function Choice(props: { selected: boolean; onPress: () => void; title: string; 
 function InfoRow(props: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; value: string }) {
   return (
     <View style={styles.infoRow}>
-      <Ionicons name={props.icon} size={16} color={C.faint} />
+      <Ionicons aria-hidden name={props.icon} size={16} color={C.faint} />
       <Text style={styles.infoLabel}>{props.label}</Text>
       <Text style={styles.infoValue}>{props.value}</Text>
     </View>

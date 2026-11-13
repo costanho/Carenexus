@@ -1,0 +1,9 @@
+Subject: Your CareNexus account is closed
+
+Hello {{firstName}},
+
+Your CareNexus account was closed at your request and you have been signed out on every device.
+
+Your clinical records are retained as required for medical record keeping and were not deleted.
+
+If you did not close your account, contact support straight away. An administrator can reopen it.
