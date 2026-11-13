@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The application clock must never produce sub-microsecond values: PostgreSQL keeps microseconds, so a timestamp
@@ -22,5 +23,10 @@ class ClockConfigTest {
         for (int i = 0; i < 1_000; i++) {
             assertEquals(0, clock.instant().getNano() % 1_000, "nanoseconds below the microsecond must be zero");
         }
+        // millis() must work too: rate limiting reads it (Clock.tick with a sub-millisecond tick throws here on Java 17)
+        long before = System.currentTimeMillis();
+        long millis = clock.millis();
+        assertTrue(millis >= before && millis <= System.currentTimeMillis());
+        assertEquals(clock, clock.withZone(ZoneId.of("Africa/Harare")));
     }
 }
