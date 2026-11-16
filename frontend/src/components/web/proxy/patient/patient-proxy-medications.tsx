@@ -1,324 +1,331 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
+import { type ReactNode, useCallback } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  isForbidden,
-  NO_ACCESS_MESSAGE,
-  useCaregiverDependents,
-  type CaregiverDependent,
-} from '@/hooks/use-caregiver-dependents';
-import { EmptyState, ErrorState, LoadingState } from './proxy-states';
+  ariaLevel, ariaPressed, Banner, Card, colors, CONTROL_HEIGHT, EmptyView, ErrorView, fontSize, LoadingView,
+  NoAccessView, PagedList, radius, ROLE_THEME, Screen, SectionCard, space, Tabs, useUiTheme,
+} from '@/components/web/ui';
+import {
+  DateSwitcher, DoseList, LinkedPrescription, parsePrescriptionFilter, PrescriptionCard, type PrescriptionFilter,
+  prescriptionFilterLabel, PrescriptionStatusFilter,
+} from '@/components/web/medication';
+import { RemindersPanel } from '@/components/web/reminders';
+import { type CaregiverDependent, useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { usePatientPrescriptions } from '@/hooks/use-prescriptions';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import { effectivePermission, isGrantActive } from '@/lib/caregiver/permissions';
+import { normaliseScheduleDate } from '@/lib/medication/dates';
+import type { SectionProps } from '@/lib/nav/sections';
+import { clinicToday } from '@/lib/time/clinic';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const PURPLE = '#7C3AED';
-const GREEN  = '#047857';
-const ORANGE = '#B45309';
-const RED    = '#B91C1C';
+// Caregiver "Medications" section: for each linked patient the caregiver may see medications for, the
+// prescriptions and the daily dose schedule.
+//
+// URL params (CONTRACTS 7.1 and 12.1):
+//   patient       the linked patient to show (a PAT-... id); absent = everyone
+//   tab=schedule  the dose schedule; absent = prescriptions. With tab=schedule, `id` names a dose of the day
+//   tab=reminders the reminders of the loved one (manual, follow-up and care-plan reminders)
+//   date          the day the schedule opens on ("yyyy-MM-dd"); absent = the clinic's today
+//   id            without `tab`: a prescription to show above the lists
+//   status        the status filter of the prescription lists
+//
+// What is shown comes only from effectivePermission / isGrantActive: the schedule and the prescriptions need
+// the medications permission, and marking doses also needs the permission to manage the care plan. Reminders
+// can be read with any active grant and managed with the permission to manage the care plan. The server checks
+// every request again; a refusal is shown for that patient only.
 
-interface Prescription {
-  prescription_id:      number;
-  patientSystemId:      string;
-  medication_name:      string;
-  generic_name:         string | null;
-  dosage:               string | null;
-  frequency:            string | null;
-  route:                string | null;
-  quantity:             string | null;
-  refills_allowed:      number | null;
-  special_instructions: string | null;
-  status:               'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'SUSPENDED' | string;
-  prescribed_date:      string | null;
-  expiry_date:          string | null;
+type TabKey = 'prescriptions' | 'schedule' | 'reminders';
+
+const TABS: readonly { key: TabKey; label: string }[] = [
+  { key: 'prescriptions', label: 'Prescriptions' },
+  { key: 'schedule',      label: 'Schedule' },
+  { key: 'reminders',     label: 'Reminders' },
+];
+
+function toTab(value: string | undefined): TabKey {
+  return value === 'schedule' || value === 'reminders' ? value : 'prescriptions';
 }
 
-function mapPrescription(r: any): Prescription {
-  return {
-    prescription_id:      r.prescriptionId ?? 0,
-    patientSystemId:      r.patientSystemId ?? '',
-    medication_name:      r.medicationName ?? 'Medication',
-    generic_name:         r.genericName ?? null,
-    dosage:               r.dosage ?? null,
-    frequency:            r.frequency ?? null,
-    route:                r.route ?? null,
-    quantity:             r.quantity ?? null,
-    refills_allowed:      r.refillsAllowed ?? null,
-    special_instructions: r.specialInstructions ?? null,
-    status:               r.status ?? 'ACTIVE',
-    prescribed_date:      r.prescribedDate ?? null,
-    expiry_date:          r.expiryDate ?? null,
-  };
+const PAGE_SIZE = 10;
+
+function positiveInt(value: string | undefined): number | null {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-function formatDate(d: string | null) {
-  if (!d) return '—';
-  const dt = new Date(d);
-  if (isNaN(dt.getTime())) return '—';
-  return dt.toLocaleDateString('en-ZW', { day: 'numeric', month: 'short', year: 'numeric' });
+function nameOf(dependent: CaregiverDependent): string {
+  return dependent.patientName?.trim() || 'Name not set';
 }
 
-function statusColor(s: string) {
-  if (s === 'ACTIVE')    return { bg: '#D1FAE5', text: GREEN };
-  if (s === 'COMPLETED') return { bg: '#F3F4F6', text: GRAY };
-  if (s === 'SUSPENDED') return { bg: '#FEF3C7', text: ORANGE };
-  return { bg: '#FEE2E2', text: RED };
+function listNames(dependents: CaregiverDependent[]): string {
+  return dependents.map(nameOf).join(', ');
 }
 
-function routeIcon(route: string | null): React.ComponentProps<typeof Ionicons>['name'] {
-  if (route === 'ORAL')      return 'tablet-portrait-outline';
-  if (route === 'TOPICAL')   return 'hand-right-outline';
-  if (route === 'INJECTION') return 'medical-outline';
-  return 'medical-outline';
-}
-
-function MedCard({ rx, dep }: { rx: Prescription; dep?: CaregiverDependent }) {
-  const { bg, text } = statusColor(rx.status);
-  const patientName = dep?.patientName ?? 'Unknown Patient';
-  const [expanded, setExpanded] = useState(false);
-
+/** The prescriptions of one linked patient, with their own loading, failed (Retry), no-access and empty states. */
+function DependentPrescriptions({ dependent, filter }: { dependent: CaregiverDependent; filter: PrescriptionFilter }) {
+  const name = nameOf(dependent);
+  const list = usePatientPrescriptions(dependent.patientSystemId, {
+    status:      filter === 'ALL' ? null : filter,
+    pageSize:    PAGE_SIZE,
+    patientName: name,
+  });
   return (
-    <View style={[styles.card, rx.status === 'ACTIVE' && styles.cardActive]}>
-      <View style={styles.cardHead}>
-        <View style={[styles.medIcon, { backgroundColor: '#F5F3FF' }]}>
-          <Ionicons name={routeIcon(rx.route)} size={20} color={PURPLE} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.medName}>{rx.medication_name}</Text>
-          {rx.generic_name ? <Text style={styles.medGeneric}>{rx.generic_name}</Text> : null}
-          <Text style={styles.medPatient}>{patientName}</Text>
-        </View>
-        <View style={[styles.badge, { backgroundColor: bg }]}>
-          <Text style={[styles.badgeText, { color: text }]}>{rx.status}</Text>
-        </View>
-      </View>
+    <SectionCard title={name} subtitle={dependent.relationship?.trim() || undefined}>
+      <PagedList
+        state={list}
+        label={`Prescriptions of ${name}`}
+        keyOf={item => item.prescription_id}
+        renderItem={item => <PrescriptionCard item={item} />}
+        noAccessMessage={`You don't have access to the medications of ${name}.`}
+        empty={filter === 'ALL'
+          ? { icon: 'medkit-outline', title: 'No prescriptions yet' }
+          : { icon: 'medkit-outline', title: `No ${prescriptionFilterLabel(filter).toLowerCase()} prescriptions` }}
+      />
+    </SectionCard>
+  );
+}
 
-      <View style={styles.detailGrid}>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Dosage</Text>
-          <Text style={styles.detailValue}>{rx.dosage ?? '—'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Frequency</Text>
-          <Text style={styles.detailValue}>{rx.frequency ?? '—'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Route</Text>
-          <Text style={styles.detailValue}>{rx.route ?? '—'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Quantity</Text>
-          <Text style={styles.detailValue}>{rx.quantity ?? '—'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Refills</Text>
-          <Text style={styles.detailValue}>{rx.refills_allowed ?? '—'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Prescribed</Text>
-          <Text style={styles.detailValue}>{formatDate(rx.prescribed_date)}</Text>
-        </View>
-      </View>
-
-      {!!rx.special_instructions && (
-        <TouchableOpacity
-          onPress={() => setExpanded(e => !e)}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Special instructions"
-          accessibilityState={{ expanded }}
-        >
-          <View style={styles.instructionHeader}>
-            <Ionicons name="information-circle-outline" size={15} color={PURPLE} />
-            <Text style={styles.instructionToggle}>Special Instructions</Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={PURPLE} />
-          </View>
-          {expanded && (
-            <View style={styles.instructions}>
-              <Text style={styles.instructionText}>{rx.special_instructions}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
+/** Chooses whose medications are shown: everyone, or one linked patient (kept in the `patient` URL param). */
+function DependentChooser({ dependents, selected, onSelect }: {
+  dependents: CaregiverDependent[];
+  selected:   string | null;
+  onSelect:   (patientSystemId: string | null) => void;
+}) {
+  const { accent, accentBg } = useUiTheme();
+  const options: { id: string | null; label: string }[] = [
+    { id: null, label: 'Everyone' },
+    ...dependents.map(d => ({ id: d.patientSystemId, label: nameOf(d) })),
+  ];
+  return (
+    <View style={styles.chooser} role="group" aria-label="Show medications for">
+      {options.map(option => {
+        const on = option.id === selected;
+        return (
+          <Pressable
+            key={option.id ?? 'everyone'}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            {...ariaPressed(on)}
+            onPress={() => { if (!on) onSelect(option.id); }}
+            style={[styles.chip, on && { borderColor: accent, backgroundColor: accentBg }]}
+          >
+            <Text style={[styles.chipText, on && { color: accent, fontWeight: '700' }]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
-type Filter = 'all' | 'ACTIVE' | 'COMPLETED';
+/**
+ * The Reminders tab: one reminders list per loved one in view. Any active grant may read a loved one's
+ * reminders; adding, pausing, editing and deleting need the permission to manage the care plan. Caregivers are
+ * not notified by reminders (they reach the patient), so there is no link to notification settings here.
+ */
+function RemindersBody({ dependents, theme }: { dependents: CaregiverDependent[]; theme?: SectionProps['theme'] }) {
+  const several = dependents.length > 1;
+  return (
+    <>
+      {dependents.map(dependent => {
+        const name = nameOf(dependent);
+        const active = isGrantActive(dependent);
+        return (
+          <View key={dependent.patientSystemId} style={styles.person}>
+            {several ? (
+              <Text style={styles.personName} accessibilityRole="header" {...ariaLevel(2)}>{name}</Text>
+            ) : null}
+            {active ? (
+              <RemindersPanel
+                patientSystemId={dependent.patientSystemId}
+                canManage={effectivePermission(dependent, 'canManageCarePlan')}
+                theme={theme ?? ROLE_THEME.proxy}
+              />
+            ) : (
+              <NoAccessView
+                compact
+                message={`Your access to ${name} has ended.`}
+                sub="Ask your loved one to renew your caregiver access if you still help with their care."
+              />
+            )}
+          </View>
+        );
+      })}
+    </>
+  );
+}
 
-export default function PatientProxyMedications() {
-  const { dependents, loading: depsLoading, error: depsError, refetch: refetchDeps } = useCaregiverDependents();
-  const [prescriptions, setPrescriptions]   = useState<Prescription[]>([]);
-  const [loading, setLoading]               = useState(false);
-  const [error,   setError]                 = useState<string | null>(null);
-  const [denied,  setDenied]                = useState<string[]>([]);
-  const [filter,  setFilter]                = useState<Filter>('all');
-  const [tick,    setTick]                  = useState(0);
+export default function PatientProxyMedications({ params: paramsProp, theme }: Partial<SectionProps> = {}) {
+  const nav = useSectionNav();
+  // The registry may render this screen without passing the section params; the URL is the source either way.
+  const params = paramsProp ?? nav.params;
+  const { setParams } = nav;
+  const { user } = useCurrentUser();
+  const { dependents, loading, error, refetch } = useCaregiverDependents();
 
-  const depMap = new Map(dependents.map(d => [d.patientSystemId, d]));
-  const depKey = dependents.map(d => `${d.patientSystemId}:${d.canViewMedications ? 1 : 0}`).join(',');
+  const today = clinicToday();
+  const tab = toTab(params.tab);
+  const date = normaliseScheduleDate(params.date, today);
+  const filter = parsePrescriptionFilter(params.status);
+  const highlightedDose = tab === 'schedule' ? positiveInt(params.id) : null;
+  const linkedPrescription = params.tab ? null : positiveInt(params.id);
+  const selectedId = params.patient?.trim() || null;
 
-  useEffect(() => {
-    if (dependents.length === 0) { setPrescriptions([]); setDenied([]); return; }
-    let cancelled = false;
-    const allowed  = dependents.filter(d => d.canViewMedications);
-    const noAccess = dependents.filter(d => !d.canViewMedications).map(d => d.patientName ?? 'a linked patient');
-    setLoading(true);
-    setError(null);
-    Promise.allSettled(
-      allowed.map(d =>
-        api.get<any[]>(`/api/prescriptions/patient/${d.patientSystemId}`)
-          .then(r => (Array.isArray(r.data) ? r.data : []).map(mapPrescription))
-      )
-    )
-      .then(settled => {
-        if (cancelled) return;
-        const all: Prescription[] = [];
-        const forbidden = [...noAccess];
-        let failed = 0;
-        settled.forEach((res, i) => {
-          if (res.status === 'fulfilled') all.push(...res.value);
-          else if (isForbidden(res.reason)) forbidden.push(allowed[i].patientName ?? 'a linked patient');
-          else failed++;
-        });
-        setPrescriptions(all);
-        setDenied(forbidden);
-        setError(failed > 0 ? 'Some prescriptions could not be loaded.' : null);
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [depKey, tick]);
+  const selectPatient = useCallback((patientSystemId: string | null) => {
+    // An opened prescription or a pointed-out dose belongs to the patient it was linked with.
+    setParams({ patient: patientSystemId ?? undefined, id: undefined });
+  }, [setParams]);
+  const selectTab = useCallback((key: TabKey) => {
+    // `id` means a prescription on one tab and a dose on the other, so it does not travel between them.
+    setParams({ tab: key === 'prescriptions' ? undefined : key, id: undefined });
+  }, [setParams]);
+  const setDate = useCallback((next: string) => {
+    setParams({ date: next === clinicToday() ? undefined : next, id: undefined });
+  }, [setParams]);
+  const setFilter = useCallback((next: PrescriptionFilter) => {
+    setParams({ status: next === 'ALL' ? undefined : next });
+  }, [setParams]);
+  const closeLinked = useCallback(() => setParams({ id: undefined }), [setParams]);
 
-  const filters: { key: Filter; label: string }[] = [
-    { key: 'all',       label: 'All' },
-    { key: 'ACTIVE',    label: 'Active' },
-    { key: 'COMPLETED', label: 'Completed' },
-  ];
+  // Who the caregiver may see medications for right now. An ended grant (expired, revoked) shows nothing.
+  const viewable = dependents.filter(d => effectivePermission(d, 'canViewMedications'));
+  const ended    = dependents.filter(d => !isGrantActive(d));
+  const denied   = dependents.filter(d => isGrantActive(d) && !effectivePermission(d, 'canViewMedications'));
 
-  const visible   = filter === 'all' ? prescriptions : prescriptions.filter(r => r.status === filter);
-  const active    = prescriptions.filter(r => r.status === 'ACTIVE').length;
-  const total     = prescriptions.length;
-  const allDenied = dependents.length > 0 && denied.length === dependents.length;
+  const selected = selectedId ? dependents.find(d => d.patientSystemId === selectedId) ?? null : null;
+  const shown = selectedId ? viewable.filter(d => d.patientSystemId === selectedId) : viewable;
+  const patientNameOf = (patientSystemId: string) => {
+    const dependent = dependents.find(d => d.patientSystemId === patientSystemId);
+    return dependent ? nameOf(dependent) : null;
+  };
+
+  let content: ReactNode;
+  if (loading && dependents.length === 0) {
+    content = <LoadingView label="Loading linked patients" />;
+  } else if (error && dependents.length === 0) {
+    content = <ErrorView message={error} onRetry={refetch} />;
+  } else if (dependents.length === 0) {
+    content = <EmptyView icon="people-outline" title="No linked patients yet" sub="Medications appear here once you are linked to a loved one." />;
+  } else {
+    let body: ReactNode;
+    if (selectedId && !selected) {
+      body = (
+        <EmptyView
+          icon="person-outline"
+          title="Patient not found"
+          sub="This person is not one of your linked patients, or your access to them has ended."
+          action={{ label: 'Show everyone', onPress: () => selectPatient(null) }}
+        />
+      );
+    } else if (tab === 'reminders') {
+      body = <RemindersBody dependents={selected ? [selected] : dependents} theme={theme} />;
+    } else if (viewable.length === 0) {
+      body = (
+        <NoAccessView
+          message="You don't have access to medications for your linked patients."
+          sub="Ask your loved one to update the permissions on your caregiver access."
+        />
+      );
+    } else if (selected && shown.length === 0) {
+      body = (
+        <NoAccessView
+          message={isGrantActive(selected)
+            ? `You don't have access to the medications of ${nameOf(selected)}.`
+            : `Your access to ${nameOf(selected)} has ended.`}
+          sub="Ask your loved one to update the permissions on your caregiver access."
+        />
+      );
+    } else if (tab === 'schedule') {
+      body = (
+        <>
+          <Card>
+            <DateSwitcher date={date} onChange={setDate} />
+          </Card>
+          {shown.map(dependent => {
+            const name = nameOf(dependent);
+            // Marking needs both permissions, exactly as the server checks them.
+            const canMark = effectivePermission(dependent, 'canViewMedications')
+              && effectivePermission(dependent, 'canManageCarePlan');
+            return (
+              <DoseList
+                // A new instance per patient: nothing of one person's schedule is carried over to another's.
+                key={dependent.patientSystemId}
+                patientSystemId={dependent.patientSystemId}
+                personName={name}
+                viewerSystemId={user?.system_id}
+                canMark={canMark}
+                readOnlyNote={`You can see this schedule but not mark doses. Marking needs permission to manage the care plan of ${name}.`}
+                date={date}
+                onDateChange={setDate}
+                showDateSwitcher={false}
+                highlightScheduleId={highlightedDose}
+                // The grant changed since the page was loaded: read it again so the controls match it.
+                onMarkDenied={refetch}
+              />
+            );
+          })}
+        </>
+      );
+    } else {
+      body = (
+        <>
+          {linkedPrescription !== null ? (
+            <Card>
+              <LinkedPrescription prescriptionId={linkedPrescription} patientNameOf={patientNameOf} onClose={closeLinked} />
+            </Card>
+          ) : null}
+          <PrescriptionStatusFilter value={filter} onChange={setFilter} />
+          {shown.map(dependent => (
+            <DependentPrescriptions key={dependent.patientSystemId} dependent={dependent} filter={filter} />
+          ))}
+        </>
+      );
+    }
+
+    // The access banners are about medications; reminders state access per person in their own block.
+    const medicationsTab = tab !== 'reminders';
+    content = (
+      <>
+        {/* A reload of the list of linked patients failed: what is on screen stays, with a way to try again. */}
+        {error ? <Banner tone="danger" text={error} action={{ label: 'Retry', onPress: refetch }} /> : null}
+        {dependents.length > 1 || selectedId ? (
+          <DependentChooser dependents={dependents} selected={selectedId} onSelect={selectPatient} />
+        ) : null}
+        <Tabs tabs={TABS} active={tab} onChange={selectTab} label="Medication views" />
+        {medicationsTab && viewable.length > 0 && !selectedId && denied.length > 0 ? (
+          <Banner tone="warning" icon="lock-closed-outline" text={`You don't have access to medications for ${listNames(denied)}.`} />
+        ) : null}
+        {medicationsTab && viewable.length > 0 && !selectedId && ended.length > 0 ? (
+          <Banner tone="info" text={`Your access to ${listNames(ended)} has ended.`} />
+        ) : null}
+        <View key={tab} style={styles.panel} role="tabpanel" aria-label={TABS.find(t => t.key === tab)?.label}>
+          {body}
+        </View>
+      </>
+    );
+  }
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">Medications</Text>
-          <Text style={styles.pageSub}>Prescriptions for your linked patients</Text>
-        </View>
-      </View>
-
-      {depsLoading ? (
-        <LoadingState label="Loading linked patients" />
-      ) : depsError ? (
-        <ErrorState message={depsError} onRetry={refetchDeps} />
-      ) : dependents.length === 0 ? (
-        <EmptyState icon="people-outline" title="No linked patients yet" />
-      ) : allDenied ? (
-        <ErrorState message={NO_ACCESS_MESSAGE} />
-      ) : (
-        <>
-          <View style={styles.statsRow}>
-            {[
-              { label: 'Total',  value: total,  bg: '#F5F3FF', color: PURPLE },
-              { label: 'Active', value: active, bg: '#D1FAE5', color: GREEN  },
-            ].map(s => (
-              <View key={s.label} style={[styles.statPill, { backgroundColor: s.bg }]}>
-                <Text style={[styles.statVal, { color: s.color }]}>{loading ? '…' : s.value}</Text>
-                <Text style={[styles.statLabel, { color: s.color }]}>{s.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.filterRow}>
-            {filters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
-                activeOpacity={0.7}
-                onPress={() => setFilter(f.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: filter === f.key }}
-              >
-                <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {denied.length > 0 && (
-            <View style={styles.noticeBanner}>
-              <Ionicons name="lock-closed-outline" size={14} color={ORANGE} importantForAccessibility="no" />
-              <Text style={styles.noticeText}>
-                You don't have access to medications for {denied.join(', ')}.
-              </Text>
-            </View>
-          )}
-
-          {loading ? (
-            <LoadingState label="Loading prescriptions" />
-          ) : error && prescriptions.length === 0 ? (
-            <ErrorState message={error} onRetry={() => setTick(t => t + 1)} />
-          ) : (
-            <>
-              {error && <ErrorState compact message={error} onRetry={() => setTick(t => t + 1)} />}
-              {visible.length === 0 ? (
-                <EmptyState icon="medical-outline" title="No prescriptions found" />
-              ) : (
-                visible.map(rx => <MedCard key={`${rx.patientSystemId}-${rx.prescription_id}`} rx={rx} dep={depMap.get(rx.patientSystemId)} />)
-              )}
-            </>
-          )}
-        </>
-      )}
-    </ScrollView>
+    <Screen
+      title="Medications"
+      // The e2e smoke suite finds this section by its subtitle.
+      subtitle="Prescriptions for your linked patients"
+      theme={theme ?? ROLE_THEME.proxy}
+    >
+      {content}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48, gap: 16 },
-
-  pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:  { fontSize: 22, fontWeight: '700', color: TEXT },
-  pageSub:    { fontSize: 13, color: GRAY, marginTop: 3 },
-
-  statsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  statPill: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
-  statVal:  { fontSize: 24, fontWeight: '700' },
-  statLabel:{ fontSize: 12, fontWeight: '500', marginTop: 2 },
-
-  filterRow:        { flexDirection: 'row', gap: 8, backgroundColor: WHITE, borderRadius: 10, padding: 4, borderWidth: 1, borderColor: BORDER, alignSelf: 'flex-start' },
-  filterTab:        { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
-  filterTabActive:  { backgroundColor: PURPLE },
-  filterText:       { fontSize: 13, color: GRAY, fontWeight: '500' },
-  filterTextActive: { color: WHITE, fontWeight: '600' },
-
-  card:       { backgroundColor: WHITE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 18, gap: 14 },
-  cardActive: { borderLeftWidth: 3, borderLeftColor: GREEN },
-  cardHead:   { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  medIcon:    { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  medName:    { fontSize: 15, fontWeight: '700', color: TEXT },
-  medGeneric: { fontSize: 12, color: GRAY, marginTop: 2 },
-  medPatient: { fontSize: 12, color: PURPLE, fontWeight: '500', marginTop: 3 },
-
-  badge:     { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-
-  detailGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  detailItem:  { minWidth: 130 },
-  detailLabel: { fontSize: 11, color: GRAY, marginBottom: 2 },
-  detailValue: { fontSize: 13, fontWeight: '600', color: TEXT },
-
-  instructionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 2 },
-  instructionToggle: { fontSize: 13, color: PURPLE, fontWeight: '600', flex: 1 },
-  instructions:      { backgroundColor: '#F5F3FF', borderRadius: 8, padding: 12, marginTop: 8 },
-  instructionText:   { fontSize: 12, color: TEXT, lineHeight: 20 },
-
-  noticeBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFFBEB', borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A', padding: 12 },
-  noticeText:   { fontSize: 12, color: TEXT, flex: 1 },
+  panel:      { gap: space.lg, minWidth: 0 },
+  person:     { gap: space.sm, minWidth: 0 },
+  personName: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  chooser:  { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  chip: {
+    minHeight: CONTROL_HEIGHT, justifyContent: 'center', paddingHorizontal: space.md, paddingVertical: space.xs,
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.pill, backgroundColor: colors.surface,
+    maxWidth: '100%',
+  },
+  chipText: { fontSize: fontSize.sm, fontWeight: '500', color: colors.textMuted },
 });

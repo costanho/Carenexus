@@ -14,6 +14,10 @@ import java.time.LocalDateTime;
 @Builder
 public class Appointment {
 
+    public static final String TYPE_IN_PERSON = "IN_PERSON";
+    public static final String TYPE_VIDEO = "VIDEO";
+    public static final String TYPE_PHONE = "PHONE";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "appointment_id")
@@ -55,6 +59,10 @@ public class Appointment {
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
+
+    /** Number the doctor calls for a PHONE appointment; null for other types (V34). */
+    @Column(name = "contact_phone", length = 20)
+    private String contactPhone;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

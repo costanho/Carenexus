@@ -1,51 +1,69 @@
 package com.carenexus.api.communications.service;
 
 import com.carenexus.api.auth.model.User;
+import com.carenexus.api.common.dto.PageParams;
+import com.carenexus.api.common.dto.PageResponse;
+import com.carenexus.api.common.exception.BadRequestException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
+import com.carenexus.api.common.service.AuditService;
 import com.carenexus.api.communications.dto.response.NotificationResponse;
-import com.carenexus.api.communications.dto.response.PageResponse;
 import com.carenexus.api.communications.dto.response.UnreadCountResponse;
 import com.carenexus.api.communications.model.Message;
 import com.carenexus.api.communications.model.MessageThread;
 import com.carenexus.api.communications.model.Notification;
+import com.carenexus.api.communications.notify.NotificationCategory;
+import com.carenexus.api.communications.notify.NotificationPreferences;
+import com.carenexus.api.communications.notify.NotificationPriority;
+import com.carenexus.api.communications.notify.NotificationTarget;
+import com.carenexus.api.communications.notify.NotificationType;
 import com.carenexus.api.communications.repository.NotificationRepository;
 import com.carenexus.api.communications.service.CommunicationsAccessService.Caller;
-import com.carenexus.api.core.model.UserSettings;
-import com.carenexus.api.core.repository.UserSettingsRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * In-app notifications (contract 7.4). MESSAGE notifications are created only inside the send transaction, one per
- * recipient per message, with generic text (never the message body), and only for recipients whose in-app message
- * notification preference (user_settings.message_notifications) is on; unread counts in the inbox do not depend on
- * it. Lists exclude MESSAGE notifications for threads the caller can no longer access or for messages before the
- * caller's history boundary.
+ * The caller's in-app notifications (list, counts, read state) and the two messaging writers.
  *
- * SYSTEM notifications tell a patient that a caregiver's grant waits for their approval (target CAREGIVER_ACCESS).
+ * Writers. MESSAGE notifications are created only inside the send transaction, one per recipient per message, with
+ * generic text (never the message body), and only for recipients whose in-app message notification preference
+ * (user_settings.message_notifications) is on; unread counts in the inbox do not depend on it. SYSTEM notifications
+ * tell a patient that a caregiver's grant waits for their approval (target CAREGIVER_ACCESS). Every other
+ * notification is created through NotificationPublisher (communications.notify). The two writers here do not
+ * publish NotificationStoredEvent: these notifications stay in-app only.
+ *
+ * Reads. A caller only ever sees, counts and marks their own rows. Lists and counts leave out expired rows and
+ * MESSAGE notifications for threads the caller can no longer access or for messages before the caller's history
+ * boundary. A page of the list and a change of read state are audited (resource NOTIFICATION); the unread-count
+ * poll is not.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class NotificationService {
 
-    static final String ICON_MESSAGE = "chatbubble-outline";
+    static final String RESOURCE = "NOTIFICATION";
+    static final String ICON_MESSAGE = NotificationType.MESSAGE.icon();
     static final String ICON_CAREGIVER = "people-outline";
+    /** Largest page of the notification list. */
+    static final int MAX_PAGE_SIZE = 50;
     /** Frontend target for the patient's caregiver-access screen (sidebar key my-proxies). */
-    public static final String TARGET_CAREGIVER_ACCESS = "CAREGIVER_ACCESS";
+    public static final String TARGET_CAREGIVER_ACCESS = NotificationTarget.CAREGIVER_ACCESS.name();
     public static final String ACTION_CAREGIVER_ACCESS = "/dashboard/patient?section=my-proxies";
     /** Placeholder so "IN :threadIds" is never empty. */
     private static final List<Integer> NO_THREADS = List.of(-1);
 
     private final NotificationRepository notificationRepository;
     private final CommunicationsAccessService accessService;
-    private final UserSettingsRepository userSettingsRepository;
+    private final NotificationPreferences notificationPreferences;
+    private final AuditService auditService;
+
+    // ==================== MESSAGING WRITERS ====================
 
     /**
      * Called by MessageService inside the send transaction. Idempotent per (recipient, message). Skipped when the
@@ -60,39 +78,41 @@ public class NotificationService {
             return;
         }
         boolean urgent = Boolean.TRUE.equals(message.getIsUrgent());
-        // "about {patient}" only when someone else wrote about the patient; never "Thomas Dube ... about Thomas Dube"
-        boolean toPatient = recipientSystemId.equals(thread.getPatientSystemId());
-        boolean fromPatient = thread.getPatientSystemId() != null && thread.getPatientSystemId().equals(message.getSenderSystemId());
-        String text = toPatient || fromPatient
-                ? senderLabel + " sent you a message"
-                : senderLabel + " sent a message about " + patientName;
+        // "about {patient}" only when someone else wrote about the patient; never "Thomas Dube ... about Thomas Dube",
+        // and never for a conversation that is not about a patient
+        String threadPatient = thread.getPatientSystemId();
+        boolean aboutPatient = threadPatient != null && patientName != null
+                && !recipientSystemId.equals(threadPatient)
+                && !threadPatient.equals(message.getSenderSystemId());
+        String text = aboutPatient
+                ? senderLabel + " sent a message about " + patientName
+                : senderLabel + " sent you a message";
         notificationRepository.save(Notification.builder()
                 .systemId(recipientSystemId)
                 .type(Notification.TYPE_MESSAGE)
+                .category(NotificationCategory.MESSAGE.name())
                 .title(urgent ? "Urgent message" : "New message")
                 .message(text)
-                .priority(urgent ? "HIGH" : "NORMAL")
+                .priority(urgent ? Notification.PRIORITY_HIGH : Notification.PRIORITY_NORMAL)
                 .isRead(false)
                 .icon(ICON_MESSAGE)
                 .actionUrl(null)
                 .threadId(thread.getThreadId())
                 .messageId(message.getMessageId())
-                .patientSystemId(thread.getPatientSystemId())
+                .patientSystemId(threadPatient)
                 .actorSystemId(message.getSenderSystemId())
                 .build());
     }
 
     /** In-app message notifications are on unless the user saved message_notifications = false. */
     boolean wantsMessageNotifications(String systemId) {
-        return userSettingsRepository.findBySystemId(systemId)
-                .map(UserSettings::getMessageNotifications)
-                .map(Boolean.TRUE::equals)
-                .orElse(true);
+        return notificationPreferences.allows(systemId, NotificationCategory.MESSAGE, NotificationPriority.NORMAL);
     }
 
     /**
      * Patient notification: a caregiver's grant waits for their approval of messaging and/or video calls. Called
      * inside the grant change's transaction (CaregiverApprovalNotificationListener). Never names the patient's data.
+     * Not preference-gated (category SYSTEM).
      */
     public void createCaregiverApprovalNotification(String patientSystemId, String caregiverSystemId,
                                                     boolean messaging, boolean calls) {
@@ -106,9 +126,11 @@ public class NotificationService {
         notificationRepository.save(Notification.builder()
                 .systemId(patientSystemId)
                 .type(Notification.TYPE_SYSTEM)
+                .category(NotificationCategory.SYSTEM.name())
+                .target(TARGET_CAREGIVER_ACCESS)
                 .title("Caregiver approval needed")
                 .message(name + " is waiting for your approval to " + what)
-                .priority("NORMAL")
+                .priority(Notification.PRIORITY_NORMAL)
                 .isRead(false)
                 .icon(ICON_CAREGIVER)
                 .actionUrl(ACTION_CAREGIVER_ACCESS)
@@ -126,24 +148,50 @@ public class NotificationService {
                 LocalDateTime.now());
     }
 
+    // ==================== READS ====================
+
+    /** The caller's visible notifications of every type, newest first. */
     @Transactional(readOnly = true)
     public PageResponse<NotificationResponse> list(boolean unreadOnly, int page, int size) {
+        return list(unreadOnly, null, page, size);
+    }
+
+    /**
+     * The caller's visible notifications, newest first.
+     *
+     * @param type optional notification type filter (any case); null or blank = every type
+     * @throws BadRequestException when {@code type} is not a notification type
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<NotificationResponse> list(boolean unreadOnly, String type, int page, int size) {
         Caller caller = accessService.caller();
+        String typeFilter = typeFilter(type);
         Page<Notification> result = notificationRepository.findVisible(caller.systemId(), visibleThreads(caller),
-                unreadOnly, PageRequest.of(Math.max(page, 0), clampSize(size)));
+                unreadOnly, typeFilter, LocalDateTime.now(), PageParams.of(page, size, MAX_PAGE_SIZE, null));
+        // One READ row per patient referenced on the page; a page without patient references writes none
+        auditService.logListRead(RESOURCE, result.getContent(), Notification::getPatientSystemId);
         return PageResponse.of(result, NotificationService::toResponse);
     }
 
+    /** Polled by the clients; deliberately not audited. */
     @Transactional(readOnly = true)
     public UnreadCountResponse unreadCount() {
         Caller caller = accessService.caller();
         List<Integer> threads = visibleThreads(caller);
+        LocalDateTime now = LocalDateTime.now();
         return UnreadCountResponse.builder()
-                .unreadCount(notificationRepository.countVisibleUnread(caller.systemId(), threads))
-                .unreadMessageCount(notificationRepository.countVisibleUnreadMessages(caller.systemId(), threads))
+                .unreadCount(notificationRepository.countVisibleUnread(caller.systemId(), threads, now))
+                .unreadMessageCount(notificationRepository.countVisibleUnreadMessages(caller.systemId(), threads, now))
                 .build();
     }
 
+    // ==================== READ STATE ====================
+
+    /**
+     * Marks one of the caller's own notifications read. Idempotent: a repeat keeps the original read time and
+     * writes no audit row. Expiry and thread access are not checked, so a row that expired between list and click
+     * can still be marked.
+     */
     public void markRead(Integer notificationId) {
         Caller caller = accessService.caller();
         Notification notification = notificationRepository.findByNotificationIdAndSystemId(notificationId, caller.systemId())
@@ -152,24 +200,46 @@ public class NotificationService {
             notification.setIsRead(true);
             notification.setReadAt(LocalDateTime.now());
             notificationRepository.save(notification);
+            auditService.logClinicalAccess("UPDATE", RESOURCE, notification.getNotificationId(),
+                    notification.getPatientSystemId());
         }
     }
 
+    /** Marks every unread notification of the caller read (all types, hidden rows included). */
     public void markAllRead() {
         Caller caller = accessService.caller();
-        notificationRepository.markAllRead(caller.systemId(), LocalDateTime.now());
+        int changed = notificationRepository.markAllRead(caller.systemId(), LocalDateTime.now());
+        if (changed > 0) {
+            auditService.logClinicalAccess("UPDATE", RESOURCE, null, null);
+        }
     }
+
+    // ==================== HELPERS ====================
 
     private List<Integer> visibleThreads(Caller caller) {
         List<Integer> ids = accessService.accessibleThreadIds(caller);
         return ids.isEmpty() ? NO_THREADS : ids;
     }
 
-    static int clampSize(int size) {
-        return Math.min(Math.max(size, 1), 50);
+    /** The type name to filter on, or the repository's "any type" marker. */
+    private static String typeFilter(String type) {
+        if (type == null || type.isBlank()) {
+            return NotificationRepository.ANY_TYPE;
+        }
+        String value = type.trim().toUpperCase(Locale.ROOT);
+        for (NotificationType known : NotificationType.values()) {
+            if (known.name().equals(value)) {
+                return value;
+            }
+        }
+        throw new BadRequestException("Unknown notification type");
     }
 
     static NotificationResponse toResponse(Notification n) {
+        // A row stored without target or category still answers with the values the clients know
+        String target = n.getTarget() != null ? n.getTarget()
+                : ACTION_CAREGIVER_ACCESS.equals(n.getActionUrl()) ? TARGET_CAREGIVER_ACCESS : null;
+        String category = n.getCategory() != null ? n.getCategory() : Notification.defaultCategory(n.getType());
         return NotificationResponse.builder()
                 .notificationId(n.getNotificationId())
                 .type(n.getType())
@@ -183,7 +253,10 @@ public class NotificationService {
                 .messageId(n.getMessageId())
                 .patientSystemId(n.getPatientSystemId())
                 .actionUrl(n.getActionUrl())
-                .target(ACTION_CAREGIVER_ACCESS.equals(n.getActionUrl()) ? TARGET_CAREGIVER_ACCESS : null)
+                .target(target)
+                .category(category)
+                .resourceType(n.getResourceType())
+                .resourceId(n.getResourceId())
                 .build();
     }
 }

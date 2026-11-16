@@ -35,72 +35,130 @@ export function useThreads(opts: { archived: boolean; patientSystemId?: string |
   const [totalPages,  setTotalPages]  = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const genRef = useRef(0);
-  // Only the newest first-page request may write: an older poll must not undo a fresher refetch.
+  // The filter whose list is shown. A callback created for another filter (an old closure, e.g. one an
+  // event handler captured before the user switched between Inbox and Archived) must never write into it.
+  const filterKey    = `${archived}|${patientSystemId ?? ''}`;
+  const filterKeyRef = useRef(filterKey);
+  // Only the newest refresh may write: an older poll must not undo a fresher refetch.
   const seqRef = useRef(0);
+  /** Pages currently in the list (mirrors `pagesLoaded`; read by refetch without changing its identity). */
+  const pagesRef = useRef(1);
 
-  const refetch = useCallback(async () => {
+  const setPages = useCallback((n: number) => {
+    pagesRef.current = n;
+    setPagesLoaded(n);
+  }, []);
+
+  const load = useCallback(async () => {
     const gen = genRef.current;
     const seq = ++seqRef.current;
+    const stale = () => filterKey !== filterKeyRef.current || gen !== genRef.current || seq !== seqRef.current;
     setRefreshing(true);
     try {
-      const page = await fetchThreads({ archived, patientSystemId, page: 0, size: PAGE_SIZE });
-      if (gen !== genRef.current || seq !== seqRef.current) return;
-      const firstIds = new Set(page.content.map(t => t.threadId));
-      setThreads(prev => {
-        // Keep rows from later pages that are not in the fresh first page.
-        const rest = prev.slice(PAGE_SIZE).filter(t => !firstIds.has(t.threadId));
-        return [...page.content, ...rest];
-      });
-      setTotalPages(Math.max(1, page.totalPages));
-      setError(null);
+      // Re-fetch every loaded page and replace the list. Refreshing only the first page would lose
+      // the conversation that new activity pushes across a page boundary (position 20 to 21).
+      for (let attempt = 0; ; attempt++) {
+        const count = pagesRef.current;
+        const pages = await Promise.all(Array.from({ length: count }, (_, page) =>
+          fetchThreads({ archived, patientSystemId, page, size: PAGE_SIZE })));
+        if (stale()) return;
+        // "Load more" added a page while these requests were running: fetch that one as well.
+        if (pagesRef.current !== count && attempt < 2) continue;
+
+        const seen = new Set<number>();
+        const rows: Thread[] = [];
+        for (const page of pages) {
+          for (const t of page.content) {
+            if (seen.has(t.threadId)) continue;
+            seen.add(t.threadId);
+            rows.push(t);
+          }
+        }
+        // The pages are separate requests: a conversation that moved between them can be missing
+        // from all of them. Fewer rows than the server reports means that happened, so ask again.
+        const newest   = pages[0];
+        const expected = Math.min(newest.totalElements ?? 0, count * PAGE_SIZE);
+        if (rows.length < expected && attempt < 2) continue;
+
+        const total = Math.max(1, newest.totalPages);
+        // Still behind "Load more" after the retries: keep its rows (by id) until the next refresh.
+        const behind = pagesRef.current > count;
+        setThreads(prev => (behind ? [...rows, ...prev.filter(t => !seen.has(t.threadId))] : rows));
+        setTotalPages(total);
+        // Conversations left the list (archived, access removed): later "Load more" starts after the last full page.
+        if (pagesRef.current > total) setPages(total);
+        setError(null);
+        return;
+      }
     } catch (e) {
-      if (gen !== genRef.current || seq !== seqRef.current) return;
+      if (stale()) return;
       setError(isNetworkError(e)
         ? 'Could not reach CareNexus. Check your connection.'
         : apiErrorMessage(e, 'Failed to load conversations.'));
     } finally {
-      if (gen === genRef.current && seq === seqRef.current) {
+      if (!stale()) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [archived, patientSystemId]);
+  }, [archived, patientSystemId, filterKey, setPages]);
+
+  const loadRef = useRef(load);
 
   // Reset when the filter changes.
   useEffect(() => {
+    filterKeyRef.current = filterKey;
+    loadRef.current = load;
     genRef.current += 1;
     setThreads([]);
     setLoading(true);
     setError(null);
-    setPagesLoaded(1);
+    setPages(1);
     setTotalPages(1);
-    if (enabled) refetch();
-  }, [refetch, enabled]);
+    if (enabled) load();
+  }, [load, filterKey, enabled, setPages]);
+
+  /**
+   * Refreshes the list for the filter shown when it runs, not the one shown when the caller got it: a handler
+   * that awaits a request (archive) and then refreshes must not bring the old filter's rows back.
+   */
+  const refetch = useCallback(() => loadRef.current(), []);
 
   usePolling(refetch, LIST_POLL_MS, enabled && !loading);
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || pagesLoaded >= totalPages) return;
+    // Created for a filter that is no longer shown: its page would belong to the other list.
+    if (filterKey !== filterKeyRef.current) return;
+    const index = pagesRef.current;
+    if (loadingMore || index >= totalPages) return;
     const gen = genRef.current;
+    const stale = () => filterKey !== filterKeyRef.current || gen !== genRef.current;
     setLoadingMore(true);
     try {
-      const page = await fetchThreads({ archived, patientSystemId, page: pagesLoaded, size: PAGE_SIZE });
-      if (gen !== genRef.current) return;
+      const page = await fetchThreads({ archived, patientSystemId, page: index, size: PAGE_SIZE });
+      if (stale()) return;
+      // A refresh shortened the list meanwhile, so this page no longer follows the last one shown.
+      if (pagesRef.current !== index) return;
       setThreads(prev => {
         const ids = new Set(prev.map(t => t.threadId));
         return [...prev, ...page.content.filter(t => !ids.has(t.threadId))];
       });
-      setPagesLoaded(p => p + 1);
+      setPages(index + 1);
       setTotalPages(Math.max(1, page.totalPages));
     } catch (e) {
+      if (stale()) return;
       setError(apiErrorMessage(e, 'Failed to load more conversations.'));
     } finally {
       setLoadingMore(false);
     }
-  }, [archived, patientSystemId, pagesLoaded, totalPages, loadingMore]);
+  }, [archived, patientSystemId, filterKey, totalPages, loadingMore, setPages]);
 
   const archive = useCallback(async (threadId: number, value: boolean) => {
+    const key = filterKeyRef.current;
     await setThreadArchived(threadId, value);
+    // The user switched lists meanwhile: the new list was fetched for its own filter, so leave it as it is
+    // (in the Archived list the conversation just archived belongs there).
+    if (key !== filterKeyRef.current) return;
     setThreads(prev => prev.filter(t => t.threadId !== threadId));
   }, []);
 

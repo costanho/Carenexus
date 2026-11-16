@@ -1,12 +1,21 @@
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { type ErrorBoundaryProps, Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
-import { getAccessToken, getUser } from '@/lib/auth/auth.storage';
-import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
+import { RouteErrorFallback } from '@/components/web/layout/error-boundary';
+import { getAccessToken, getSessionFlags, getUser } from '@/lib/auth/auth.storage';
+import { ROLE_HOME, isAppRole, requiredAccountStep, type AppRole } from '@/lib/auth/auth.types';
 
 const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
   : '/auth/login/mobile/login-mobile';
+
+/**
+ * A render error in a dashboard route that the shell's own section boundary did not catch shows
+ * "Something went wrong" with Reload and Back to dashboard instead of a blank page.
+ */
+export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
+  return <RouteErrorFallback retry={retry} />;
+}
 
 // Extract userId from JWT payload
 function getUserIdFromToken(token: string): number | null {
@@ -25,13 +34,13 @@ function getUserIdFromToken(token: string): number | null {
 }
 
 /** Role a dashboard route belongs to ('patient/index' -> patient). The call route is shared by every role. */
-function routeRole(routeName: string): Role | null {
+function routeRole(routeName: string): AppRole | null {
   const first = routeName.split('/')[0];
-  return first === 'patient' || first === 'doctor' || first === 'proxy' ? first : null;
+  return isAppRole(first) ? first : null;
 }
 
 /** undefined while checking, null when there is no valid session. */
-type Session = { role: Role } | null | undefined;
+type Session = { role: AppRole } | null | undefined;
 
 function Loader() {
   return (
@@ -68,13 +77,23 @@ export default function DashboardLayout() {
   useEffect(() => {
     let cancelled = false;
     async function verify() {
-      const [token, user] = await Promise.all([getAccessToken(), getUser()]);
+      const [token, user, flags] = await Promise.all([getAccessToken(), getUser(), getSessionFlags()]);
       if (cancelled) return;
 
       // No token or user, or a token for a different account than the stored user -> back to login
       if (!token || !user || getUserIdFromToken(token) !== user.user_id || !ROLE_HOME[user.role]) {
         setSession(null);
         router.replace(LOGIN_ROUTE as any);
+        return;
+      }
+
+      // A password that must be changed, or terms that must be accepted, block every dashboard: the screens
+      // stay unmounted (so they fetch nothing) and the person is sent to the step. Typing a dashboard URL
+      // lands here too, so the step cannot be skipped. The step clears its flag when it is completed.
+      const requiredStep = requiredAccountStep(flags);
+      if (requiredStep) {
+        setSession(null);
+        router.replace(requiredStep as any);
         return;
       }
       setSession(prev => (prev?.role === user.role ? prev : { role: user.role }));
@@ -96,6 +115,7 @@ export default function DashboardLayout() {
       <Stack.Screen name="patient/index" />
       <Stack.Screen name="doctor/index" />
       <Stack.Screen name="proxy/index" />
+      <Stack.Screen name="admin/index" />
       <Stack.Screen name="patient/appointments/book" />
       <Stack.Screen name="patient/appointments/status" />
       <Stack.Screen name="call/[appointmentId]" />

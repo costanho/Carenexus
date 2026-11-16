@@ -59,12 +59,74 @@ public class CommunicationsAccessServiceTest {
     private CommunicationsAccessService accessService;
 
     @Test
-    public void admin_isRejectedOnEveryConversationEndpoint() {
+    public void admin_isRejectedOnTheRoutesWithoutAThread() {
         when(authorizationService.currentSystemId()).thenReturn("ADM-00001");
         when(authorizationService.currentRole()).thenReturn("ADMIN");
 
-        AuthorizationException ex = assertThrows(AuthorizationException.class, () -> accessService.requireCaller());
+        AuthorizationException ex = assertThrows(AuthorizationException.class, () -> accessService.requireMessagingCaller());
         assertEquals("Administrators cannot access conversations", ex.getMessage());
+        // Thread routes resolve the caller first and refuse administrators per conversation type
+        assertEquals(new Caller("ADM-00001", "ADMIN"), accessService.requireCaller());
+    }
+
+    @Test
+    public void admin_onClinicalThread_isDeniedAndAudited_evenWhenAMemberRowExists() {
+        when(threadRepository.findById(41)).thenReturn(Optional.of(thread()));
+        when(memberRepository.findByThreadIdAndSystemId(41, "ADM-00001"))
+                .thenReturn(Optional.of(member("ADM-00001", "ADMIN", 0)));
+
+        AuthorizationException ex = assertThrows(AuthorizationException.class,
+                () -> accessService.requireThreadAccess(new Caller("ADM-00001", "ADMIN"), 41));
+        assertEquals("Administrators cannot access conversations", ex.getMessage());
+        verify(auditService).logAccessDenied(eq("ADM-00001"), eq("MESSAGE_THREAD"), eq(41), eq(PATIENT), isNull(), anyString());
+    }
+
+    @Test
+    public void admin_onUnknownThread_is404() {
+        when(threadRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> accessService.requireThreadAccess(new Caller("ADM-00001", "ADMIN"), 99));
+    }
+
+    @Test
+    public void admin_onSupportThread_needsAnAdminMembership() {
+        when(threadRepository.findById(57)).thenReturn(Optional.of(supportThread()));
+        Caller admin = new Caller("ADM-00001", "ADMIN");
+        when(memberRepository.findByThreadIdAndSystemId(57, "ADM-00001")).thenReturn(Optional.empty());
+        AuthorizationException ex = assertThrows(AuthorizationException.class, () -> accessService.requireThreadAccess(admin, 57));
+        assertEquals("You no longer have access to this conversation", ex.getMessage());
+
+        ThreadMember joined = member("ADM-00001", "ADMIN", 0);
+        joined.setThreadId(57);
+        when(memberRepository.findByThreadIdAndSystemId(57, "ADM-00001")).thenReturn(Optional.of(joined));
+        assertSame(joined, accessService.requireThreadAccess(admin, 57).member());
+        verify(authorizationService, never()).requirePatientAccess(any(), any(), any());
+    }
+
+    @Test
+    public void supportThread_openerNeedsNoPatientAccess_othersAreDenied() {
+        when(threadRepository.findById(57)).thenReturn(Optional.of(supportThread()));
+        ThreadMember opener = member(CAREGIVER, "CAREGIVER", 0);
+        opener.setThreadId(57);
+        when(memberRepository.findByThreadIdAndSystemId(57, CAREGIVER)).thenReturn(Optional.of(opener));
+
+        assertSame(opener, accessService.requireThreadAccess(new Caller(CAREGIVER, "CAREGIVER"), 57).member());
+        verify(authorizationService, never()).requirePatientAccess(any(), any(), any());
+
+        when(memberRepository.findByThreadIdAndSystemId(57, PATIENT)).thenReturn(Optional.empty());
+        AuthorizationException ex = assertThrows(AuthorizationException.class,
+                () -> accessService.requireThreadAccess(new Caller(PATIENT, "PATIENT"), 57));
+        assertEquals("You no longer have access to this conversation", ex.getMessage());
+    }
+
+    @Test
+    public void memberCanActFor_supportThread_openerYes_administratorsNo() {
+        assertTrue(accessService.memberCanActFor(CAREGIVER, "CAREGIVER", null));
+        assertTrue(accessService.memberCanActFor(DOCTOR, "DOCTOR", null));
+        assertFalse(accessService.memberCanActFor("ADM-00001", "ADMIN", null));
+        assertFalse(accessService.memberCanActFor(null, "PATIENT", null));
+        verifyNoInteractions(relationshipService);
     }
 
     @Test
@@ -154,9 +216,21 @@ public class CommunicationsAccessServiceTest {
     }
 
     @Test
-    public void accessibleThreadIds_emptyForAdmin() {
-        assertTrue(accessService.accessibleThreadIds(new Caller("ADM-00001", "ADMIN")).isEmpty());
-        verifyNoInteractions(memberRepository);
+    public void accessibleThreadIds_includeOwnSupportThreads_evenWithoutAnyGrant() {
+        when(memberRepository.findActiveThreadPatientsForUser(CAREGIVER)).thenReturn(List.of(
+                new Object[]{41, PATIENT}, new Object[]{57, null}));
+        when(dependentAccessRepository.findAllDependentsForCaregiver(CAREGIVER)).thenReturn(List.of());
+
+        assertEquals(List.of(57), accessService.accessibleThreadIds(new Caller(CAREGIVER, "CAREGIVER")));
+    }
+
+    @Test
+    public void accessibleThreadIds_forAdmin_onlySupportThreads() {
+        when(memberRepository.findActiveThreadPatientsForUser("ADM-00001")).thenReturn(List.of(
+                new Object[]{41, PATIENT}, new Object[]{57, null}));
+
+        assertEquals(List.of(57), accessService.accessibleThreadIds(new Caller("ADM-00001", "ADMIN")));
+        verifyNoInteractions(relationshipService, dependentAccessRepository);
     }
 
     // ==================== helpers ====================
@@ -164,6 +238,11 @@ public class CommunicationsAccessServiceTest {
     static MessageThread thread() {
         return MessageThread.builder().threadId(41).patientSystemId(PATIENT).conversationType("CARE_TEAM")
                 .threadType("CARE_TEAM").build();
+    }
+
+    static MessageThread supportThread() {
+        return MessageThread.builder().threadId(57).patientSystemId(null).conversationType(MessageThread.SUPPORT)
+                .threadType(MessageThread.THREAD_TYPE_PATIENT_SUPPORT).createdBySystemId(CAREGIVER).build();
     }
 
     static ThreadMember member(String systemId, String role, int historyStart) {

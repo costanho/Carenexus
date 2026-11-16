@@ -72,6 +72,13 @@ export default function LoginMobile() {
         return;
       }
 
+      if (user.role === 'admin') {
+        // Administrator accounts have no role tab and no native screens.
+        await logout();
+        setAuthError('Administration is available on the web. Please sign in from a web browser.');
+        return;
+      }
+
       if (user.role !== role) {
         await logout();
         const labels: Record<Role, string> = { patient: 'Patient', doctor: 'Doctor', proxy: 'Proxy / Carer' };

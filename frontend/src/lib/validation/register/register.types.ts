@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { z } from 'zod';
-import type { registerSchema } from './register.schema';
+import type { registerSchema, webRegisterSchema } from './register.schema';
 
 // ── Primitive types ────────────────────────────────────────────────────────────
 export type Role         = 'patient' | 'doctor' | 'proxy';
@@ -8,6 +8,10 @@ export type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 // ── Form data type ─────────────────────────────────────────────────────────────
 export type RegisterFormData = z.infer<typeof registerSchema>;
+
+/** Values of the web registration form as typed (before trimming) and as validated. */
+export type WebRegisterFormInput = z.input<typeof webRegisterSchema>;
+export type WebRegisterFormData  = z.output<typeof webRegisterSchema>;
 
 // ── Role config ────────────────────────────────────────────────────────────────
 export type RoleConfig = {

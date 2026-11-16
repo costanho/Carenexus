@@ -163,6 +163,14 @@ public class CallSessionService {
                             CallParticipant.REASON_APPOINTMENT_CANCELLED, null);
                 }
             }
+            case ENDED -> {
+                // COMPLETED or NO_SHOW: a call that never went LIVE is closed now (room deleted by a job) instead of
+                // waiting for the expiry sweep. A LIVE call is left to the doctor (end) or the expiry sweep.
+                if (session != null && !isFinal(session) && !CallSession.LIVE.equals(session.getStatus())) {
+                    terminate(session, CallSession.ENDED, CallSession.END_APPOINTMENT_ENDED,
+                            CallParticipant.REASON_CALL_ENDED, null);
+                }
+            }
         }
     }
 

@@ -2,8 +2,18 @@
 // All time fields are ISO-8601 UTC instants.
 
 export type MemberRole       = 'PATIENT' | 'DOCTOR' | 'CAREGIVER';
+/** The conversation types a user can start with `POST /api/communications/threads`. */
 export type ConversationType = 'PRIVATE' | 'CARE_TEAM';
 export type MessagingMode    = MemberRole;
+
+/**
+ * Every type a conversation returned by the API can have. SUPPORT conversations (a user and the administrators)
+ * are opened with `POST /api/communications/support-thread`, never through the new-conversation form.
+ */
+export type ThreadType = ConversationType | 'SUPPORT';
+
+/** Role of a member or sender as it arrives from the API. ADMIN appears in SUPPORT conversations only. */
+export type ParticipantRole = MemberRole | 'ADMIN';
 
 export interface PageResponse<T> {
   content:       T[];
@@ -34,7 +44,7 @@ export interface RecipientsResponse {
 export interface ThreadMember {
   systemId: string;
   name:     string;
-  role:     MemberRole;
+  role:     ParticipantRole;
   label:    string;
 }
 
@@ -49,10 +59,12 @@ export interface LastMessage {
 
 export interface Thread {
   threadId:         number;
-  type:             ConversationType;
+  type:             ThreadType;
   subject:          string | null;
-  patientSystemId:  string;
-  patientName:      string;
+  /** The patient the conversation is about. Null for SUPPORT conversations: check `type` before using it. */
+  patientSystemId:  string | null;
+  /** Null for SUPPORT conversations. */
+  patientName:      string | null;
   members:          ThreadMember[];
   lastMessage:      LastMessage | null;
   unreadCount:      number;
@@ -61,6 +73,10 @@ export interface Thread {
   lastMessageAt:    string | null;
   createdAt:        string;
   canManageMembers: boolean;
+  /** SUPPORT conversations only: an administrator closed it and no more messages can be sent. The API always sends it. */
+  closed?:          boolean;
+  /** When the conversation was closed; null while it is open. */
+  closedAt?:        string | null;
 }
 
 export interface CreateThreadBody {
@@ -77,7 +93,7 @@ export interface Message {
   clientMessageId: string | null;
   senderSystemId:  string;
   senderName:      string;
-  senderRole:      MemberRole;
+  senderRole:      ParticipantRole;
   senderLabel:     string;
   body:            string;
   urgent:          boolean;
@@ -103,22 +119,47 @@ export interface ReadResponse {
   unreadCount:       number;
 }
 
+export type NotificationType =
+  | 'APPOINTMENT' | 'MEDICATION' | 'LAB_RESULT' | 'MESSAGE' | 'AI_ALERT' | 'SYSTEM' | 'PAYMENT' | 'REFERRAL';
+
+/** Every notification type, in the order the type filter lists them. */
+export const NOTIFICATION_TYPES: readonly NotificationType[] = [
+  'APPOINTMENT', 'MEDICATION', 'LAB_RESULT', 'MESSAGE', 'AI_ALERT', 'PAYMENT', 'REFERRAL', 'SYSTEM',
+];
+
+/** HIGH is shown as urgent, CRITICAL as critical (styling plus a text label). */
+export type NotificationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+
 export interface AppNotification {
   notificationId:  number;
-  type:            string;
+  type:            NotificationType;
   title:           string;
   message:         string;
-  priority:        'NORMAL' | 'HIGH' | string;
+  priority:        NotificationPriority;
   read:            boolean;
   readAt:          string | null;
   createdAt:       string;
+  /** Conversation announced by a thread MESSAGE notification; null for every other notification. */
   threadId:        number | null;
   messageId:       number | null;
+  /** The patient the notification is about; null for account-level notifications. */
   patientSystemId: string | null;
-  /** In-app route for non-message notifications (e.g. a caregiver approval request). */
+  /**
+   * In-app link to open (`/dashboard/<role>?section=...`). Null means the notification is informational; it is
+   * always null for thread MESSAGE notifications, which open by `threadId`.
+   */
   actionUrl:       string | null;
-  /** CAREGIVER_ACCESS for caregiver approval requests; null for message notifications. */
-  target:          'CAREGIVER_ACCESS' | null;
+  /**
+   * What the notification is about (APPOINTMENTS, LAB_RESULTS, BILLING, CAREGIVER_ACCESS, ...). An open set:
+   * navigate with `actionUrl`, never by this value. Null for thread MESSAGE and informational notifications.
+   */
+  target:          string | null;
+  /** Preference category (APPOINTMENT_REMINDER, BILLING, CRITICAL, ...). An open set; icons key on `type`. */
+  category:        string | null;
+  /** Kind of the referenced record (APPOINTMENT, INVOICE, ACCESS_REQUEST, ...). For display or diagnostics only. */
+  resourceType:    string | null;
+  /** Id of the referenced record. */
+  resourceId:      number | null;
 }
 
 export interface UnreadCounts {

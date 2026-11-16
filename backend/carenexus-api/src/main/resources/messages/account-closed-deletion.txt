@@ -1,0 +1,9 @@
+Subject: Your CareNexus account was deleted
+
+Hello {{firstName}},
+
+Your request to delete your CareNexus account was approved. Your name, email address, phone number and password were removed from the account and you can no longer sign in.
+
+Clinical records are retained as required for medical record keeping.
+
+This is the last message we send to this address.

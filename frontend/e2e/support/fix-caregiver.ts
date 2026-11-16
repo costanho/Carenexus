@@ -1,6 +1,6 @@
 import { expect, request } from '@playwright/test';
 import { API_URL, type DemoUser } from './env';
-import { Api } from './api';
+import { Api, currentLegalVersions } from './api';
 
 // Helpers for fix-caregiver.spec.ts. Test data starts with FIX_PREFIX; throwaway accounts are
 // e2e-fix-caregiver-…@carenexus.test, which the global e2e cleanup (scripts/dev-reset-e2e-data.sh) removes.
@@ -20,10 +20,15 @@ export async function registerFixCaregiver(tag: string): Promise<DemoUser> {
     systemId: '',
     name: 'Fix Carer',
   };
+  // The current legal versions are accepted at registration, as the web form does, so sign-in goes straight home.
+  const legal = await currentLegalVersions();
   const ctx = await request.newContext({ baseURL: API_URL });
   try {
     const res = await ctx.post('/api/auth/register', {
-      data: { firstName: 'Fix', lastName: 'Carer', email: user.email, password: user.password, role: 'proxy' },
+      data: {
+        firstName: 'Fix', lastName: 'Carer', email: user.email, password: user.password, role: 'proxy',
+        ...(legal ? { acceptedTermsVersion: legal.terms, acceptedPrivacyVersion: legal.privacy } : {}),
+      },
     });
     expect(res.status(), 'register fix caregiver').toBeLessThan(300);
     user.systemId = (await res.json()).user?.system_id ?? '';

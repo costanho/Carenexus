@@ -11,15 +11,19 @@ interface Props {
   draftKey:  string | null;
   disabled?: boolean;
   disabledReason?: string;
+  /** Default true. False hides the urgent switch and always sends a normal message (support conversations). */
+  allowUrgent?: boolean;
   onSend:    (body: string, urgent: boolean) => void;
 }
 
 const DRAFT_DEBOUNCE_MS = 400;
 
-export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) {
+export function Composer({ draftKey, disabled, disabledReason, allowUrgent = true, onSend }: Props) {
   const { accent } = useTheme();
-  const [text,   setText]   = useState(() => (draftKey ? loadDraft(draftKey) : ''));
-  const [urgent, setUrgent] = useState(false);
+  const [text,      setText]      = useState(() => (draftKey ? loadDraft(draftKey) : ''));
+  const [urgentOn,  setUrgent]    = useState(false);
+  // The switch can disappear while it is on (the conversation turned out to be a support one).
+  const urgent = allowUrgent && urgentOn;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The debounced save that has not run yet, so it can be written straight away on a switch. */
   const unsaved   = useRef<{ key: string; value: string } | null>(null);
@@ -89,7 +93,7 @@ export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) 
   if (disabled) {
     return (
       <View style={styles.disabledBox}>
-        <Ionicons name="lock-closed-outline" size={14} color={GRAY} importantForAccessibility="no" />
+        <Ionicons aria-hidden name="lock-closed-outline" size={14} color={GRAY} importantForAccessibility="no" />
         <Text style={styles.disabledText}>{disabledReason ?? 'You cannot send messages in this conversation.'}</Text>
       </View>
     );
@@ -120,45 +124,53 @@ export function Composer({ draftKey, disabled, disabledReason, onSend }: Props) 
           accessibilityLabel={urgent ? 'Send urgent message' : 'Send message'}
           accessibilityState={{ disabled: !canSend }}
         >
-          <Ionicons name="send" size={16} color={WHITE} importantForAccessibility="no" />
+          <Ionicons aria-hidden name="send" size={16} color={WHITE} importantForAccessibility="no" />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.footer}>
-        <View style={styles.urgentRow}>
-          <Switch
-            value={urgent}
-            onValueChange={setUrgent}
-            trackColor={{ false: BORDER, true: '#FCA5A5' }}
-            thumbColor={urgent ? RED : WHITE}
-            accessibilityLabel="Mark as urgent"
-            accessibilityHint={URGENT_HELPER_TEXT}
-          />
-          <Text style={[styles.urgentLabel, urgent && { color: RED }]}>Mark as urgent</Text>
-        </View>
+      <View style={[styles.footer, !allowUrgent && styles.footerEnd]}>
+        {allowUrgent && (
+          <View style={styles.urgentRow}>
+            <Switch
+              value={urgent}
+              onValueChange={setUrgent}
+              trackColor={{ false: INPUT_BORDER, true: '#FCA5A5' }}
+              thumbColor={urgent ? RED : WHITE}
+              accessibilityLabel="Mark as urgent"
+              accessibilityHint={URGENT_HELPER_TEXT}
+            />
+            <Text style={[styles.urgentLabel, urgent && { color: RED }]}>Mark as urgent</Text>
+          </View>
+        )}
         <Text style={[styles.counter, tooLong && { color: RED }]} accessibilityLiveRegion={tooLong ? 'polite' : 'none'}>
           {tooLong ? `Messages can be at most ${MAX_MESSAGE_LENGTH} characters` : `${trimmed.length}/${MAX_MESSAGE_LENGTH}`}
         </Text>
       </View>
       {/* Always mounted so screen readers announce the helper when the switch turns on. */}
-      <View accessibilityLiveRegion="polite">
-        {urgent && <Text style={styles.helper}>{URGENT_HELPER_TEXT}</Text>}
-      </View>
+      {allowUrgent && (
+        <View accessibilityLiveRegion="polite">
+          {urgent && <Text style={styles.helper}>{URGENT_HELPER_TEXT}</Text>}
+        </View>
+      )}
     </View>
   );
 }
+
+/** Outline of the message box and the switch track when off: 4.83:1 on white (WCAG 1.4.11 asks 3:1). */
+const INPUT_BORDER = '#6B7280';
 
 const styles = StyleSheet.create({
   wrap:      { borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: WHITE, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, gap: 6 },
   inputRow:  { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   input: {
     flex: 1, minHeight: 42, maxHeight: 140,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 10,
+    borderWidth: 1, borderColor: INPUT_BORDER, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 14, color: TEXT, backgroundColor: '#FFFFFF',
   },
   sendBtn:   { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   footer:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
+  footerEnd: { justifyContent: 'flex-end' },
   urgentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   urgentLabel: { fontSize: 12, color: GRAY, fontWeight: '600' },
   counter:   { fontSize: 11, color: LIGHT },

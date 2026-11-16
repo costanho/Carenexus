@@ -20,6 +20,20 @@ class CommunicationLabelsTest {
     }
 
     @Test
+    void clinicalLabels_nameThePatientForCaregivers() {
+        assertEquals("Sarah Dube (Caregiver for Thomas Dube)", CommunicationLabels.label("Sarah Dube", "CAREGIVER", "Thomas Dube"));
+        assertEquals("Thomas Dube", CommunicationLabels.label("Thomas Dube", "PATIENT", "Thomas Dube"));
+    }
+
+    @Test
+    void supportLabels_haveNoPatientAndNeverSayNull() {
+        assertEquals("Sarah Dube (Caregiver)", CommunicationLabels.label("Sarah Dube", "CAREGIVER", null));
+        assertEquals("Grace Moyo (Support)", CommunicationLabels.label("Grace Moyo", "ADMIN", null));
+        assertEquals("Dr. Amara Osei", CommunicationLabels.label("Amara Osei", "DOCTOR", null));
+        assertEquals("Thomas Dube", CommunicationLabels.label("Thomas Dube", "PATIENT", null));
+    }
+
+    @Test
     void callDoctorLabel_addsTheTitleOnce() {
         User doctor = new User();
         doctor.setFirstName("Dr. Michael");

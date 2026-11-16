@@ -19,6 +19,9 @@ import java.time.Instant;
 @Builder
 public class ThreadMember {
 
+    /** member_role of an administrator answering a SUPPORT conversation (V65). */
+    public static final String ROLE_ADMIN = "ADMIN";
+
     public static final String REASON_LEFT = "LEFT";
     public static final String REASON_REMOVED_BY_MEMBER = "REMOVED_BY_MEMBER";
     public static final String REASON_ACCESS_REVOKED = "ACCESS_REVOKED";
@@ -36,7 +39,7 @@ public class ThreadMember {
     @Column(name = "system_id", nullable = false, length = 20)
     private String systemId;
 
-    /** PATIENT | DOCTOR | CAREGIVER */
+    /** PATIENT | DOCTOR | CAREGIVER; ADMIN only in SUPPORT conversations */
     @Column(name = "member_role", nullable = false, length = 20)
     private String memberRole;
 

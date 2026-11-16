@@ -1,8 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { MENU_FOCUS_KEY, bellProps, useNavFocusRestore, useShellUser } from '../../layout/shell-support';
 import { NotificationBell } from '../../notifications/notification-bell';
+import { decorative, Icon } from '../../ui';
 import { doctorDisplayName } from '@/hooks/use-doctors';
 
 const BG       = '#FFFFFF';
@@ -19,30 +19,40 @@ export interface DoctorTopNavbarProps {
   onProfilePress?: () => void;
   /** Open the messages section on a thread (from a notification). */
   onOpenThread?:   (threadId: number) => void;
+  /** Follows the in-app link of any other notification (`followActionUrl`); false when there is nothing to open. */
+  onNotificationLink?: (actionUrl: string | null | undefined) => boolean;
 }
 
-export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: DoctorTopNavbarProps) {
-  const { user } = useCurrentUser();
+// The top bar is the page's banner landmark.
+const BANNER = { role: 'banner' } as object;
+
+const BELL_THEME = { accent: '#4F46E5', accentBg: '#EEF2FF' };
+
+export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread, onNotificationLink }: DoctorTopNavbarProps) {
+  const { user } = useShellUser();
   const { handleLogout, loading } = useLogout();
   const { width } = useWindowDimensions();
   const narrow = width < NARROW_MAX;
+  // After a navigation started in the phone drawer, the menu button of the new copy takes focus back.
+  const menuRef = useNavFocusRestore(MENU_FOCUS_KEY);
   const fullName  = user ? doctorDisplayName(user.first_name, user.last_name) || 'Doctor' : 'Doctor';
   const avatarUri = user?.avatar_url ?? null;
   const initials  = user ? `${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`.toUpperCase() || 'DR' : 'DR';
 
   return (
-    <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
+    <View style={[styles.navbar, narrow && styles.navbarNarrow]} {...BANNER}>
       {/* Left: hamburger */}
       <View style={styles.left}>
         {!!onMenuPress && (
           <TouchableOpacity
+            ref={menuRef as never}
             onPress={onMenuPress}
             style={styles.hamburger}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Open menu"
           >
-            <Ionicons name="menu-outline" size={26} color={TEXT} />
+            <Icon name="menu-outline" size={26} color={TEXT} />
           </TouchableOpacity>
         )}
       </View>
@@ -51,7 +61,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
       <View style={styles.right}>
         {onOpenThread && (
           <>
-            <NotificationBell theme={{ accent: '#4F46E5', accentBg: '#EEF2FF' }} onOpenThread={onOpenThread} />
+            <NotificationBell {...bellProps({ theme: BELL_THEME, onOpenThread, onNavigate: onNotificationLink })} />
             {!narrow && <View style={styles.divider} />}
           </>
         )}
@@ -68,10 +78,10 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
           accessibilityLabel={narrow ? `${fullName} Doctor` : undefined}
         >
           {avatarUri
-            ? <Image source={{ uri: avatarUri }} style={styles.avatar} />
-            : <View style={[styles.avatar, styles.avatarFallback]} importantForAccessibility="no-hide-descendants" {...({ 'aria-hidden': true } as object)}>
+            ? <Image source={{ uri: avatarUri }} style={styles.avatar} {...decorative} />
+            : <View style={[styles.avatar, styles.avatarFallback]} {...decorative}>
                 {/* On phones the button is labelled by name, so it shows no other visible words (WCAG 2.5.3). */}
-                {narrow ? <Ionicons name="person" size={18} color="#FFFFFF" /> : <Text style={styles.avatarInitials}>{initials}</Text>}
+                {narrow ? <Icon name="person" size={18} color="#FFFFFF" /> : <Text style={styles.avatarInitials}>{initials}</Text>}
               </View>
           }
           {!narrow && (
@@ -80,7 +90,7 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
               <Text style={styles.doctorRole}>Doctor</Text>
             </View>
           )}
-          {!!onProfilePress && !narrow && <Ionicons name="chevron-forward" size={16} color={GRAY} {...({ 'aria-hidden': true } as object)} />}
+          {!!onProfilePress && !narrow && <Icon name="chevron-forward" size={16} color={GRAY} />}
         </TouchableOpacity>
 
         {!narrow && <View style={styles.divider} />}
@@ -92,11 +102,12 @@ export function DoctorTopNavbar({ onMenuPress, onProfilePress, onOpenThread }: D
           activeOpacity={0.7}
           disabled={loading}
           accessibilityRole="button"
-          accessibilityLabel="Sign out"
+          // Starts with the visible text; on phones only the icon shows, so the same words are the name.
+          accessibilityLabel={loading ? 'Signing out' : 'Sign Out'}
           accessibilityState={{ disabled: loading, busy: loading }}
           aria-busy={loading}
         >
-          <Ionicons
+          <Icon
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
             size={18}
             color={RED}

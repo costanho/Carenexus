@@ -6,9 +6,13 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 /**
- * A conversation about one patient (message_threads). Membership lives in {@link ThreadMember}.
+ * A conversation (message_threads). Membership lives in {@link ThreadMember}.
+ * PRIVATE and CARE_TEAM conversations are about one patient ({@code patientSystemId}). A SUPPORT conversation (V65)
+ * is between its opener ({@code createdBySystemId}) and the administrators who answer it; it has no patient
+ * ({@code patientSystemId} is null) and is open until an administrator closes it ({@code closedAt}).
  * {@code threadType} and {@code isArchived} are legacy columns: new threads still fill {@code threadType}
- * (PATIENT_DOCTOR / CAREGIVER_DOCTOR / CARE_TEAM); archive is per member ({@link ThreadMember#getArchivedAt()}).
+ * (PATIENT_DOCTOR / CAREGIVER_DOCTOR / CARE_TEAM / PATIENT_SUPPORT); archive is per member
+ * ({@link ThreadMember#getArchivedAt()}).
  */
 @Entity
 @Table(name = "message_threads")
@@ -21,13 +25,17 @@ public class MessageThread {
 
     public static final String PRIVATE = "PRIVATE";
     public static final String CARE_TEAM = "CARE_TEAM";
+    public static final String SUPPORT = "SUPPORT";
+    /** Legacy thread_type stored for SUPPORT conversations (allowed since V1). */
+    public static final String THREAD_TYPE_PATIENT_SUPPORT = "PATIENT_SUPPORT";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "thread_id")
     private Integer threadId;
 
-    @Column(name = "patient_system_id", nullable = false, length = 20)
+    /** Null only for SUPPORT conversations. */
+    @Column(name = "patient_system_id", length = 20)
     private String patientSystemId;
 
     @Column(name = "subject", length = 300)
@@ -62,8 +70,25 @@ public class MessageThread {
     @Builder.Default
     private Boolean isArchived = false;
 
+    /** SUPPORT only: when an administrator closed the conversation (clinic wall-clock); null while open. */
+    @Column(name = "closed_at")
+    private LocalDateTime closedAt;
+
+    /** SUPPORT only: the administrator who closed the conversation. */
+    @Column(name = "closed_by_system_id", length = 20)
+    private String closedBySystemId;
+
     public boolean isCareTeam() {
         return CARE_TEAM.equals(conversationType);
+    }
+
+    public boolean isSupport() {
+        return SUPPORT.equals(conversationType);
+    }
+
+    /** True only for a SUPPORT conversation an administrator closed. */
+    public boolean isClosed() {
+        return isSupport() && closedAt != null;
     }
 
     @PrePersist

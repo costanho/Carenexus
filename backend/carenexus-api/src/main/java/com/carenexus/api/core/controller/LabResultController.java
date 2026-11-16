@@ -1,224 +1,227 @@
 package com.carenexus.api.core.controller;
 
+import com.carenexus.api.common.dto.ErrorResponse;
+import com.carenexus.api.common.dto.PageResponse;
+import com.carenexus.api.common.dto.StandardErrors;
+import com.carenexus.api.common.idempotency.IdempotencyService;
+import com.carenexus.api.common.idempotency.IdempotentResult;
 import com.carenexus.api.core.dto.request.CreateLabResultRequest;
+import com.carenexus.api.core.dto.request.ReviewResultRequest;
+import com.carenexus.api.core.dto.request.UpdateLabResultRequest;
 import com.carenexus.api.core.dto.response.LabResultResponse;
 import com.carenexus.api.core.service.LabResultService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * Lab results. Thin: every access rule, transition rule, audit row and event lives in {@link LabResultService}.
+ *
+ * - POST   /api/lab-results                          record (treating doctor; Idempotency-Key)
+ * - GET    /api/lab-results                          canonical paged list with filters
+ * - GET    /api/lab-results/me/pending-review        the calling doctor's review queue (paged)
+ * - GET    /api/lab-results/{id}                     one result
+ * - PUT    /api/lab-results/{id}                     partial update (author doctor)
+ * - PATCH  /api/lab-results/{id}/status?status=      status change (doctor of the patient)
+ * - POST   /api/lab-results/{id}/review              sign-off (doctor of the patient)
+ * - DELETE /api/lab-results/{id}                     cancel (author doctor or admin)
+ * - GET    /api/lab-results/patient/{id}, /doctor/{id}  deprecated arrays (capped at 200)
+ */
 @RestController
 @RequestMapping("/api/lab-results")
 @RequiredArgsConstructor
+@Validated
+@Tag(name = "Lab results", description = "Laboratory results: recording, review workflow and lists")
 public class LabResultController {
 
+    static final String SCOPE_CREATE = "POST /api/lab-results";
+    static final String WRITABLE_STATUS = "(?i)^(PENDING|REQUIRES_REVIEW|COMPLETED|CRITICAL)$";
+    static final String STATUS_FILTER = "(?i)^(PENDING|REQUIRES_REVIEW|COMPLETED|CRITICAL|CANCELLED)?$";
+
     private final LabResultService labResultService;
+    private final IdempotencyService idempotencyService;
 
     @PostMapping
-    public ResponseEntity<LabResultResponse> createLabResult(@RequestBody CreateLabResultRequest request) {
-        LabResultResponse response = labResultService.createLabResult(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    @Operation(summary = "Record a lab result",
+            description = "DOCTOR with a care relationship to the patient (treating doctor); the author is always the "
+                    + "caller. Status defaults to PENDING and is normalised with isCritical (COMPLETED + true becomes "
+                    + "CRITICAL). Accepts an Idempotency-Key header: a replay returns 200 with the first response. "
+                    + "Writes a CREATE LAB_RESULT audit row and publishes ClinicalResultRecordedEvent.")
+    @StandardErrors
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "The recorded result"),
+            @ApiResponse(responseCode = "200", description = "Replay of an earlier request with the same Idempotency-Key")
+    })
+    public ResponseEntity<LabResultResponse> createLabResult(
+            @Parameter(description = "Optional duplicate-request key: 8 to 64 characters of [A-Za-z0-9_-]")
+            @RequestHeader(value = IdempotencyService.HEADER, required = false) String idempotencyKey,
+            @Valid @RequestBody CreateLabResultRequest request) {
+        IdempotentResult<LabResultResponse> result = idempotencyService.execute(SCOPE_CREATE, idempotencyKey,
+                LabResultResponse.class, () -> labResultService.createLabResult(request));
+        return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED).body(result.body());
+    }
+
+    @GetMapping
+    @Operation(summary = "List lab results (paged, newest first)",
+            description = "PATIENT: own results (patientSystemId defaults to the caller). CAREGIVER: patientSystemId "
+                    + "required and an active grant with lab results. DOCTOR: with patientSystemId the results of a "
+                    + "patient they are related to, otherwise their own authored results. ADMIN: any filter. CANCELLED "
+                    + "rows only with status=CANCELLED. Writes one READ LAB_RESULT audit row per patient.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "One page of results")
+    public ResponseEntity<PageResponse<LabResultResponse>> listLabResults(
+            @RequestParam(required = false) String patientSystemId,
+            @RequestParam(required = false) String doctorSystemId,
+            @Parameter(description = "PENDING, REQUIRES_REVIEW, COMPLETED, CRITICAL or CANCELLED")
+            @RequestParam(required = false)
+            @Pattern(regexp = STATUS_FILTER, message = "must be one of PENDING, REQUIRES_REVIEW, COMPLETED, CRITICAL, CANCELLED")
+            String status,
+            @Parameter(description = "Test type: BLOOD, URINE, STOOL, CULTURE, BIOPSY, GENETIC, SWAB or OTHER")
+            @RequestParam(required = false)
+            @Pattern(regexp = "(?i)^(BLOOD|URINE|STOOL|CULTURE|BIOPSY|GENETIC|SWAB|OTHER)?$",
+                    message = "must be one of BLOOD, URINE, STOOL, CULTURE, BIOPSY, GENETIC, SWAB, OTHER")
+            String type,
+            @Parameter(description = "true: only flagged results; false: only unflagged results")
+            @RequestParam(required = false) Boolean critical,
+            @RequestParam(required = false) Integer consultationId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(labResultService.listLabResults(patientSystemId, doctorSystemId, status, type,
+                critical, consultationId, page, size));
+    }
+
+    @GetMapping("/me/pending-review")
+    @Operation(summary = "List the calling doctor's lab results awaiting review",
+            description = "DOCTOR only. Unreviewed REQUIRES_REVIEW or CRITICAL results the caller authored or of "
+                    + "patients on the caller's active care team, newest first; totalElements is the queue size. "
+                    + "Writes one READ LAB_RESULT audit row per patient in the page.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "One page of the queue")
+    public ResponseEntity<PageResponse<LabResultResponse>> getMyPendingReview(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(labResultService.getMyPendingReview(page, size));
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Get one lab result",
+            description = "The patient, a related doctor, a caregiver whose active grant allows lab results, or an "
+                    + "administrator. A cancelled result is returned too. Writes a READ LAB_RESULT audit row.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The result")
     public ResponseEntity<LabResultResponse> getLabResultById(@PathVariable Integer id) {
-        LabResultResponse response = labResultService.getLabResultById(id);
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/patient/{patientSystemId}")
-    public ResponseEntity<List<LabResultResponse>> getPatientLabResults(@PathVariable String patientSystemId) {
-        List<LabResultResponse> results = labResultService.getPatientLabResults(patientSystemId);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/doctor/{doctorSystemId}")
-    public ResponseEntity<List<LabResultResponse>> getDoctorLabResults(@PathVariable String doctorSystemId) {
-        List<LabResultResponse> results = labResultService.getDoctorLabResults(doctorSystemId);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/consultation/{consultationId}")
-    public ResponseEntity<List<LabResultResponse>> getConsultationLabResults(@PathVariable Integer consultationId) {
-        List<LabResultResponse> results = labResultService.getConsultationLabResults(consultationId);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/blood")
-    public ResponseEntity<List<LabResultResponse>> getBloodTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("BLOOD");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/urine")
-    public ResponseEntity<List<LabResultResponse>> getUrineTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("URINE");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/stool")
-    public ResponseEntity<List<LabResultResponse>> getStoolTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("STOOL");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/culture")
-    public ResponseEntity<List<LabResultResponse>> getCultureTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("CULTURE");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/biopsy")
-    public ResponseEntity<List<LabResultResponse>> getBiopsyTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("BIOPSY");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/genetic")
-    public ResponseEntity<List<LabResultResponse>> getGeneticTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("GENETIC");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/swab")
-    public ResponseEntity<List<LabResultResponse>> getSwabTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("SWAB");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/other")
-    public ResponseEntity<List<LabResultResponse>> getOtherTestResults() {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType("OTHER");
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/type/{testType}")
-    public ResponseEntity<List<LabResultResponse>> getLabResultsByTestType(@PathVariable String testType) {
-        List<LabResultResponse> results = labResultService.getLabResultsByTestType(testType.toUpperCase());
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/patient/{patientSystemId}/type/{testType}")
-    public ResponseEntity<List<LabResultResponse>> getPatientLabResultsByTestType(
-            @PathVariable String patientSystemId,
-            @PathVariable String testType) {
-        List<LabResultResponse> results = labResultService.getPatientLabResultsByTestType(patientSystemId, testType.toUpperCase());
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/doctor/{doctorSystemId}/type/{testType}")
-    public ResponseEntity<List<LabResultResponse>> getDoctorLabResultsByTestType(
-            @PathVariable String doctorSystemId,
-            @PathVariable String testType) {
-        List<LabResultResponse> results = labResultService.getDoctorLabResultsByTestType(doctorSystemId, testType.toUpperCase());
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/status/{status}")
-    public ResponseEntity<List<LabResultResponse>> getLabResultsByStatus(@PathVariable String status) {
-        List<LabResultResponse> results = labResultService.getLabResultsByStatus(status.toUpperCase());
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/patient/{patientSystemId}/status/{status}")
-    public ResponseEntity<List<LabResultResponse>> getPatientLabResultsByStatus(
-            @PathVariable String patientSystemId,
-            @PathVariable String status) {
-        List<LabResultResponse> results = labResultService.getPatientLabResultsByStatus(patientSystemId, status.toUpperCase());
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/critical")
-    public ResponseEntity<List<LabResultResponse>> getCriticalLabResults() {
-        List<LabResultResponse> results = labResultService.getCriticalLabResults();
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/patient/{patientSystemId}/critical")
-    public ResponseEntity<List<LabResultResponse>> getPatientCriticalLabResults(@PathVariable String patientSystemId) {
-        List<LabResultResponse> results = labResultService.getPatientCriticalLabResults(patientSystemId);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/review/pending")
-    public ResponseEntity<List<LabResultResponse>> getPendingReviewLabResults() {
-        List<LabResultResponse> results = labResultService.getPendingReviewLabResults();
-        return ResponseEntity.ok(results);
+        return ResponseEntity.ok(labResultService.getLabResultById(id));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<LabResultResponse> updateLabResult(
-            @PathVariable Integer id,
-            @RequestBody CreateLabResultRequest request) {
-        LabResultResponse response = labResultService.updateLabResult(id, request);
-        return ResponseEntity.ok(response);
+    @Operation(summary = "Edit a lab result",
+            description = "The author doctor only. Partial update: absent fields are unchanged, blank optional text "
+                    + "clears the field. Cancelled results cannot change and a recorded result cannot go back to "
+                    + "PENDING (409). Writes an UPDATE LAB_RESULT audit row and publishes ClinicalResultRecordedEvent.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The updated result")
+    public ResponseEntity<LabResultResponse> updateLabResult(@PathVariable Integer id,
+                                                             @Valid @RequestBody UpdateLabResultRequest request) {
+        return ResponseEntity.ok(labResultService.updateLabResult(id, request));
     }
 
     @PatchMapping("/{id}/status")
+    @Operation(summary = "Change the status of a lab result",
+            description = "A DOCTOR with a care relationship to the patient. The current status is a no-op. The "
+                    + "returned status can differ from the requested one (a flagged result set to COMPLETED becomes "
+                    + "CRITICAL). Writes an UPDATE LAB_RESULT audit row and publishes ClinicalResultRecordedEvent.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The result after the change")
     public ResponseEntity<LabResultResponse> updateLabResultStatus(
             @PathVariable Integer id,
-            @RequestParam String status) {
-        LabResultResponse response = labResultService.updateLabResultStatus(id, status);
-        return ResponseEntity.ok(response);
+            @Parameter(description = "PENDING, REQUIRES_REVIEW, COMPLETED or CRITICAL")
+            @RequestParam("status")
+            @Pattern(regexp = WRITABLE_STATUS, message = "must be one of PENDING, REQUIRES_REVIEW, COMPLETED, CRITICAL")
+            String status) {
+        return ResponseEntity.ok(labResultService.updateLabResultStatus(id, status));
     }
 
     @PostMapping("/{id}/review")
-    public ResponseEntity<LabResultResponse> reviewLabResult(
-            @PathVariable Integer id,
-            @RequestParam(required = false) String reviewedBy,
-            @RequestParam String status) {
-        // reviewedBy is accepted for backwards compatibility but ignored: the reviewer is always the
-        // authenticated doctor (taken from the JWT inside the service).
-        LabResultResponse response = labResultService.reviewLabResult(id, status);
-        return ResponseEntity.ok(response);
+    @Operation(summary = "Review (sign off) a lab result",
+            description = "A DOCTOR with a care relationship to the patient; the reviewer is always the caller. Sets "
+                    + "status COMPLETED or CRITICAL (the flag follows), stamps reviewer and time and stores the notes, "
+                    + "also when already reviewed. Cancelled results cannot be reviewed (409). Writes an UPDATE "
+                    + "LAB_RESULT audit row and publishes ClinicalResultRecordedEvent.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The reviewed result")
+    public ResponseEntity<LabResultResponse> reviewLabResult(@PathVariable Integer id,
+                                                             @Valid @RequestBody ReviewResultRequest request) {
+        return ResponseEntity.ok(labResultService.reviewLabResult(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @Operation(summary = "Cancel a lab result",
+            description = "The author doctor or an administrator. No row is deleted: the status becomes CANCELLED and "
+                    + "the result leaves every list; repeating is a no-op. Writes a DELETE LAB_RESULT audit row and "
+                    + "publishes ClinicalResultRecordedEvent.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Cancelled"),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired access token",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Not the author doctor or an administrator",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "No such result",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public ResponseEntity<Void> deleteLabResult(@PathVariable Integer id) {
         labResultService.deleteLabResult(id);
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/me")
-    public ResponseEntity<List<LabResultResponse>> getMyLabResults(
-            @RequestAttribute("systemId") String systemId,
-            @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole);
-        return ResponseEntity.ok(results);
+    /**
+     * @deprecated use {@code GET /api/lab-results?patientSystemId=}; kept while web and e2e code calls it.
+     */
+    @Deprecated
+    @GetMapping("/patient/{patientSystemId}")
+    @Operation(summary = "List a patient's lab results (deprecated array)", deprecated = true,
+            description = "Replaced by GET /api/lab-results?patientSystemId=. Same access as reading one result. "
+                    + "Newest first, at most 200 rows, without cancelled results. Writes a READ LAB_RESULT audit row.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The results")
+    public ResponseEntity<List<LabResultResponse>> getPatientLabResults(@PathVariable String patientSystemId) {
+        return ResponseEntity.ok(labResultService.getPatientLabResults(patientSystemId));
     }
 
-    @GetMapping("/me/critical")
-    public ResponseEntity<List<LabResultResponse>> getMyCriticalLabResults(
-            @RequestAttribute("systemId") String systemId,
-            @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getCriticalLabResultsForUser(systemId, userRole);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/me/type/{testType}")
-    public ResponseEntity<List<LabResultResponse>> getMyLabResultsByTestType(
-            @PathVariable String testType,
-            @RequestAttribute("systemId") String systemId,
-            @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole)
-                .stream()
-                .filter(result -> result.getTestType().equalsIgnoreCase(testType))
-                .toList();
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/me/status/{status}")
-    public ResponseEntity<List<LabResultResponse>> getMyLabResultsByStatus(
-            @PathVariable String status,
-            @RequestAttribute("systemId") String systemId,
-            @RequestAttribute("userRole") String userRole) {
-        List<LabResultResponse> results = labResultService.getLabResultsForUser(systemId, userRole)
-                .stream()
-                .filter(result -> result.getStatus().equalsIgnoreCase(status))
-                .toList();
-        return ResponseEntity.ok(results);
+    /**
+     * @deprecated use {@code GET /api/lab-results} (doctor) or {@code ?doctorSystemId=} (admin); kept while web and
+     * e2e code calls it.
+     */
+    @Deprecated
+    @GetMapping("/doctor/{doctorSystemId}")
+    @Operation(summary = "List a doctor's authored lab results (deprecated array)", deprecated = true,
+            description = "Replaced by GET /api/lab-results. The doctor themselves or an administrator. Newest first, "
+                    + "at most 200 rows, without cancelled results. Writes one READ LAB_RESULT audit row per patient.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The results")
+    public ResponseEntity<List<LabResultResponse>> getDoctorLabResults(@PathVariable String doctorSystemId) {
+        return ResponseEntity.ok(labResultService.getDoctorLabResults(doctorSystemId));
     }
 }

@@ -92,6 +92,17 @@ public class CallInfoService {
         if (kind == null) {
             return describeOne(appointment);
         }
+        if (kind == AppointmentCallRelevantChangeEvent.Kind.ENDED) {
+            // Outcome: a session that has not gone LIVE (and is not already final) becomes ENDED on commit.
+            CallInfo current = describeOne(appointment);
+            if (current.callStatus() == null || CallSession.LIVE.equals(current.callStatus())
+                    || CallSession.ENDED.equals(current.callStatus())
+                    || CallSession.CANCELLED.equals(current.callStatus())) {
+                return current;
+            }
+            return new CallInfo(CallSession.ENDED, current.callJoinRoute(),
+                    current.joinWindowOpensAt(), current.joinWindowClosesAt());
+        }
         if (kind == AppointmentCallRelevantChangeEvent.Kind.DURATION_CHANGED) {
             CallInfo current = describeOne(appointment);
             if (current.joinWindowClosesAt() == null || CallSession.ENDED.equals(current.callStatus())

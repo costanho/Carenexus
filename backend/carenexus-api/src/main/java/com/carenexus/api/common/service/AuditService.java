@@ -16,8 +16,12 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.Collection;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /**
  * Writes rows to audit_log.
@@ -39,6 +43,9 @@ import java.util.Set;
 public class AuditService {
 
     private static final Set<String> CLINICAL_ACTIONS = Set.of("READ", "CREATE", "UPDATE", "DELETE");
+    private static final Set<String> STATUSES = Set.of("SUCCESS", "FAILURE");
+    /** Upper snake case, fits audit_log.action (VARCHAR 50). */
+    private static final Pattern ACTION_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]{1,49}$");
     private static final int MAX_ERROR_LENGTH = 500;
 
     private final AuditLogRepository auditLogRepository;
@@ -123,6 +130,79 @@ public class AuditService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logClinicalFailure(String action, String resourceType, Integer resourceId, String patientSystemId, String reason) {
         auditLogRepository.save(clinicalEntry(action, resourceType, resourceId, patientSystemId, "FAILURE", reason));
+    }
+
+    /**
+     * Record a successful multi-row read: one READ row per distinct patient in the result (no row for an empty
+     * result). Use it for lists that span patients (a doctor's lists, admin lists); a list scoped to one patient
+     * is audited with {@link #logClinicalAccess} and that patient's id.
+     *
+     * @param resourceType the service's RESOURCE constant
+     * @param rows         the rows returned to the caller
+     * @param patientOf    extracts the patient system id of a row (rows yielding null are skipped)
+     */
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public <T> void logListRead(String resourceType, Collection<T> rows, Function<T, String> patientOf) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        rows.stream()
+                .filter(Objects::nonNull)
+                .map(patientOf)
+                .filter(Objects::nonNull)
+                .distinct()
+                .forEach(patient -> logClinicalAccess("READ", resourceType, null, patient));
+    }
+
+    // ==================== ACCOUNT AND SECURITY EVENTS ====================
+
+    /**
+     * Record an account or security event: password reset or change, email verification, MFA enrolment,
+     * clinician verification, account closure, role change, settings update, ...
+     *
+     * A SUCCESS row joins the caller's transaction (it disappears if the change rolls back); a FAILURE row is
+     * written in its own transaction so it survives the caller's rollback. Never pass secrets, tokens or message
+     * text in any argument.
+     *
+     * @param actorSystemId  who did it; null when nobody is signed in (for example a reset link used anonymously)
+     * @param action         upper snake case, for example PASSWORD_RESET, EMAIL_VERIFIED, MFA_ENABLED, DOCTOR_VERIFY,
+     *                       ACCOUNT_CLOSE, ROLE_CHANGE, SETTINGS_UPDATE
+     * @param resourceType   for example ACCOUNT, USER_SETTINGS, DOCTOR_PROFILE, SYSTEM_SETTING
+     * @param targetSystemId the account the event is about (may equal the actor); null for system-wide events
+     * @param status         SUCCESS or FAILURE (null means SUCCESS)
+     */
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public void logAccountEvent(String actorSystemId, String action, String resourceType, String targetSystemId, String status) {
+        String normalizedAction = action == null ? "" : action.trim().toUpperCase(Locale.ROOT);
+        if (!ACTION_PATTERN.matcher(normalizedAction).matches()) {
+            throw new IllegalArgumentException("Unsupported audit action: " + action);
+        }
+        String normalizedStatus = status == null || status.isBlank() ? "SUCCESS" : status.trim().toUpperCase(Locale.ROOT);
+        if (!STATUSES.contains(normalizedStatus)) {
+            throw new IllegalArgumentException("Unsupported audit status: " + status);
+        }
+
+        AuditLog entry = withRequestContext(AuditLog.builder()
+                .systemId(actorSystemId)
+                .actorRole(roleOf(actorSystemId))
+                .action(normalizedAction)
+                .resourceType(resourceType == null ? null : truncate(resourceType.trim().toUpperCase(Locale.ROOT), 50))
+                .targetSystemId(targetSystemId)
+                // Lets "who touched this patient's account" be answered from the patient index as well.
+                .patientSystemId(targetSystemId != null && targetSystemId.startsWith("PAT-") ? targetSystemId : null)
+                .status(normalizedStatus))
+                .build();
+
+        boolean failure = "FAILURE".equals(normalizedStatus);
+        boolean writableTx = TransactionSynchronizationManager.isActualTransactionActive()
+                && !TransactionSynchronizationManager.isCurrentTransactionReadOnly();
+        if (transactionManager == null || (writableTx && !failure)) {
+            auditLogRepository.save(entry);
+            return;
+        }
+        TransactionTemplate requiresNew = new TransactionTemplate(transactionManager);
+        requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        requiresNew.executeWithoutResult(tx -> auditLogRepository.save(entry));
     }
 
     /**
@@ -224,6 +304,24 @@ public class AuditService {
         builder.httpMethod(truncate(request.getMethod(), 10));
         builder.requestPath(truncate(request.getRequestURI(), 255));
         return builder;
+    }
+
+    /**
+     * Role recorded for the actor of an account event: the caller's role when the actor is the signed-in caller,
+     * otherwise derived from the system id prefix (jobs, anonymous token flows acting for an account).
+     */
+    private String roleOf(String actorSystemId) {
+        if (actorSystemId == null) {
+            return null;
+        }
+        if (actorSystemId.equals(userContext.getCurrentUserSystemId()) && userContext.getCurrentUserRole() != null) {
+            return userContext.getCurrentUserRole();
+        }
+        if (actorSystemId.startsWith("PAT-")) return "PATIENT";
+        if (actorSystemId.startsWith("DOC-")) return "DOCTOR";
+        if (actorSystemId.startsWith("CGV-")) return "CAREGIVER";
+        if (actorSystemId.startsWith("ADM-")) return "ADMIN";
+        return null;
     }
 
     private static HttpServletRequest currentRequest() {

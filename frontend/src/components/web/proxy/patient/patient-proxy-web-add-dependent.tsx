@@ -1,807 +1,871 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type Control, Controller, type FieldErrors, useForm } from 'react-hook-form';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View,
-} from 'react-native';
-import { api } from '@/lib/auth/auth.interceptor';
+  ariaLevel, Banner, Button, Card, colors, DateField, fontSize, FormError, Icon, IconButton, type IoniconsName,
+  radius, ROLE_THEME, type RoleTheme, Screen, SectionCard, SelectField, space, STATUS_TONES,
+  TagListField, TextField, useUiTheme, webOnly, type WebKeyEvent,
+} from '@/components/web/ui';
+import { refreshDependents } from '@/components/web/sections/proxy-dependents';
+import { useRequestAccess } from '@/hooks/use-caregiver-access-requests';
+import { useCaregiverDependents } from '@/hooks/use-caregiver-dependents';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import { apiError, isNetworkError } from '@/lib/api/errors';
+import { applyFieldErrors } from '@/lib/api/form-errors';
+import { useIdempotencyKey } from '@/lib/api/idempotency';
+import { allDataFlags, dataFlagsOf, presetDataFlags } from '@/lib/caregiver/access';
+import { createDependent, fetchDependents } from '@/lib/caregiver/api';
+import { clearClipboard, copyToClipboard, generateTemporaryPassword } from '@/lib/caregiver/credentials';
+import { CommunicationFields, PermissionFields } from '@/lib/caregiver/permission-fields';
+import {
+  accessRequestSchema, type AccessRequestFormValues,
+  CREATE_DEPENDENT_STEPS, createDependentSchema, type CreateDependentFormValues,
+  EMAIL_MAX, LIST_ITEM_MAX, LIST_MAX_ITEMS, MESSAGE_MAX, NAME_MAX, PASSWORD_MAX, PHONE_MAX, RELATIONSHIP_MAX,
+  toAccessRequestBody, toCreateDependentBody,
+} from '@/lib/caregiver/schemas';
+import type {
+  AccessLevel, BloodType, CaregiverDependent, CommFlag, CreateDependentBody, DataFlag, Gender,
+} from '@/lib/caregiver/types';
+import { clinicToday } from '@/lib/time/clinic';
+import { AccessRequestsPanel, type AccessRequestTab } from './patient-proxy-access-requests';
 
-const WHITE      = '#FFFFFF';
-const TEXT       = '#111827';
-const GRAY       = '#6B7280';
-const GRAY2      = '#6B7280';
-const BORDER     = '#E5E7EB';
-const BG         = '#F9FAFB';
-const PURPLE     = '#7C3AED';
-const PURPLE_BG  = '#F5F3FF';
-const GREEN      = '#047857';
-const ORANGE     = '#B45309';
-const RED        = '#B91C1C';
+// Add Loved One. Two ways to link a patient to the signed-in caregiver:
+//
+//   Link an existing patient   the person already has an account: a request is sent and the patient decides
+//                              what to share. The page shows the same confirmation whatever the email, because
+//                              the server never says whether an email belongs to a patient.
+//   Create a new account       for someone the caregiver is the parent or legal guardian of. Email and password
+//                              are optional: without them the caregiver manages the account until the person is
+//                              invited to sign in from their profile.
+//
+// The chosen way lives in the URL (`mode=link|create|requests`), so Back and a refresh keep it.
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type Mode = 'link' | 'create' | 'requests';
 
-type AccessLevel = 'FULL_ACCESS' | 'VIEW_ONLY' | 'EDIT_ONLY' | 'CUSTOM';
-type Gender      = 'MALE' | 'FEMALE' | 'OTHER';
-type HealthStat  = 'STABLE' | 'MONITOR' | 'CRITICAL';
-type BloodType   = 'A+' | 'A-' | 'B+' | 'B-' | 'O+' | 'O-' | 'AB+' | 'AB-';
-
-interface PersonalForm {
-  first_name: string;
-  last_name:  string;
-  email:      string;
-  phone:      string;
-  password:   string;
-}
-interface HealthForm {
-  date_of_birth:      string;
-  gender:             Gender | '';
-  blood_type:         BloodType | '';
-  health_status:      HealthStat;
-  allergies:          string[];
-  chronic_conditions: string[];
-}
-interface AccessForm {
-  relationship:           string;
-  access_level:           AccessLevel;
-  expires_at:             string;
-  can_view_records:       boolean;
-  can_view_appointments:  boolean;
-  can_view_medications:   boolean;
-  can_view_lab_results:   boolean;
-  can_view_imaging:       boolean;
-  /** Request only: the patient must approve before it takes effect. */
-  can_message_care_team:  boolean;
-  /** Request only: the patient must approve before it takes effect. */
-  can_join_calls:         boolean;
-  can_view_consultations: boolean;
-  can_schedule_appointments: boolean;
-  can_manage_care_plan:   boolean;
+function toMode(value: string | undefined): Mode | null {
+  return value === 'link' || value === 'create' || value === 'requests' ? value : null;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const GENDER_OPTIONS: { value: Gender; label: string }[] = [
+  { value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'OTHER', label: 'Other' },
+];
+const BLOOD_TYPE_OPTIONS: { value: BloodType; label: string }[] =
+  (['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'] as BloodType[]).map(v => ({ value: v, label: v }));
 
-// Temporary password: 12 random characters with at least one letter and one digit (backend rule:
-// at least 8 characters with a letter and a number).
-function generatePassword() {
-  const letters = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ';
-  const digits  = '23456789';
-  const all     = letters + digits;
-  const pick = (set: string) => {
-    const buf = new Uint32Array(1);
-    if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(buf);
-    else buf[0] = Math.floor(Math.random() * 0xffffffff);
-    return set[buf[0] % set.length];
-  };
-  const chars = [pick(letters), pick(digits), ...Array.from({ length: 10 }, () => pick(all))];
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
-}
+const DATA_FLAG_NAMES: readonly DataFlag[] = [
+  'canViewRecords', 'canViewAppointments', 'canViewMedications', 'canViewLabResults', 'canViewImaging',
+  'canViewConsultations', 'canViewBilling', 'canScheduleAppointments', 'canManageCarePlan', 'canManageBilling',
+];
 
-// Date-only input means "until the end of that day"; the backend also accepts full ISO date-times.
-// The Y-M-D parts are checked directly: parsing as local midnight and reading back toISOString() shifts the
-// day in any timezone ahead of UTC (e.g. Africa/Harare) and rejected every valid date.
-function isValidDate(value: string) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!m) return false;
-  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
-  if (month < 1 || month > 12 || day < 1) return false;
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return day <= daysInMonth;
-}
+// ─── Choice ───────────────────────────────────────────────────────────────────
 
-// Messaging and video calls are not part of an access level: they are separate requests the patient approves.
-function permissionsForLevel(level: AccessLevel): Partial<AccessForm> {
-  if (level === 'FULL_ACCESS') return {
-    can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true,
-    can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
-  };
-  if (level === 'VIEW_ONLY') return {
-    can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: false,
-    can_view_consultations: true, can_schedule_appointments: false, can_manage_care_plan: false,
-  };
-  if (level === 'EDIT_ONLY') return {
-    can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true,
-    can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: false,
-  };
-  return {};
-}
-
-// ─── Small components ─────────────────────────────────────────────────────────
-
-function Label({ text, required }: { text: string; required?: boolean }) {
+function ChoiceCard({ icon, title, description, onPress }: {
+  icon: IoniconsName; title: string; description: string; onPress: () => void;
+}) {
+  const { accent, accentBg } = useUiTheme();
   return (
-    <Text style={styles.label}>
-      {text}{required && <Text style={{ color: RED }}> *</Text>}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${description}`}
+      style={({ pressed }) => [styles.choice, pressed && { borderColor: accent, backgroundColor: accentBg }]}
+    >
+      <View style={[styles.choiceIcon, { backgroundColor: accentBg }]}>
+        <Icon name={icon} size={22} color={accent} />
+      </View>
+      <View style={styles.choiceText}>
+        <Text style={styles.choiceTitle}>{title}</Text>
+        <Text style={styles.choiceDescription}>{description}</Text>
+      </View>
+      <Icon name="chevron-forward" size={18} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function ChoiceStep({ onChoose, onViewRequests }: { onChoose: (mode: Mode) => void; onViewRequests: () => void }) {
+  return (
+    <SectionCard title="Who are you adding?" subtitle="Choose the option that fits this person.">
+      <ChoiceCard
+        icon="link-outline"
+        title="Link an existing patient"
+        description="They already have a CareNexus account. They get your request and decide what to share with you."
+        onPress={() => onChoose('link')}
+      />
+      <ChoiceCard
+        icon="person-add-outline"
+        title="Create a new account"
+        description="For a child or someone you are the legal guardian of who has no account yet. You can manage it for them."
+        onPress={() => onChoose('create')}
+      />
+      <Button
+        label="View requests you have sent"
+        icon="mail-open-outline"
+        variant="ghost"
+        onPress={onViewRequests}
+      />
+    </SectionCard>
+  );
+}
+
+// ─── Link an existing patient ─────────────────────────────────────────────────
+
+const LINK_FIELDS = ['patientEmail', 'relationship', 'accessLevel', 'message'] as const;
+
+function LinkExistingFlow({ onDone, onViewRequests }: { onDone: () => void; onViewRequests: () => void }) {
+  const { control, handleSubmit, watch, setValue, getValues, setError, reset } = useForm<AccessRequestFormValues>({
+    resolver: zodResolver(accessRequestSchema),
+    defaultValues: {
+      patientEmail: '', relationship: '', accessLevel: 'VIEW_ONLY', message: '',
+      ...presetDataFlags('VIEW_ONLY', allDataFlags(false)),
+      canMessageCareTeam: false, canJoinCalls: false,
+    },
+  });
+  const send = useRequestAccess();
+  const [formError, setFormError] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const values = watch();
+
+  const changeLevel = (level: AccessLevel) => {
+    setValue('accessLevel', level, { shouldDirty: true });
+    const next = presetDataFlags(level, dataFlagsOf(getValues()));
+    for (const flag of DATA_FLAG_NAMES) setValue(flag, next[flag]);
+  };
+
+  const submit = handleSubmit(async form => {
+    setFormError(null);
+    const result = await send.run(toAccessRequestBody(form));
+    if (result.ok) setSent(result.data);
+    // A 409 here means the caregiver is already linked to this patient: its sentence is shown, not the confirmation.
+    else if (result.error) setFormError(applyFieldErrors(result.error, setError, LINK_FIELDS));
+  });
+
+  if (sent) {
+    return (
+      <Card style={styles.result}>
+        <Icon name="paper-plane-outline" size={40} color={STATUS_TONES.success.fg} />
+        <Text style={styles.resultTitle} accessibilityRole="header" {...ariaLevel(2)}>Request sent</Text>
+        <Text style={styles.resultText} role="status">{sent}</Text>
+        <Text style={styles.resultNote}>
+          You will get a notification when your request is answered. Until then you cannot see any of their
+          information. A request that is not answered expires after 30 days.
+        </Text>
+        <View style={styles.resultActions}>
+          <Button label="View my requests" icon="mail-open-outline" variant="secondary" onPress={onViewRequests} />
+          <Button
+            label="Send another request"
+            icon="add-outline"
+            variant="secondary"
+            onPress={() => { reset(); setSent(null); }}
+          />
+          <Button label="Back to Dashboard" onPress={onDone} />
+        </View>
+      </Card>
+    );
+  }
+
+  return (
+    <SectionCard
+      title="Link an existing patient"
+      subtitle="Send a request to someone who already has their own account. They choose what you can see and do."
+    >
+      <TextField
+        label="Patient's email address"
+        control={control}
+        name="patientEmail"
+        placeholder="name@example.com"
+        inputMode="email"
+        autoComplete="off"
+        autoCapitalize="none"
+        maxLength={EMAIL_MAX}
+        hint="The email they use to sign in to CareNexus."
+        required
+      />
+      <TextField
+        label="Your relationship to them"
+        control={control}
+        name="relationship"
+        placeholder="For example daughter, husband, friend"
+        maxLength={RELATIONSHIP_MAX}
+        required
+      />
+      <Banner
+        tone="info"
+        text="This is what you are asking for. The patient can change it when they approve, and can change or end your access at any time."
+      />
+      <PermissionFields
+        level={values.accessLevel}
+        flags={dataFlagsOf(values)}
+        onLevelChange={changeLevel}
+        onFlagChange={(flag, value) => setValue(flag, value, { shouldDirty: true })}
+        disabled={send.pending}
+      />
+      <CommunicationFields
+        value={{ canMessageCareTeam: values.canMessageCareTeam, canJoinCalls: values.canJoinCalls }}
+        onChange={(flag: CommFlag, value) => setValue(flag, value, { shouldDirty: true })}
+        note="Messaging and video calls take effect only if the patient switches them on when they approve."
+        disabled={send.pending}
+      />
+      <TextField
+        label="Message to the patient (optional)"
+        control={control}
+        name="message"
+        placeholder="Tell them why you are asking"
+        multiline
+        rows={3}
+        maxLength={MESSAGE_MAX}
+        showCount
+      />
+      <FormError message={formError} />
+      <View style={styles.formActions}>
+        <Button label="Send request" icon="paper-plane-outline" onPress={submit} loading={send.pending} />
+      </View>
+    </SectionCard>
+  );
+}
+
+// ─── Create a new account ─────────────────────────────────────────────────────
+
+const STEP_TITLES = ['Personal Details', 'Health Profile', 'Access Settings'] as const;
+
+const CREATE_FIELDS = [
+  'firstName', 'lastName', 'email', 'password', 'phone', 'dateOfBirth', 'gender', 'bloodType', 'allergies',
+  'chronicConditions', 'relationship', 'accessLevel', 'guardianAttested',
+] as const;
+
+/** The first step that holds one of these fields, or -1. */
+function stepOf(fields: readonly string[]): number {
+  return CREATE_DEPENDENT_STEPS.findIndex(step => step.some(name => fields.includes(name)));
+}
+
+function StepHeader({ current }: { current: number }) {
+  const { accent } = useUiTheme();
+  return (
+    <View style={styles.steps}>
+      <Text style={styles.stepStatus} role="status" aria-live="polite">
+        {`Step ${current + 1} of ${STEP_TITLES.length}: ${STEP_TITLES[current]}`}
+      </Text>
+      <View style={styles.stepBars} aria-hidden importantForAccessibility="no-hide-descendants">
+        {STEP_TITLES.map((title, i) => (
+          <View key={title} style={[styles.stepBar, i <= current && { backgroundColor: accent }]} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+type CopyState = 'idle' | 'copied' | 'failed';
+
+/** Copy feedback that says so when the clipboard refused, and remembers that a password was put there. */
+function usePasswordCopy() {
+  const [state, setState] = useState<CopyState>('idle');
+  const copied = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const copy = useCallback(async (password: string) => {
+    const ok = await copyToClipboard(password);
+    if (ok) copied.current = true;
+    setState(ok ? 'copied' : 'failed');
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState('idle'), ok ? 2500 : 6000);
+  }, []);
+
+  /** Empties the clipboard if this form put a password there. */
+  const clear = useCallback(() => {
+    if (!copied.current) return;
+    copied.current = false;
+    void clearClipboard();
+  }, []);
+
+  // Leaving the form by any route (sidebar, browser Back) also clears it.
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (copied.current) void clearClipboard();
+  }, []);
+
+  return { state, copy, clear };
+}
+
+function CopyStatus({ state }: { state: CopyState }) {
+  return (
+    <Text
+      style={[styles.copyStatus, state === 'failed' && { color: colors.danger }]}
+      role={state === 'failed' ? 'alert' : 'status'}
+      aria-live={state === 'failed' ? 'assertive' : 'polite'}
+    >
+      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Could not copy. Show the password and copy it by hand.' : ''}
     </Text>
   );
 }
 
-function Input({ value, onChange, placeholder, error, secureTextEntry, keyboardType, editable = true }: {
-  value: string; onChange: (v: string) => void; placeholder?: string;
-  error?: string; secureTextEntry?: boolean; keyboardType?: any; editable?: boolean;
-}) {
+/**
+ * The guardian attestation: a required checkbox (role "checkbox", Space toggles it on the web) with its
+ * explanation and the validation message tied to it.
+ */
+function GuardianCheckbox({ control }: { control: Control<CreateDependentFormValues> }) {
+  const { accent } = useUiTheme();
+  const label = "I am this person's parent or legal guardian";
+  const note = 'You confirm that you may create and manage this account for them. If this person manages their own '
+    + 'care, ask them to create their own account and use Link an existing patient instead.';
   return (
-    <View style={styles.inputWrap}>
-      <TextInput
-        style={[styles.input, !!error && styles.inputError, !editable && styles.inputDisabled]}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={GRAY2}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        editable={editable}
-        autoCapitalize="none"
-      />
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
-  );
-}
-
-function SelectRow<T extends string>({ options, value, onChange }: {
-  options: { value: T; label: string }[];
-  value: T | '';
-  onChange: (v: T) => void;
-}) {
-  return (
-    <View style={styles.selectRow}>
-      {options.map(o => (
-        <TouchableOpacity
-          key={o.value}
-          style={[styles.selectChip, value === o.value && styles.selectChipActive]}
-          activeOpacity={0.7}
-          onPress={() => onChange(o.value)}
-        >
-          <Text style={[styles.selectChipText, value === o.value && styles.selectChipTextActive]}>
-            {o.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-
-function TagInput({ tags, onAdd, onRemove, placeholder }: {
-  tags: string[]; onAdd: (t: string) => void; onRemove: (i: number) => void; placeholder?: string;
-}) {
-  const [text, setText] = useState('');
-  function add() {
-    const t = text.trim();
-    if (t && !tags.includes(t)) { onAdd(t); setText(''); }
-  }
-  return (
-    <View style={styles.tagContainer}>
-      <View style={styles.tagChips}>
-        {tags.map((t, i) => (
-          <View key={i} style={styles.tagChip}>
-            <Text style={styles.tagChipText}>{t}</Text>
-            <TouchableOpacity onPress={() => onRemove(i)} hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}>
-              <Ionicons name="close" size={12} color={PURPLE} />
-            </TouchableOpacity>
-          </View>
-        ))}
-      </View>
-      <View style={styles.tagInputRow}>
-        <TextInput
-          style={styles.tagInput}
-          value={text}
-          onChangeText={setText}
-          placeholder={placeholder ?? 'Type and press Add…'}
-          placeholderTextColor={GRAY2}
-          onSubmitEditing={add}
-          returnKeyType="done"
-        />
-        <TouchableOpacity style={styles.tagAddBtn} onPress={add} activeOpacity={0.7}>
-          <Text style={styles.tagAddBtnText}>Add</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-function PermSwitch({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <TouchableOpacity
-      style={styles.permRow}
-      activeOpacity={0.7}
-      onPress={() => onChange(!value)}
-      accessibilityRole="switch"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
-    >
-      <Text style={styles.permLabel}>{label}</Text>
-      <View style={[styles.toggle, value && styles.toggleOn]}>
-        <View style={[styles.toggleThumb, value && styles.toggleThumbOn]} />
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-// ─── Step header ──────────────────────────────────────────────────────────────
-
-const STEPS = ['Personal Details', 'Health Profile', 'Access Settings'];
-
-function Stepper({ current }: { current: number }) {
-  return (
-    <View style={styles.stepper}>
-      {STEPS.map((label, i) => {
-        const done   = i < current;
-        const active = i === current;
+    <Controller
+      control={control}
+      name="guardianAttested"
+      render={({ field, fieldState }) => {
+        const checked = field.value === true;
+        const toggle = () => field.onChange(!checked);
+        const error = fieldState.error?.message;
         return (
-          <View key={i} style={styles.stepItem}>
-            <View style={[styles.stepCircle, active && styles.stepCircleActive, done && styles.stepCircleDone]}>
-              {done
-                ? <Ionicons name="checkmark" size={14} color={WHITE} />
-                : <Text style={[styles.stepNum, (active || done) && { color: WHITE }]}>{i + 1}</Text>}
-            </View>
-            <Text style={[styles.stepLabel, active && styles.stepLabelActive]}>{label}</Text>
-            {i < STEPS.length - 1 && (
-              <View style={[styles.stepLine, done && styles.stepLineDone]} />
-            )}
+          <View style={styles.attest}>
+            <Pressable
+              ref={field.ref}
+              role="checkbox"
+              aria-checked={checked}
+              aria-required
+              aria-invalid={error ? true : undefined}
+              accessibilityState={{ checked }}
+              accessibilityLabel={`${label}. ${note}${error ? ` ${error}` : ''}`}
+              onPress={toggle}
+              onBlur={field.onBlur}
+              style={styles.attestRow}
+              {...webOnly({
+                onKeyDown: (event: WebKeyEvent) => {
+                  if (event.key === ' ' || event.key === 'Spacebar') { event.preventDefault(); toggle(); }
+                },
+              })}
+            >
+              <View style={[styles.checkbox, checked && { backgroundColor: accent, borderColor: accent }, !!error && !checked && { borderColor: colors.danger }]}>
+                {checked ? <Icon name="checkmark" size={16} color="#FFFFFF" /> : null}
+              </View>
+              <View style={styles.attestText}>
+                <Text style={styles.attestLabel}>
+                  {label}
+                  <Text style={styles.required}> *</Text>
+                </Text>
+                <Text style={styles.attestNote}>{note}</Text>
+              </View>
+            </Pressable>
+            {error ? (
+              <View style={styles.attestError} accessibilityRole="alert">
+                <Icon name="alert-circle-outline" size={14} color={colors.danger} />
+                <Text style={styles.attestErrorText}>{error}</Text>
+              </View>
+            ) : null}
           </View>
         );
-      })}
+      }}
+    />
+  );
+}
+
+interface CreatedState {
+  dependent: CaregiverDependent;
+  /** The temporary password, only when it is certain that this is the one stored on the account. */
+  password:  string | null;
+  /** The account was created by an earlier attempt whose answer never arrived. */
+  recovered: boolean;
+}
+
+function CreatedView({ created, copy, onDone }: {
+  created: CreatedState;
+  copy:    ReturnType<typeof usePasswordCopy>;
+  onDone:  () => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  const { dependent, password, recovered } = created;
+  const name = dependent.patientName?.trim() || 'Your loved one';
+  const firstName = name.split(/\s+/)[0];
+  const canSignIn = !dependent.managed && !!dependent.patientEmail;
+
+  return (
+    <Card style={styles.result}>
+      <Icon name="checkmark-circle" size={48} color={STATUS_TONES.success.fg} />
+      <Text style={styles.resultTitle} accessibilityRole="header" {...ariaLevel(2)}>Loved One Added!</Text>
+      <Text style={styles.resultText} role="status">
+        {recovered
+          ? `${name} was already added by your earlier attempt and is now linked under your care. No second account was created.`
+          : `${name} has been added as a linked patient under your care.`}
+      </Text>
+
+      {canSignIn ? (
+        <View style={styles.credentials}>
+          <Text style={styles.credentialsTitle} accessibilityRole="header" {...ariaLevel(3)}>
+            {`Sign-in details for ${firstName}`}
+          </Text>
+          <View style={styles.credentialRow}>
+            <Text style={styles.credentialLabel}>Email</Text>
+            <Text style={styles.credentialValue}>{dependent.patientEmail}</Text>
+          </View>
+          {password ? (
+            <>
+              <View style={styles.credentialRow}>
+                <Text style={styles.credentialLabel}>Temporary password</Text>
+                <Text style={styles.credentialValue}>{visible ? password : '••••••••••••'}</Text>
+                <IconButton
+                  label={visible ? 'Hide password' : 'Show password'}
+                  icon={visible ? 'eye-off-outline' : 'eye-outline'}
+                  size="sm"
+                  onPress={() => setVisible(v => !v)}
+                />
+                <IconButton label="Copy password" icon="copy-outline" size="sm" onPress={() => { void copy.copy(password); }} />
+              </View>
+              <CopyStatus state={copy.state} />
+              <Text style={styles.resultNote}>
+                {`Give these to ${firstName} in person or by phone. Do not send the password by email or SMS. It is not shown again after you leave this page.`}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.resultNote}>
+              {`The temporary password from your earlier attempt cannot be shown again. ${firstName} can choose a new one with "Forgot password" on the sign-in page.`}
+            </Text>
+          )}
+        </View>
+      ) : (
+        <Banner
+          tone="info"
+          text={`You manage this account. ${firstName} cannot sign in yet. When they are ready, open their profile and choose Invite to sign in.`}
+        />
+      )}
+
+      <Button label="Back to Dashboard" onPress={() => { copy.clear(); onDone(); }} />
+    </Card>
+  );
+}
+
+function CreateAccountFlow({ onDone }: { onDone: () => void }) {
+  const idempotencyKey = useIdempotencyKey();
+  const dependentsState = useCaregiverDependents();
+  const copy = usePasswordCopy();
+  const form = useForm<CreateDependentFormValues>({
+    resolver: zodResolver(createDependentSchema),
+    defaultValues: {
+      firstName: '', lastName: '', email: '', password: '', phone: '',
+      dateOfBirth: '', gender: '', bloodType: '', allergies: [], chronicConditions: [],
+      relationship: '', accessLevel: 'FULL_ACCESS', expiresOn: '', guardianAttested: false,
+      ...allDataFlags(true),
+      canMessageCareTeam: false, canJoinCalls: false,
+    },
+  });
+  const { control, handleSubmit, trigger, watch, setValue, getValues, setError } = form;
+
+  const [step, setStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreatedState | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
+  // The body of the first attempt made with the current idempotency key. A repeat with the same key is answered
+  // with the first attempt's result, so only when the body is unchanged is the typed password the stored one.
+  const firstBody = useRef<string | null>(null);
+  // The caregiver's grants before the first attempt: a grant that is not among them was created by this form.
+  const baseline = useRef<Set<number> | null>(null);
+  const busy = useRef(false);
+
+  const values = watch();
+  const hasEmail = values.email.trim() !== '';
+  const today = clinicToday();
+
+  // An account with an email needs a password: one is generated as soon as an email is typed.
+  useEffect(() => {
+    if (hasEmail && !getValues('password')) setValue('password', generateTemporaryPassword());
+  }, [hasEmail, getValues, setValue]);
+
+  const changeLevel = (level: AccessLevel) => {
+    setValue('accessLevel', level, { shouldDirty: true });
+    const next = presetDataFlags(level, dataFlagsOf(getValues()));
+    for (const flag of DATA_FLAG_NAMES) setValue(flag, next[flag]);
+  };
+
+  const next = async () => {
+    setFormError(null);
+    if (await trigger([...CREATE_DEPENDENT_STEPS[step]], { shouldFocus: true })) setStep(s => s + 1);
+  };
+
+  /** A grant created by an earlier attempt of this form whose answer never arrived, if there is one. */
+  const findCreated = async (body: CreateDependentBody): Promise<CaregiverDependent | 'already-linked' | null> => {
+    const known = baseline.current;
+    if (!known) return null;
+    let rows: CaregiverDependent[];
+    try {
+      rows = await fetchDependents();
+    } catch {
+      return null;
+    }
+    if (body.email) {
+      const match = rows.find(d => (d.patientEmail ?? '').toLowerCase() === body.email);
+      if (!match) return null;
+      return known.has(match.accessId) ? 'already-linked' : match;
+    }
+    const name = `${body.firstName} ${body.lastName}`.toLowerCase();
+    return rows.find(d => !known.has(d.accessId) && d.managed && (d.patientName ?? '').trim().toLowerCase() === name) ?? null;
+  };
+
+  const finish = (dependent: CaregiverDependent, body: CreateDependentBody, bodyKey: string, recovered: boolean) => {
+    const certain = firstBody.current === bodyKey;
+    idempotencyKey.renew();
+    firstBody.current = null;
+    setCreated({ dependent, password: certain && body.password ? body.password : null, recovered });
+    // The new loved one belongs in the sidebar at once, whichever way the caregiver leaves this page.
+    refreshDependents();
+  };
+
+  const submit = handleSubmit(
+    async formValues => {
+      if (busy.current) return;
+      busy.current = true;
+      setSubmitting(true);
+      setFormError(null);
+
+      const body = toCreateDependentBody(formValues);
+      const bodyKey = JSON.stringify(body);
+      try {
+        if (!baseline.current) {
+          // The list the page already loaded, or a fresh one when it has not arrived yet.
+          const rows = !dependentsState.loading && !dependentsState.error
+            ? dependentsState.dependents
+            : await fetchDependents().catch(() => null);
+          if (rows) baseline.current = new Set(rows.map(d => d.accessId));
+        }
+        if (firstBody.current === null) firstBody.current = bodyKey;
+
+        // One atomic call: the server creates the patient account, the health profile and this caregiver's
+        // grant in a single transaction. The caregiver is taken from the signed-in session, never from the body.
+        const dependent = await createDependent(body, idempotencyKey.current());
+        finish(dependent, body, bodyKey, false);
+      } catch (e) {
+        const failure = apiError(e, 'Could not add your loved one. Please try again.');
+
+        if (failure.status === 409) {
+          // Either an earlier attempt is still running or already created the account (its answer was lost),
+          // or the email belongs to someone else.
+          const found = await findCreated(body);
+          if (found && found !== 'already-linked') {
+            finish(found, body, bodyKey, true);
+          } else if (found === 'already-linked') {
+            setError('email', { type: 'server', message: 'This person is already one of your loved ones.' }, { shouldFocus: true });
+            setStep(0);
+          } else if (failure.code === 'IDEMPOTENCY_IN_PROGRESS') {
+            setFormError(failure.message);
+          } else {
+            // Nothing was created: the corrected form is a new request.
+            idempotencyKey.renew();
+            firstBody.current = null;
+            setError('email', { type: 'server', message: failure.message }, { shouldFocus: true });
+            setStep(0);
+          }
+        } else if (failure.status === 0 && isNetworkError(e)) {
+          setFormError(
+            'We could not confirm that the account was created. Check your connection, then press Add Loved One '
+            + 'again without changing the form: the same request is sent, so no second account is created.',
+          );
+        } else if (failure.status >= 400 && failure.status < 500) {
+          // Refused before anything was created: the corrected form is a new request.
+          idempotencyKey.renew();
+          firstBody.current = null;
+          setFormError(applyFieldErrors(failure, setError, CREATE_FIELDS));
+          const at = stepOf(Object.keys(failure.fieldErrors ?? {}));
+          if (at >= 0) setStep(at);
+        } else {
+          setFormError(failure.message);
+        }
+      } finally {
+        busy.current = false;
+        setSubmitting(false);
+      }
+    },
+    (invalid: FieldErrors<CreateDependentFormValues>) => {
+      // A field on an earlier step is invalid: go back to it.
+      const at = stepOf(Object.keys(invalid));
+      if (at >= 0 && at !== step) setStep(at);
+    },
+  );
+
+  if (created) return <CreatedView created={created} copy={copy} onDone={onDone} />;
+
+  return (
+    <View style={styles.flow}>
+      <StepHeader current={step} />
+
+      {step === 0 && (
+        <SectionCard title="Personal Details" subtitle="Who this account is for">
+          <View style={styles.row}>
+            <View style={styles.col}>
+              <TextField label="First name" control={control} name="firstName" maxLength={NAME_MAX} autoComplete="off" required />
+            </View>
+            <View style={styles.col}>
+              <TextField label="Last name" control={control} name="lastName" maxLength={NAME_MAX} autoComplete="off" required />
+            </View>
+          </View>
+          <TextField
+            label="Phone number (optional)"
+            control={control}
+            name="phone"
+            placeholder="+263 77 123 4567"
+            inputMode="tel"
+            autoComplete="off"
+            maxLength={PHONE_MAX}
+            hint="A number you share with this person is fine."
+          />
+
+          <Banner
+            tone="info"
+            text="Sign-in details are optional. Leave the email empty if this person will not sign in themselves, for example a child: you manage the account, and you can invite them to sign in later from their profile."
+          />
+          <TextField
+            label="Email address (optional)"
+            control={control}
+            name="email"
+            placeholder="name@example.com"
+            inputMode="email"
+            autoComplete="off"
+            autoCapitalize="none"
+            maxLength={EMAIL_MAX}
+            hint="Only needed if they will sign in themselves."
+          />
+          {hasEmail && (
+            <>
+              <View style={styles.passwordRow}>
+                <View style={styles.col}>
+                  <TextField
+                    label="Temporary password"
+                    control={control}
+                    name="password"
+                    secure={!passwordVisible}
+                    autoComplete="new-password"
+                    autoCapitalize="none"
+                    maxLength={PASSWORD_MAX}
+                    hint="At least 8 characters with a letter and a number. Give it to them in person or by phone."
+                    required
+                  />
+                </View>
+                <View style={styles.passwordButtons}>
+                  <IconButton
+                    label={passwordVisible ? 'Hide password' : 'Show password'}
+                    icon={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+                    variant="secondary"
+                    onPress={() => setPasswordVisible(v => !v)}
+                  />
+                  <IconButton
+                    label="Copy password"
+                    icon="copy-outline"
+                    variant="secondary"
+                    onPress={() => { void copy.copy(getValues('password')); }}
+                  />
+                  <Button
+                    label="Regenerate"
+                    icon="refresh-outline"
+                    variant="secondary"
+                    accessibilityLabel="Regenerate password"
+                    onPress={() => setValue('password', generateTemporaryPassword(), { shouldDirty: true, shouldValidate: true })}
+                  />
+                </View>
+              </View>
+              <CopyStatus state={copy.state} />
+            </>
+          )}
+        </SectionCard>
+      )}
+
+      {step === 1 && (
+        <SectionCard
+          title="Health Profile"
+          subtitle="Everything here is optional. Leave out what you do not know: a doctor can add it later."
+        >
+          <DateField label="Date of birth" control={control} name="dateOfBirth" max={today} />
+          <View style={styles.row}>
+            <View style={styles.col}>
+              <SelectField<Gender, CreateDependentFormValues>
+                label="Gender" control={control} name="gender" options={GENDER_OPTIONS} placeholder="Not known" allowEmpty
+              />
+            </View>
+            <View style={styles.col}>
+              <SelectField<BloodType, CreateDependentFormValues>
+                label="Blood type" control={control} name="bloodType" options={BLOOD_TYPE_OPTIONS} placeholder="Not known" allowEmpty
+              />
+            </View>
+          </View>
+          <TagListField
+            label="Known allergies"
+            control={control}
+            name="allergies"
+            placeholder="For example penicillin"
+            maxItems={LIST_MAX_ITEMS}
+            maxLength={LIST_ITEM_MAX}
+            hint="Add one at a time. Leave empty if none are known."
+          />
+          <TagListField
+            label="Chronic conditions"
+            control={control}
+            name="chronicConditions"
+            placeholder="For example asthma"
+            maxItems={LIST_MAX_ITEMS}
+            maxLength={LIST_ITEM_MAX}
+            hint="Add one at a time. Leave empty if none are known."
+          />
+        </SectionCard>
+      )}
+
+      {step === 2 && (
+        <SectionCard title="Access Settings" subtitle="Define your proxy relationship and what you are permitted to access">
+          <TextField
+            label="Your relationship to them"
+            control={control}
+            name="relationship"
+            placeholder="For example mother, father, guardian"
+            maxLength={RELATIONSHIP_MAX}
+            required
+          />
+          <PermissionFields
+            level={values.accessLevel}
+            flags={dataFlagsOf(values)}
+            onLevelChange={changeLevel}
+            onFlagChange={(flag, value) => setValue(flag, value, { shouldDirty: true })}
+            disabled={submitting}
+          />
+          <CommunicationFields
+            value={{ canMessageCareTeam: values.canMessageCareTeam, canJoinCalls: values.canJoinCalls }}
+            onChange={(flag: CommFlag, value) => setValue(flag, value, { shouldDirty: true })}
+            note={hasEmail
+              ? 'Messaging and video calls need their approval: they can approve after they sign in.'
+              : 'Messaging and video calls need their approval, so these stay waiting until you invite them to sign in and they approve.'}
+            disabled={submitting}
+          />
+          <DateField
+            label="Access end date (optional)"
+            control={control}
+            name="expiresOn"
+            min={today}
+            hint="Your access ends at the end of this day. Leave empty for no end date."
+          />
+          <GuardianCheckbox control={control} />
+        </SectionCard>
+      )}
+
+      <FormError message={formError} />
+
+      <View style={styles.nav}>
+        {step > 0
+          ? <Button label="Back" icon="arrow-back-outline" variant="secondary" onPress={() => { setFormError(null); setStep(s => s - 1); }} disabled={submitting} />
+          : <View />}
+        {step < STEP_TITLES.length - 1
+          ? <Button label="Continue" onPress={() => { void next(); }} />
+          : <Button label="Add Loved One" icon="person-add-outline" onPress={submit} loading={submitting} />}
+      </View>
     </View>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+export interface PatientProxyWebAddDependentProps {
+  /** Leaves the screen after a loved one was added or a request was sent (the caller reloads the list). */
+  onDone:   () => void;
+  /** Leaves the screen without adding anyone. */
+  onCancel: () => void;
+  /**
+   * Opens the caregiver's access requests (the hidden `access-requests` section). Without it the requests are
+   * listed on this screen instead.
+   */
+  onViewRequests?: () => void;
+  theme?: RoleTheme;
+}
 
 export default function PatientProxyWebAddDependent({
-  onDone,
-  onCancel,
-}: {
-  onDone:   () => void;
-  onCancel: () => void;
-}) {
-  const [step, setStep] = useState(0);
+  onDone, onCancel, onViewRequests, theme,
+}: PatientProxyWebAddDependentProps) {
+  const nav = useSectionNav();
+  const mode = toMode(nav.params.mode);
+  const [requestsTab, setRequestsTab] = useState<AccessRequestTab>('pending');
 
-  const [personal, setPersonal] = useState<PersonalForm>({
-    first_name: '', last_name: '', email: '', phone: '',
-    password: generatePassword(),
-  });
-  const [health, setHealth] = useState<HealthForm>({
-    date_of_birth: '', gender: '', blood_type: '', health_status: 'STABLE',
-    allergies: [], chronic_conditions: [],
-  });
-  const [access, setAccess] = useState<AccessForm>({
-    relationship: '', access_level: 'FULL_ACCESS', expires_at: '',
-    can_view_records: true, can_view_appointments: true, can_view_medications: true,
-    can_view_lab_results: true, can_view_imaging: true, can_message_care_team: false,
-    can_join_calls: false,
-    can_view_consultations: true, can_schedule_appointments: true, can_manage_care_plan: true,
-  });
+  const choose = (next: Mode | null) => nav.navigate(nav.section, { mode: next ?? undefined });
+  const viewRequests = onViewRequests ?? (() => choose('requests'));
 
-  const [errors,     setErrors]     = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [submitErr,  setSubmitErr]  = useState('');
-  const [success,    setSuccess]    = useState(false);
-  const [pwVisible,  setPwVisible]  = useState(false);
-  const [pwCopied,   setPwCopied]   = useState(false);
+  const subtitle = mode === 'link'
+    ? 'Ask a patient who already has an account to share their care with you'
+    : mode === 'create'
+      ? 'Create an account for someone in your care'
+      : mode === 'requests'
+        ? 'Requests you sent to patients who already have their own account'
+        : 'Link someone to your caregiver account';
 
-  function setP(k: keyof PersonalForm, v: string) {
-    setPersonal(p => ({ ...p, [k]: v }));
-    if (errors[k]) setErrors(e => ({ ...e, [k]: '' }));
-  }
-  function setH(k: keyof HealthForm, v: any) {
-    setHealth(h => ({ ...h, [k]: v }));
-    if (errors[k]) setErrors(e => ({ ...e, [k]: '' }));
-  }
-  function setA(k: keyof AccessForm, v: any) {
-    setAccess(a => ({ ...a, [k]: v }));
-    if (errors[k]) setErrors(e => ({ ...e, [k]: '' }));
-  }
-
-  function changeAccessLevel(level: AccessLevel) {
-    const perms = permissionsForLevel(level);
-    setAccess(a => ({ ...a, access_level: level, ...perms }));
-  }
-
-  function regeneratePassword() {
-    setP('password', generatePassword());
-  }
-
-  function copyPassword() {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(personal.password);
-    }
-    setPwCopied(true);
-    setTimeout(() => setPwCopied(false), 2000);
-  }
-
-  function validateStep1() {
-    const e: Record<string, string> = {};
-    if (!personal.first_name.trim()) e.first_name = 'First name is required';
-    if (!personal.last_name.trim())  e.last_name  = 'Last name is required';
-    if (!personal.email.trim())      e.email      = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(personal.email)) e.email = 'Enter a valid email';
-    if (!personal.phone.trim())      e.phone      = 'Phone number is required';
-    if (personal.password.length < 8 || !/[A-Za-z]/.test(personal.password) || !/\d/.test(personal.password))
-      e.password = 'Password must be at least 8 characters and contain a letter and a number';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
-
-  function validateStep2() {
-    const e: Record<string, string> = {};
-    if (!health.date_of_birth) e.date_of_birth = 'Date of birth is required';
-    else if (!isValidDate(health.date_of_birth)) e.date_of_birth = 'Use the format YYYY-MM-DD';
-    if (!health.gender)        e.gender        = 'Gender is required';
-    if (!health.blood_type)    e.blood_type    = 'Blood type is required';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
-
-  function validateStep3() {
-    const e: Record<string, string> = {};
-    if (!access.relationship.trim()) e.relationship = 'Relationship is required';
-    if (access.expires_at.trim() && !isValidDate(access.expires_at.trim())) e.expires_at = 'Use the format YYYY-MM-DD';
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
-
-  function nextStep() {
-    if (step === 0 && !validateStep1()) return;
-    if (step === 1 && !validateStep2()) return;
-    setStep(s => s + 1);
-  }
-
-  async function handleSubmit() {
-    if (!validateStep3()) return;
-    setSubmitting(true);
-    setSubmitErr('');
-
-    try {
-      // One atomic call: the backend creates the patient account, the health profile and this caregiver's
-      // access grant in a single transaction (nothing is created if any part fails). The caregiver is taken
-      // from the signed-in session, never from this body.
-      await api.post('/api/caregiver/dependents', {
-        firstName:   personal.first_name.trim(),
-        lastName:    personal.last_name.trim(),
-        email:       personal.email.trim().toLowerCase(),
-        phone:       personal.phone.trim(),
-        password:    personal.password,
-
-        dateOfBirth:       health.date_of_birth,
-        gender:            health.gender || null,
-        bloodType:         health.blood_type || null,
-        healthStatus:      health.health_status,
-        allergies:         health.allergies,
-        chronicConditions: health.chronic_conditions,
-
-        relationship:            access.relationship.trim().toLowerCase(),
-        accessLevel:             access.access_level,
-        expiresAt:               access.expires_at.trim() || null,
-        canViewRecords:          access.can_view_records,
-        canViewAppointments:     access.can_view_appointments,
-        canViewMedications:      access.can_view_medications,
-        canViewLabResults:       access.can_view_lab_results,
-        canViewImaging:          access.can_view_imaging,
-        canMessageCareTeam:      access.can_message_care_team,
-        canJoinCalls:            access.can_join_calls,
-        canViewConsultations:    access.can_view_consultations,
-        canScheduleAppointments: access.can_schedule_appointments,
-        canManageCarePlan:       access.can_manage_care_plan,
-      });
-
-      setSuccess(true);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message
-        ?? (err?.response ? 'Something went wrong. Please try again.' : 'Unable to reach the server. Please check your connection.');
-      setSubmitErr(msg);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  // ── Success Screen ───────────────────────────────────────────────────────────
-  if (success) {
-    return (
-      <View style={styles.successWrap}>
-        <View style={styles.successCard}>
-          <View style={styles.successIcon}>
-            <Ionicons name="checkmark-circle" size={56} color={GREEN} />
-          </View>
-          <Text style={styles.successTitle}>Loved One Added!</Text>
-          <Text style={styles.successSub}>
-            {personal.first_name} {personal.last_name} has been added as a linked patient under your care.
-          </Text>
-
-          <View style={styles.credentialsBox}>
-            <Text style={styles.credTitle}>Login Credentials for {personal.first_name}</Text>
-            <View style={styles.credRow}>
-              <Text style={styles.credLabel}>Email</Text>
-              <Text style={styles.credValue}>{personal.email}</Text>
-            </View>
-            <View style={styles.credRow}>
-              <Text style={styles.credLabel}>Password</Text>
-              <TouchableOpacity
-                onPress={() => setPwVisible(v => !v)}
-                accessibilityRole="button"
-                accessibilityLabel={pwVisible ? 'Hide password' : 'Show password'}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              >
-                <Text style={styles.credValue}>{pwVisible ? personal.password : '••••••••••••'}</Text>
-                <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={16} color={GRAY} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.credNote}>
-              Share these credentials with {personal.first_name} securely, in person or by phone. Do not send the password by email or SMS.
-            </Text>
-          </View>
-
-          <TouchableOpacity style={styles.doneBtn} onPress={onDone} activeOpacity={0.8}>
-            <Text style={styles.doneBtnText}>Back to Dashboard</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // ── Form ────────────────────────────────────────────────────────────────────
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Page header */}
-      <View style={styles.pageHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={onCancel} activeOpacity={0.7}>
-          <Ionicons name="arrow-back-outline" size={18} color={GRAY} />
-          <Text style={styles.backBtnText}>Back</Text>
-        </TouchableOpacity>
-        <View>
-          <Text style={styles.pageTitle} accessibilityRole="header">Add Loved One</Text>
-          <Text style={styles.pageSub}>Register a new patient under your proxy care</Text>
-        </View>
-      </View>
-
-      {/* Stepper */}
-      <Stepper current={step} />
-
-      {/* ── Step 1: Personal Details ── */}
-      {step === 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Personal Details</Text>
-          <Text style={styles.cardSub}>Basic identity information for the new patient account</Text>
-
-          <View style={styles.row2}>
-            <View style={{ flex: 1 }}>
-              <Label text="First Name" required />
-              <Input value={personal.first_name} onChange={v => setP('first_name', v)} placeholder="e.g. Thomas" error={errors.first_name} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Label text="Last Name" required />
-              <Input value={personal.last_name} onChange={v => setP('last_name', v)} placeholder="e.g. Dube" error={errors.last_name} />
-            </View>
-          </View>
-
-          <Label text="Email Address" required />
-          <Input value={personal.email} onChange={v => setP('email', v)} placeholder="e.g. thomas.dube@email.com" keyboardType="email-address" error={errors.email} />
-
-          <Label text="Phone Number" required />
-          <Input value={personal.phone} onChange={v => setP('phone', v)} placeholder="e.g. +263771234567" keyboardType="phone-pad" error={errors.phone} />
-
-          <Label text="Temporary Password" />
-          <View style={styles.pwRow}>
-            <View style={{ flex: 1 }}>
-              <Input
-                value={personal.password}
-                onChange={v => setP('password', v)}
-                secureTextEntry={!pwVisible}
-                error={errors.password}
-                editable
-              />
-            </View>
-            <TouchableOpacity style={styles.pwIconBtn} onPress={() => setPwVisible(v => !v)}>
-              <Ionicons name={pwVisible ? 'eye-off-outline' : 'eye-outline'} size={18} color={GRAY} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.pwIconBtn} onPress={copyPassword}>
-              <Ionicons name={pwCopied ? 'checkmark-outline' : 'copy-outline'} size={18} color={pwCopied ? GREEN : GRAY} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.regenBtn} onPress={regeneratePassword} activeOpacity={0.7}>
-              <Ionicons name="refresh-outline" size={14} color={PURPLE} />
-              <Text style={styles.regenText}>Regenerate</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.hint}>Share this temporary password securely with the patient.</Text>
-        </View>
-      )}
-
-      {/* ── Step 2: Health Profile ── */}
-      {step === 1 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Health Profile</Text>
-          <Text style={styles.cardSub}>Medical and demographic information for the patient record</Text>
-
-          <Label text="Date of Birth" required />
-          <Input
-            value={health.date_of_birth}
-            onChange={v => setH('date_of_birth', v)}
-            placeholder="YYYY-MM-DD"
-            error={errors.date_of_birth}
-          />
-
-          <Label text="Gender" required />
-          <SelectRow<Gender>
-            options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'OTHER', label: 'Other' }]}
-            value={health.gender}
-            onChange={v => setH('gender', v)}
-          />
-          {errors.gender ? <Text style={styles.errorText}>{errors.gender}</Text> : null}
-
-          <Label text="Blood Type" required />
-          <SelectRow<BloodType>
-            options={(['A+','A-','B+','B-','O+','O-','AB+','AB-'] as BloodType[]).map(v => ({ value: v, label: v }))}
-            value={health.blood_type}
-            onChange={v => setH('blood_type', v)}
-          />
-          {errors.blood_type ? <Text style={styles.errorText}>{errors.blood_type}</Text> : null}
-
-          <Label text="Health Status" required />
-          <SelectRow<HealthStat>
-            options={[
-              { value: 'STABLE',   label: 'Stable'   },
-              { value: 'MONITOR',  label: 'Monitor'  },
-              { value: 'CRITICAL', label: 'Critical' },
-            ]}
-            value={health.health_status}
-            onChange={v => setH('health_status', v)}
-          />
-
-          <Label text="Known Allergies" />
-          <TagInput
-            tags={health.allergies}
-            onAdd={t => setH('allergies', [...health.allergies, t])}
-            onRemove={i => setH('allergies', health.allergies.filter((_, idx) => idx !== i))}
-            placeholder="e.g. Penicillin, Latex…"
-          />
-
-          <Label text="Chronic Conditions" />
-          <TagInput
-            tags={health.chronic_conditions}
-            onAdd={t => setH('chronic_conditions', [...health.chronic_conditions, t])}
-            onRemove={i => setH('chronic_conditions', health.chronic_conditions.filter((_, idx) => idx !== i))}
-            placeholder="e.g. Hypertension, Type 2 Diabetes…"
-          />
-        </View>
-      )}
-
-      {/* ── Step 3: Access Settings ── */}
-      {step === 2 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Access Settings</Text>
-          <Text style={styles.cardSub}>Define your proxy relationship and what you are permitted to access</Text>
-
-          <Label text="Relationship to Patient" required />
-          <Input
-            value={access.relationship}
-            onChange={v => setA('relationship', v)}
-            placeholder="e.g. Father, Mother, Sibling, Guardian…"
-            error={errors.relationship}
-          />
-
-          <Label text="Access Level" required />
-          <View style={styles.accessGrid}>
-            {([
-              { value: 'FULL_ACCESS', label: 'Full Access',  sub: 'All permissions enabled',             color: GREEN  },
-              { value: 'VIEW_ONLY',   label: 'View Only',    sub: 'Read records, no actions',            color: PURPLE },
-              { value: 'EDIT_ONLY',   label: 'Edit Only',    sub: 'View + schedule',                     color: ORANGE },
-              { value: 'CUSTOM',      label: 'Custom',        sub: 'Set individual permissions below',   color: GRAY   },
-            ] as { value: AccessLevel; label: string; sub: string; color: string }[]).map(opt => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[styles.accessCard, access.access_level === opt.value && { borderColor: opt.color, borderWidth: 2 }]}
-                activeOpacity={0.7}
-                onPress={() => changeAccessLevel(opt.value)}
-              >
-                <View style={[styles.accessRadio, access.access_level === opt.value && { borderColor: opt.color }]}>
-                  {access.access_level === opt.value && <View style={[styles.accessRadioDot, { backgroundColor: opt.color }]} />}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.accessCardLabel, access.access_level === opt.value && { color: opt.color }]}>{opt.label}</Text>
-                  <Text style={styles.accessCardSub}>{opt.sub}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Custom permissions */}
-          {access.access_level === 'CUSTOM' && (
-            <View style={styles.permBox}>
-              <Text style={styles.permBoxTitle}>Individual Permissions</Text>
-              {([
-                { key: 'can_view_records',          label: 'View Medical Records'     },
-                { key: 'can_view_appointments',     label: 'View Appointments'        },
-                { key: 'can_view_medications',      label: 'View Medications'         },
-                { key: 'can_view_lab_results',      label: 'View Lab Results'         },
-                { key: 'can_view_imaging',          label: 'View Imaging Results'     },
-                { key: 'can_view_consultations',    label: 'View Consultations'       },
-                { key: 'can_schedule_appointments', label: 'Schedule Appointments'    },
-                { key: 'can_manage_care_plan',      label: 'Manage Care Plan'         },
-              ] as { key: keyof AccessForm; label: string }[]).map(p => (
-                <PermSwitch
-                  key={p.key}
-                  label={p.label}
-                  value={access[p.key] as boolean}
-                  onChange={v => setA(p.key, v)}
-                />
-              ))}
-            </View>
-          )}
-
-          {/* Communication requests (any access level) */}
-          <View style={styles.permBox}>
-            <Text style={styles.permBoxTitle}>Messaging and video calls</Text>
-            <PermSwitch
-              label="Request messaging with the care team"
-              value={access.can_message_care_team}
-              onChange={v => setA('can_message_care_team', v)}
-            />
-            <PermSwitch
-              label="Request joining video calls"
-              value={access.can_join_calls}
-              onChange={v => setA('can_join_calls', v)}
-            />
-            <Text style={styles.commNote}>Messaging and video calls need the patient's approval.</Text>
-          </View>
-
-          <Label text="Access Expiry Date (optional)" />
-          <Input
-            value={access.expires_at}
-            onChange={v => setA('expires_at', v)}
-            placeholder="YYYY-MM-DD (leave blank for no expiry)"
-            error={errors.expires_at}
-          />
-          <Text style={styles.hint}>Leave blank if this proxy access should not expire.</Text>
-        </View>
-      )}
-
-      {/* Error banner */}
-      {submitErr ? (
-        <View style={styles.errorBanner}>
-          <Ionicons name="alert-circle-outline" size={16} color={RED} />
-          <Text style={styles.errorBannerText}>{submitErr}</Text>
-        </View>
-      ) : null}
-
-      {/* Navigation buttons */}
-      <View style={styles.navRow}>
-        {step > 0 ? (
-          <TouchableOpacity style={styles.backNavBtn} onPress={() => setStep(s => s - 1)} activeOpacity={0.7}>
-            <Ionicons name="arrow-back-outline" size={16} color={GRAY} />
-            <Text style={styles.backNavText}>Back</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.backNavBtn} onPress={onCancel} activeOpacity={0.7}>
-            <Text style={styles.backNavText}>Cancel</Text>
-          </TouchableOpacity>
-        )}
-
-        {step < 2 ? (
-          <TouchableOpacity style={styles.nextBtn} onPress={nextStep} activeOpacity={0.8}>
-            <Text style={styles.nextBtnText}>Continue</Text>
-            <Ionicons name="arrow-forward-outline" size={16} color={WHITE} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.nextBtn, submitting && styles.nextBtnDisabled]}
-            onPress={handleSubmit}
-            activeOpacity={0.8}
-            disabled={submitting}
-          >
-            {submitting
-              ? <ActivityIndicator size="small" color={WHITE} />
-              : <>
-                  <Ionicons name="person-add-outline" size={16} color={WHITE} />
-                  <Text style={styles.nextBtnText}>Add Loved One</Text>
-                </>
-            }
-          </TouchableOpacity>
+    <Screen
+      title="Add Loved One"
+      subtitle={subtitle}
+      theme={theme ?? ROLE_THEME.proxy}
+      actions={mode
+        ? <Button label="Change option" icon="arrow-back-outline" variant="secondary" onPress={() => choose(null)} />
+        : <Button label="Cancel" variant="secondary" onPress={onCancel} />}
+    >
+      <View style={styles.page}>
+        {mode === null && <ChoiceStep onChoose={choose} onViewRequests={viewRequests} />}
+        {mode === 'link' && <LinkExistingFlow onDone={onDone} onViewRequests={viewRequests} />}
+        {mode === 'create' && <CreateAccountFlow onDone={onDone} />}
+        {mode === 'requests' && (
+          <AccessRequestsPanel tab={requestsTab} onTabChange={setRequestsTab} />
         )}
       </View>
-    </ScrollView>
+    </Screen>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:     { flex: 1, backgroundColor: BG },
-  container:  { padding: 28, paddingBottom: 60, gap: 20, maxWidth: 820, alignSelf: 'center', width: '100%' } as any,
+  page: { width: '100%', maxWidth: 820, gap: space.lg, minWidth: 0 },
+  flow: { gap: space.lg, minWidth: 0 },
 
-  pageHeader: { gap: 6, flexWrap: 'wrap' },
-  backBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  backBtnText:{ fontSize: 13, color: GRAY },
-  pageTitle:  { fontSize: 24, fontWeight: '700', color: TEXT },
-  pageSub:    { fontSize: 13, color: GRAY, marginTop: 2 },
+  choice: {
+    flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg, minWidth: 0,
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.lg, backgroundColor: colors.surface,
+  },
+  choiceIcon:        { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  choiceText:        { flex: 1, minWidth: 0, gap: 2 },
+  choiceTitle:       { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  choiceDescription: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19 },
 
-  stepper:      { flexDirection: 'row', alignItems: 'center', backgroundColor: WHITE, borderRadius: 14, padding: 20, borderWidth: 1, borderColor: BORDER },
-  stepItem:     { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  stepCircle:   { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', backgroundColor: WHITE },
-  stepCircleActive:{ borderColor: PURPLE, backgroundColor: PURPLE },
-  stepCircleDone:  { borderColor: GREEN,  backgroundColor: GREEN  },
-  stepNum:      { fontSize: 13, fontWeight: '700', color: GRAY },
-  stepLabel:    { fontSize: 12, color: GRAY, marginLeft: 8, fontWeight: '500' },
-  stepLabelActive: { color: PURPLE, fontWeight: '700' },
-  stepLine:     { flex: 1, height: 2, backgroundColor: BORDER, marginHorizontal: 8 },
-  stepLineDone: { backgroundColor: GREEN },
+  steps:      { gap: space.sm },
+  stepStatus: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textMuted },
+  stepBars:   { flexDirection: 'row', gap: space.xs },
+  stepBar:    { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.border },
 
-  card:      { backgroundColor: WHITE, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 24, gap: 14 },
-  cardTitle: { fontSize: 18, fontWeight: '700', color: TEXT },
-  cardSub:   { fontSize: 13, color: GRAY, marginTop: -6 },
+  // Two fields side by side that stack on a phone.
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  col: { flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 },
 
-  row2: { flexDirection: 'row', gap: 14 },
+  passwordRow:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: space.sm },
+  // Lines the buttons up with the input, below the field's label.
+  passwordButtons: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingTop: 21 },
+  copyStatus:      { minHeight: 17, fontSize: fontSize.xs, fontWeight: '500', color: colors.textMuted },
 
-  label:     { fontSize: 13, fontWeight: '600', color: TEXT, marginBottom: 4 },
-  inputWrap: { marginBottom: 4 },
-  input:     { borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: TEXT, backgroundColor: WHITE } as any,
-  inputError:   { borderColor: RED },
-  inputDisabled:{ backgroundColor: BG },
-  errorText: { fontSize: 11, color: RED, marginTop: 4 },
-  hint:      { fontSize: 11, color: GRAY2, marginTop: -8 },
-  commNote:  { fontSize: 12, color: GRAY, marginTop: 10 },
+  formActions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  nav:         { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: space.sm },
 
-  pwRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pwIconBtn: { width: 38, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: BORDER, borderRadius: 10 },
-  regenBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 9 },
-  regenText: { fontSize: 12, color: PURPLE, fontWeight: '500' },
+  result:        { alignItems: 'center', gap: space.md, paddingVertical: space.xl },
+  resultTitle:   { fontSize: fontSize.title, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  resultText:    { fontSize: fontSize.md, color: colors.text, textAlign: 'center', lineHeight: 20, maxWidth: 520 },
+  resultNote:    { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19, maxWidth: 520 },
+  resultActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm },
 
-  selectRow:          { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  selectChip:         { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-  selectChipActive:   { borderColor: PURPLE, backgroundColor: PURPLE_BG },
-  selectChipText:     { fontSize: 13, color: GRAY, fontWeight: '500' },
-  selectChipTextActive:{ color: PURPLE, fontWeight: '700' },
+  attest:          { gap: space.xs, minWidth: 0 },
+  attestRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, paddingVertical: space.xs, minWidth: 0 },
+  checkbox:        {
+    width: 22, height: 22, marginTop: 1, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.borderInput,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, flexShrink: 0,
+  },
+  attestText:      { flex: 1, minWidth: 0, gap: 2 },
+  attestLabel:     { fontSize: fontSize.md, fontWeight: '600', color: colors.text },
+  required:        { color: colors.danger, fontWeight: '700' },
+  attestNote:      { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 17 },
+  attestError:     { flexDirection: 'row', alignItems: 'flex-start', gap: space.xs },
+  attestErrorText: { flex: 1, minWidth: 0, fontSize: fontSize.xs, fontWeight: '500', color: colors.danger, lineHeight: 17 },
 
-  tagContainer: { gap: 8, marginBottom: 4 },
-  tagChips:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tagChip:      { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: PURPLE_BG, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  tagChipText:  { fontSize: 12, color: PURPLE, fontWeight: '500' },
-  tagInputRow:  { flexDirection: 'row', gap: 8 },
-  tagInput:     { flex: 1, borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: TEXT } as any,
-  tagAddBtn:    { borderWidth: 1, borderColor: PURPLE, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: PURPLE_BG },
-  tagAddBtnText:{ fontSize: 13, color: PURPLE, fontWeight: '600' },
-
-  accessGrid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
-  accessCard:        { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 14 },
-  accessRadio:       { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  accessRadioDot:    { width: 8, height: 8, borderRadius: 4 },
-  accessCardLabel:   { fontSize: 13, fontWeight: '700', color: TEXT, marginBottom: 2 },
-  accessCardSub:     { fontSize: 11, color: GRAY },
-
-  permBox:      { backgroundColor: BG, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 16, gap: 0 },
-  permBoxTitle: { fontSize: 13, fontWeight: '700', color: TEXT, marginBottom: 12 },
-  permRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
-  permLabel:    { flex: 1, fontSize: 13, color: TEXT },
-  toggle:       { width: 40, height: 22, borderRadius: 11, backgroundColor: BORDER, justifyContent: 'center', paddingHorizontal: 2 },
-  toggleOn:     { backgroundColor: PURPLE },
-  toggleThumb:  { width: 18, height: 18, borderRadius: 9, backgroundColor: WHITE, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 2 } as any,
-  toggleThumbOn:{ alignSelf: 'flex-end' },
-
-  errorBanner:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 14 },
-  errorBannerText: { fontSize: 13, color: RED, flex: 1 },
-
-  navRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  backNavBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: BORDER, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11 },
-  backNavText:   { fontSize: 14, color: GRAY, fontWeight: '500' },
-  nextBtn:       { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12 },
-  nextBtnDisabled:{ opacity: 0.5 },
-  nextBtnText:   { fontSize: 14, color: WHITE, fontWeight: '700' },
-
-  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BG, padding: 24 },
-  successCard: { backgroundColor: WHITE, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 32, maxWidth: 500, width: '100%' as any, alignItems: 'center', gap: 14 },
-  successIcon: { marginBottom: 4 },
-  successTitle:{ fontSize: 24, fontWeight: '700', color: TEXT, textAlign: 'center' },
-  successSub:  { fontSize: 14, color: GRAY, textAlign: 'center', lineHeight: 22 },
-  credentialsBox:{ backgroundColor: BG, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 16, width: '100%' as any, gap: 8 },
-  credTitle:   { fontSize: 13, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  credRow:     { flexDirection: 'row', justifyContent: 'space-between' },
-  credLabel:   { fontSize: 12, color: GRAY },
-  credValue:   { fontSize: 13, fontWeight: '600', color: TEXT },
-  credNote:    { fontSize: 11, color: GRAY, fontStyle: 'italic', marginTop: 4 },
-  doneBtn:     { backgroundColor: PURPLE, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 14, marginTop: 8 },
-  doneBtnText: { fontSize: 15, color: WHITE, fontWeight: '700' },
+  credentials: {
+    alignSelf: 'stretch', gap: space.sm, padding: space.md, minWidth: 0,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bg,
+  },
+  credentialsTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.text },
+  credentialRow:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, minWidth: 0 },
+  credentialLabel:  { width: 150, maxWidth: '100%', fontSize: fontSize.sm, color: colors.textMuted },
+  credentialValue:  { flexShrink: 1, minWidth: 0, fontSize: fontSize.md, fontWeight: '600', color: colors.text },
 });

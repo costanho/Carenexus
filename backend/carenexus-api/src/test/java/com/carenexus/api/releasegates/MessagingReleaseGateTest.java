@@ -64,6 +64,10 @@ class MessagingReleaseGateTest extends CommittedIntegrationTest {
         assertEquals(403, adminRead.getResponse().getStatus());
         assertEquals("Administrators cannot access conversations", message(adminRead));
         assertEquals(403, send(threadId, admin, clientId(), "hi").getResponse().getStatus());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM thread_members WHERE system_id = ?",
+                Integer.class, admin.getSystemId()));
+        // An unknown id answers 404 for administrators as well
+        assertEquals(404, doGet(THREADS + "/999999/messages", admin).getResponse().getStatus());
 
         // A caregiver of the patient without a grant cannot get in either, even with the thread id.
         assertEquals(403, doGet(THREADS + "/" + threadId + "/messages", caregiver).getResponse().getStatus());

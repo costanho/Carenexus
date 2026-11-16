@@ -1,0 +1,9 @@
+node_modules
+dist
+web-build
+.expo
+e2e-report
+e2e-results
+.env
+.env*
+*.log

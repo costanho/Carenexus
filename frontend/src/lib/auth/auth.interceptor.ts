@@ -1,6 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { emitSessionExpired, emitSignedOut } from './auth.events';
-import { clearAuth, getAccessToken, getRefreshToken, saveTokens, saveUser } from './auth.storage';
+import { clearAuth, getAccessToken, getRefreshToken, saveSessionFlags, saveTokens, saveUser } from './auth.storage';
 import type { AuthResponse } from './auth.types';
 
 // Set EXPO_PUBLIC_API_URL per environment (see .env.example). When testing on a
@@ -45,6 +45,8 @@ async function refreshAccessToken(): Promise<string> {
     throw new Error('Malformed refresh response');
   }
   await saveTokens(data.tokens);
+  // Account flags can change between sign-in and refresh (forced password change, new terms); undefined is ignored.
+  await saveSessionFlags(data.flags);
   if (data.user) await saveUser(data.user);
   return data.tokens.accessToken;
 }
@@ -59,6 +61,9 @@ function sharedRefresh(): Promise<string> {
 }
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
+// Refresh responses that mean the stored refresh token is unusable (invalid, expired, revoked).
+const REFRESH_REJECTED_STATUSES = new Set([400, 401, 403]);
 
 // ── Response interceptor: handle 401, auto-refresh ───────────────────────────
 api.interceptors.response.use(
@@ -86,11 +91,12 @@ api.interceptors.response.use(
       const sent    = String(original.headers.Authorization ?? '');
       token = current && sent !== `Bearer ${current}` ? current : await sharedRefresh();
     } catch (refreshError) {
-      // End the session only when the server rejected the refresh token (4xx) or there
-      // was nothing usable to refresh with. Network errors / 5xx keep the user signed in.
+      // End the session only when the server rejected the refresh token (400, 401, 403) or
+      // there was nothing usable to refresh with. Network errors, 5xx and 429 (the refresh
+      // endpoint's per-IP rate limit, which says nothing about the token) keep the user signed in.
       const isHttpError = axios.isAxiosError(refreshError);
       const status      = isHttpError ? refreshError.response?.status : undefined;
-      const rejected    = !isHttpError || (status !== undefined && status >= 400 && status < 500);
+      const rejected    = !isHttpError || (status !== undefined && REFRESH_REJECTED_STATUSES.has(status));
       if (rejected) {
         await clearAuth();
         emitSignedOut();

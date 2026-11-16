@@ -1,6 +1,7 @@
 package com.carenexus.api.core.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -34,6 +35,7 @@ public class EmergencyContactResponse {
     private Boolean isPrimary;
 
     @JsonProperty("isCaregiver")
+    @Schema(description = "Informational flag: this person also cares for the patient. Grants nothing")
     private Boolean isCaregiver;
 
     @JsonProperty("createdAt")

@@ -51,6 +51,10 @@ public class DoctorDashboardResponse {
     @JsonProperty("upcomingAppointments")
     private Integer upcomingAppointments;
 
+    /** Active appointments of the doctor that ended more than the configured minutes ago (needs-outcome list). */
+    @JsonProperty("needsOutcomeCount")
+    private Integer needsOutcomeCount;
+
     @JsonProperty("completedConsultations")
     private Integer completedConsultations;
 

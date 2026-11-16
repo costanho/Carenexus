@@ -62,7 +62,7 @@ public class CallJobServiceTest {
         CallJob job = CallJob.builder().callJobId(1L).jobType(type).status(CallJob.PENDING).callSessionId(10L)
                 .callParticipantId(participantId).roomName("cn_room").providerIdentity(identity).attempts(0)
                 .maxAttempts(CallJob.maxAttemptsFor(type)).nextAttemptAt(Instant.now()).build();
-        when(callJobRepository.lockDueJobs(anyInt())).thenReturn(List.of(job));
+        when(callJobRepository.lockDueJobs(any(Instant.class), anyInt())).thenReturn(List.of(job));
         when(callJobRepository.findById(1L)).thenReturn(Optional.of(job));
         return job;
     }

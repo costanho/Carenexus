@@ -1,12 +1,12 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { apiErrorMessage } from '@/hooks/use-appointments';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { rescheduleDoctorAppointment } from '@/hooks/use-doctor-appointment-actions';
-import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
+import type { ApiAppointment, ScheduleEntry } from '@/hooks/use-doctor-schedule';
+import { apiError } from '@/lib/api/errors';
 import { api } from '@/lib/auth/auth.interceptor';
 import { CLINIC_TIME_ZONE } from '@/lib/calls/format';
+import { ariaLevel, decorative, Icon } from '@/components/web/ui';
 import { CalendarPicker } from '../patient/patient-web-appointment';
 
 const WHITE  = '#FFFFFF';
@@ -98,11 +98,17 @@ function daySlots(rules: BookingRules, duration: number): string[] {
  * Dates come from the same calendar as patient booking; times are 15-minute slots inside the
  * clinic hours from /booking-rules, in clinic time (Africa/Harare). Slots that overlap another of
  * the doctor's active appointments (/doctor/{id}/busy) or have already passed are disabled. The
- * server re-checks everything (including the patient's own diary) and its message is shown inline.
+ * server re-checks everything (including the patient's own diary) and its message is shown inline;
+ * when it answers that the time is taken, the day's times are loaded again. A doctor may move an
+ * appointment outside their own weekly hours, so this grid is built from clinic hours, not from the
+ * patient-side slot list.
  */
-export function DoctorReschedulePanel({ entry, onDone, onClose }: {
+export function DoctorReschedulePanel({ entry, onDone, onClose, headingLevel = 3 }: {
   entry:   ScheduleEntry;
-  onDone:  (date: string, time: string) => void;
+  /** Level of the panel heading: one below the heading of the appointment card it opens in. */
+  headingLevel?: 3 | 4;
+  /** Called after the move was saved, with the appointment as the server now has it. */
+  onDone:  (date: string, time: string, updated?: ApiAppointment) => void;
   onClose: () => void;
 }) {
   const { user } = useCurrentUser();
@@ -113,6 +119,8 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
   const [loadingBusy, setLoadingBusy] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState('');
+  // Bumped to read the day's taken times again after the server refused a time.
+  const [busyTick, setBusyTick] = useState(0);
 
   const duration = entry.duration_minutes || 30;
   const current  = String(entry.scheduled_at).slice(0, 16);
@@ -136,7 +144,7 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
       .catch(() => { if (!cancelled) setBusy([]); })
       .finally(() => { if (!cancelled) setLoadingBusy(false); });
     return () => { cancelled = true; };
-  }, [date, user?.system_id]);
+  }, [date, user?.system_id, busyTick]);
 
   const now = clinicNow(rules.timeZone || CLINIC_TIME_ZONE);
   const today = now.slice(0, 10);
@@ -173,10 +181,13 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
     }
     setSaving(true);
     try {
-      await rescheduleDoctorAppointment(entry.appointment_id, date, time);
-      onDone(date, time);
+      const updated = await rescheduleDoctorAppointment(entry.appointment_id, date, time);
+      onDone(date, time, updated);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Could not reschedule the appointment. Please try again.'));
+      const failure = apiError(e, 'Could not reschedule the appointment. Please try again.');
+      setError(failure.message);
+      // The time was taken meanwhile (or the doctor became unavailable): show the day as it is now.
+      if (failure.status === 409 || failure.code === 'DOCTOR_UNAVAILABLE') setBusyTick(t => t + 1);
     } finally {
       setSaving(false);
     }
@@ -186,7 +197,7 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
 
   return (
     <View style={styles.panel}>
-      <Text style={styles.title} accessibilityRole="header">Choose a new date and time</Text>
+      <Text style={styles.title} accessibilityRole="header" {...ariaLevel(headingLevel)}>Choose a new date and time</Text>
       <Text style={styles.sub}>
         {entry.patient_name} · {duration} min · times are clinic time (CAT)
       </Text>
@@ -207,7 +218,9 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
             ) : dayProblem ? (
               <Text style={styles.hint}>{dayProblem}</Text>
             ) : loadingBusy ? (
-              <ActivityIndicator color={BLUE} />
+              <View role="status" aria-live="polite" accessibilityLabel="Loading available times">
+                <View {...decorative}><ActivityIndicator color={BLUE} /></View>
+              </View>
             ) : (
               <>
                 <View style={styles.slotGrid} accessibilityRole="radiogroup" accessibilityLabel="Available times">
@@ -249,7 +262,7 @@ export function DoctorReschedulePanel({ entry, onDone, onClose }: {
 
       {!!error && (
         <View style={styles.inlineError} accessibilityRole="alert">
-          <Ionicons name="alert-circle-outline" size={14} color={RED} />
+          <Icon name="alert-circle-outline" size={14} color={RED} />
           <Text style={styles.inlineErrorText}>{error}</Text>
         </View>
       )}

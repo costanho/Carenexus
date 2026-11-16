@@ -5,6 +5,10 @@ import { escapeRe, newUserPage, openMessages, type UserPage } from './support/ui
 
 // b. Care-team history boundary: a caregiver added to a care team conversation later sees only
 //    the messages sent after they joined (UI and API).
+//
+// Tables written: a "Care team e2e-…" conversation (message_threads, thread_members, messages) and the
+// notifications its messages raise; refresh_tokens and audit_log for every sign-in. scripts/dev-reset-e2e-data.sh
+// removes the conversation by its e2e- subject.
 
 test.describe('care team conversation: history boundary for a member added later', () => {
   let api: Clients;

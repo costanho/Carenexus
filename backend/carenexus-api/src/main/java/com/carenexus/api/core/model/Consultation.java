@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "consultations")
@@ -14,6 +15,13 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class Consultation {
+
+    public static final String STATUS_DRAFT = "DRAFT";
+    public static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+    public static final String STATUS_CANCELLED = "CANCELLED";
+    /** Every value of the status column (DB CHECK). */
+    public static final List<String> STATUSES = List.of(STATUS_DRAFT, STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_CANCELLED);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -73,8 +81,14 @@ public class Consultation {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * ConsultationService sets {@code createdAt} with the clinic clock; this fallback only covers rows inserted by
+     * other code paths (tests, fixtures).
+     */
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
     }
 }

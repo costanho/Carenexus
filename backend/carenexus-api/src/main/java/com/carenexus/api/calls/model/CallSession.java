@@ -35,6 +35,8 @@ public class CallSession {
     public static final String END_APPOINTMENT_CANCELLED = "APPOINTMENT_CANCELLED";
     public static final String END_TYPE_CHANGED = "TYPE_CHANGED";
     public static final String END_EXPIRED = "EXPIRED";
+    /** The appointment was marked COMPLETED or NO_SHOW before the call went LIVE (V68). */
+    public static final String END_APPOINTMENT_ENDED = "APPOINTMENT_ENDED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

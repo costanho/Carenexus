@@ -5,21 +5,33 @@ import { apiErrorMessage } from '@/hooks/use-appointments';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { refreshUnreadCounts } from '@/hooks/use-notifications';
 import { usePageActive } from '@/hooks/use-page-active';
+import { useSupportThreads } from '@/hooks/use-support-threads';
 import { useThreads } from '@/hooks/use-threads';
 import { setThreadArchived } from '@/lib/communications/api';
 import { clearAllDrafts } from '@/lib/communications/drafts';
 import { clearAllOutboxes } from '@/lib/communications/outbox';
 import type { Message, MessagingMode, Thread } from '@/lib/communications/types';
-import { showMessage } from '@/lib/ui/dialogs';
+import { keepClosed, supportRowAsThread, withSupportRow } from '@/lib/support/format';
+import type { SupportThread } from '@/lib/support/types';
+import { confirmAction, showMessage } from '@/lib/ui/dialogs';
+import { ariaLevel } from '@/components/web/ui/a11y';
 import { CaregiverMessagingStatus } from './caregiver-messaging-status';
 import { NewConversation } from './new-conversation';
 import { type PatientOption, PatientFilter } from './patient-filter';
+import { SupportThreadList } from './support-thread-list';
 import { ThreadList } from './thread-list';
 import { ThreadView } from './thread-view';
 import { BG, BORDER, Banner, DEFAULT_THEME, Empty, GRAY, type MessagesTheme, TEXT, ThemeContext, WHITE } from './ui';
 
+/**
+ * Who is using the screen. The three member roles see their own conversations. `ADMIN` is the administrator
+ * support inbox: only support conversations, listed from the admin endpoint, with a Close action and without
+ * new conversations, the patient filter or archiving.
+ */
+export type MessagesMode = MessagingMode | 'ADMIN';
+
 export interface MessagesScreenProps {
-  mode:   MessagingMode;
+  mode:   MessagesMode;
   theme?: MessagesTheme;
   /** Open this thread (e.g. from a notification). Cleared through `onOpenThreadHandled`. */
   openThreadId?:        number | null;
@@ -28,15 +40,20 @@ export interface MessagesScreenProps {
 
 const WIDE_MIN = 860;
 
-const SUBTITLES: Record<MessagingMode, string> = {
+const SUBTITLES: Record<MessagesMode, string> = {
   PATIENT:   'Message your doctors and care team.',
   DOCTOR:    'Conversations with your patients and their caregivers.',
   CAREGIVER: "Message your loved ones' care teams.",
+  ADMIN:     'Conversations people opened from Help & Support.',
 };
+
+/** The two list tabs: inbox and archive for members, open and closed for the support inbox. */
+const MEMBER_TABS = [{ key: false, label: 'Inbox' }, { key: true, label: 'Archived' }];
+const ADMIN_TABS  = [{ key: false, label: 'Open' }, { key: true, label: 'Closed' }];
 
 type Pane = { kind: 'none' } | { kind: 'thread'; id: number } | { kind: 'new' };
 
-/** Messages experience shared by patient, doctor and caregiver dashboards (web). */
+/** Messages experience shared by the patient, doctor and caregiver dashboards and the admin support inbox (web). */
 export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOpenThreadHandled }: MessagesScreenProps) {
   const { user } = useCurrentUser();
   const { online } = usePageActive();
@@ -45,11 +62,23 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
   const [pane,     setPane]     = useState<Pane>({ kind: 'none' });
   const [known,    setKnown]    = useState<Record<number, Thread>>({});
   const [patient,  setPatient]  = useState<PatientOption | null>(null);
+  // Support inbox (admin mode) only: which tab is shown, which conversation is being closed, and the
+  // conversations closed from this screen (a closed row leaves the Open list, but its thread may still be shown).
+  const [showClosed, setShowClosed] = useState(false);
+  const [closingId,  setClosingId]  = useState<number | null>(null);
+  const [closedRows, setClosedRows] = useState<Record<number, SupportThread>>({});
 
-  const threads = useThreads({ archived, patientSystemId: patient?.systemId ?? null });
+  // The API role of the viewer: 'ADMIN' for the support inbox, otherwise the member role.
+  const admin = mode === 'ADMIN';
+  const memberMode: MessagingMode | null = mode === 'ADMIN' ? null : mode;
+
+  // Administrators may not list conversations (403); their list is the support inbox.
+  const threads = useThreads({ archived, patientSystemId: patient?.systemId ?? null, enabled: !admin });
+  const support = useSupportThreads({ open: !showClosed, enabled: admin });
   const wide = width === 0 || width >= WIDE_MIN;
   const mySystemId = user?.system_id ?? null;
-  const myRole = user?.role ?? mode;
+  // The member role, not the login role: sign-in stores 'doctor' / 'proxy', the members panel compares 'DOCTOR' / 'CAREGIVER'.
+  const myRole = mode;
 
   // Unsent text of anyone else who used this tab is never shown and need not be kept.
   useEffect(() => {
@@ -68,34 +97,78 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
   }, [openThreadId, onOpenThreadHandled]);
 
   const selectedId = pane.kind === 'thread' ? pane.id : null;
-  const selectedThread = selectedId != null
-    ? (threads.threads.find(t => t.threadId === selectedId) ?? known[selectedId] ?? null)
+  const selectedRow = admin && selectedId != null
+    ? (closedRows[selectedId] ?? support.threads.find(r => r.threadId === selectedId) ?? null)
     : null;
+  const selectedThread = selectedId == null ? null
+    : admin
+      // The inbox row knows the newest closed state; before the details arrive it also stands in for them.
+      ? (known[selectedId] ? withSupportRow(known[selectedId], selectedRow) : (selectedRow ? supportRowAsThread(selectedRow) : null))
+      : (threads.threads.find(t => t.threadId === selectedId) ?? known[selectedId] ?? null);
 
   const remember = useCallback((t: Thread) => {
-    setKnown(k => ({ ...k, [t.threadId]: t }));
+    // A closed support conversation stays closed even if an older "open" copy arrives late.
+    setKnown(k => ({ ...k, [t.threadId]: keepClosed(k[t.threadId], t) }));
     threads.patch(t.threadId, t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threads.patch]);
 
   const onRead = useCallback((threadId: number, unreadCount: number) => {
-    threads.patch(threadId, unreadCount === 0 ? { unreadCount: 0, hasUrgentUnread: false } : { unreadCount });
+    if (admin) support.patch(threadId, { unread: unreadCount > 0 });
+    else threads.patch(threadId, unreadCount === 0 ? { unreadCount: 0, hasUrgentUnread: false } : { unreadCount });
     refreshUnreadCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threads.patch]);
+  }, [admin, threads.patch, support.patch]);
 
   // My own send: show it as the newest preview at the top straight away, then confirm with the server.
   const onSent = useCallback((threadId: number, m: Message) => {
-    threads.bump(threadId, {
+    const change = {
       lastMessage: {
         messageId: m.messageId, senderSystemId: m.senderSystemId, senderLabel: m.senderLabel,
         preview: Array.from(m.body).slice(0, 120).join(''), urgent: m.urgent, sentAt: m.sentAt,
       },
       lastMessageAt: m.sentAt,
-    });
-    threads.refetch();
+    };
+    if (admin) {
+      support.bump(threadId, { ...change, unread: false });
+      support.refetch();
+    } else {
+      threads.bump(threadId, change);
+      threads.refetch();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threads.bump, threads.refetch]);
+  }, [admin, threads.bump, threads.refetch, support.bump, support.refetch]);
+
+  /**
+   * Admin mode: closes a support conversation after the administrator confirms. Resolves when it was closed or
+   * the administrator cancelled; rejects with the request error.
+   */
+  const closeConversation = useCallback(async (threadId: number) => {
+    const ok = await confirmAction(
+      'Close this support conversation?',
+      'Nobody will be able to send new messages in it. The person who opened it can still read it and can start a new conversation from Help & Support.',
+      'Close conversation',
+    );
+    if (!ok) return;
+    setClosingId(threadId);
+    try {
+      const row = await support.close(threadId);
+      // Closed is final, so this row stays the truth for the open thread whatever arrives later.
+      if (!row.open) setClosedRows(rows => ({ ...rows, [threadId]: row }));
+      support.refetch();
+    } finally {
+      setClosingId(id => (id === threadId ? null : id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [support.close, support.refetch]);
+
+  async function closeFromList(row: SupportThread) {
+    try {
+      await closeConversation(row.threadId);
+    } catch (e) {
+      showMessage('Could not close conversation', apiErrorMessage(e, 'Please try again.'));
+    }
+  }
 
   async function archiveFromList(t: Thread) {
     try {
@@ -117,7 +190,8 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
 
   function closePane() {
     setPane({ kind: 'none' });
-    threads.refetch();
+    if (admin) support.refetch();
+    else threads.refetch();
   }
 
   function onCreated(t: Thread) {
@@ -132,17 +206,21 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
     if (w !== width) setWidth(w);
   }
 
-  // Inbox / Archived tabs: arrow keys (and Home/End) move between them, one tab stop (roving tabindex).
+  // Inbox / Archived tabs (Open / Closed in the support inbox): arrow keys (and Home/End) move between them,
+  // one tab stop (roving tabindex).
+  const tabs = admin ? ADMIN_TABS : MEMBER_TABS;
+  const secondTab = admin ? showClosed : archived;
+  const selectTab = admin ? setShowClosed : setArchived;
   const tabRefs = useRef<Record<string, any>>({});
   function onTabKey(e: any) {
     const key = e?.nativeEvent?.key ?? e?.key;
     let next: boolean | null = null;
-    if (key === 'ArrowRight' || key === 'ArrowLeft') next = !archived;
+    if (key === 'ArrowRight' || key === 'ArrowLeft') next = !secondTab;
     else if (key === 'Home') next = false;
     else if (key === 'End') next = true;
     if (next == null) return;
     e.preventDefault?.();
-    setArchived(next);
+    selectTab(next);
     tabRefs.current[String(next)]?.focus?.();
   }
 
@@ -154,34 +232,38 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
       <View style={styles.listHeader}>
         <View style={styles.listTitleRow}>
           <View style={styles.flex}>
-            <Text style={styles.pageTitle} accessibilityRole="header">Messages</Text>
+            <Text style={styles.pageTitle} accessibilityRole="header" {...ariaLevel(1)}>{admin ? 'Support messages' : 'Messages'}</Text>
             <Text style={styles.pageSub}>{SUBTITLES[mode]}</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.newBtn, { backgroundColor: theme.accent }]}
-            onPress={() => setPane({ kind: 'new' })}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Start a new conversation"
-          >
-            <Ionicons name="create-outline" size={15} color={WHITE} importantForAccessibility="no" />
-            <Text style={styles.newBtnText}>New</Text>
-          </TouchableOpacity>
+          {/* Support conversations are opened by the person asking, from Help & Support: nothing to start here. */}
+          {!admin && (
+            <TouchableOpacity
+              style={[styles.newBtn, { backgroundColor: theme.accent }]}
+              onPress={() => setPane({ kind: 'new' })}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              // Starts with the visible word "New" (WCAG 2.5.3).
+              accessibilityLabel="New conversation"
+            >
+              <Ionicons aria-hidden name="create-outline" size={15} color={WHITE} importantForAccessibility="no" />
+              <Text style={styles.newBtnText}>New</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <View
           style={styles.tabs}
           accessibilityRole="tablist"
-          aria-label="Conversation folders"
+          aria-label={admin ? 'Support conversation status' : 'Conversation folders'}
           {...(Platform.OS === 'web' ? { onKeyDown: onTabKey } : {})}
         >
-          {[{ key: false, label: 'Inbox' }, { key: true, label: 'Archived' }].map(tab => {
-            const on = archived === tab.key;
+          {tabs.map(tab => {
+            const on = secondTab === tab.key;
             return (
               <TouchableOpacity
                 key={tab.label}
                 ref={(r: any) => { tabRefs.current[String(tab.key)] = r; }}
                 style={[styles.tab, on && { borderBottomColor: theme.accent }]}
-                onPress={() => setArchived(tab.key)}
+                onPress={() => selectTab(tab.key)}
                 {...({ tabIndex: on ? 0 : -1 } as object)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
@@ -193,26 +275,45 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
             );
           })}
         </View>
-        <PatientFilter mode={mode} value={patient?.systemId ?? null} onChange={setPatient} />
+        {memberMode && <PatientFilter mode={memberMode} value={patient?.systemId ?? null} onChange={setPatient} />}
       </View>
-      <ThreadList
-        threads={threads.threads}
-        loading={threads.loading}
-        error={threads.error}
-        hasMore={threads.hasMore}
-        loadingMore={threads.loadingMore}
-        archived={archived}
-        mode={mode}
-        mySystemId={mySystemId}
-        selectedId={selectedId}
-        onSelect={t => { remember(t); setPane({ kind: 'thread', id: t.threadId }); }}
-        onRetry={threads.refetch}
-        onLoadMore={threads.loadMore}
-        onArchive={archiveFromList}
-        onNew={archived ? undefined : () => setPane({ kind: 'new' })}
-        filterName={patient?.name ?? null}
-        emptyExtra={mode === 'CAREGIVER' && !archived ? <CaregiverMessagingStatus patientSystemId={patient?.systemId ?? null} /> : null}
-      />
+      {memberMode ? (
+        <ThreadList
+          threads={threads.threads}
+          loading={threads.loading}
+          error={threads.error}
+          hasMore={threads.hasMore}
+          loadingMore={threads.loadingMore}
+          archived={archived}
+          mode={memberMode}
+          mySystemId={mySystemId}
+          selectedId={selectedId}
+          onSelect={t => { remember(t); setPane({ kind: 'thread', id: t.threadId }); }}
+          onRetry={threads.refetch}
+          onLoadMore={threads.loadMore}
+          onArchive={archiveFromList}
+          onNew={archived ? undefined : () => setPane({ kind: 'new' })}
+          filterName={patient?.name ?? null}
+          emptyExtra={memberMode === 'CAREGIVER' && !archived ? <CaregiverMessagingStatus patientSystemId={patient?.systemId ?? null} /> : null}
+        />
+      ) : (
+        <SupportThreadList
+          threads={support.threads}
+          loading={support.loading}
+          error={support.error}
+          denied={support.errorStatus === 403}
+          hasMore={support.hasMore}
+          loadingMore={support.loadingMore}
+          closed={showClosed}
+          mySystemId={mySystemId}
+          selectedId={selectedId}
+          closingId={closingId}
+          onSelect={row => setPane({ kind: 'thread', id: row.threadId })}
+          onRetry={support.refetch}
+          onLoadMore={support.loadMore}
+          onClose={closeFromList}
+        />
+      )}
     </View>
   );
 
@@ -229,12 +330,23 @@ export function MessagesScreen({ mode, theme = DEFAULT_THEME, openThreadId, onOp
       onSent={onSent}
       onArchived={archiveFromThread}
       onClosed={closePane}
+      onCloseConversation={admin ? closeConversation : undefined}
     />
-  ) : pane.kind === 'new' ? (
-    <NewConversation mode={mode} mySystemId={mySystemId} onCancel={() => setPane({ kind: 'none' })} onCreated={onCreated} />
+  ) : pane.kind === 'new' && memberMode ? (
+    <NewConversation
+      mode={memberMode}
+      mySystemId={mySystemId}
+      onCancel={() => setPane({ kind: 'none' })}
+      onCreated={onCreated}
+      headingLevel={wide ? 2 : 1}
+    />
   ) : (
     <View style={styles.placeholder}>
-      <Empty icon="chatbubbles-outline" title="Select a conversation" sub="Choose a conversation from the list, or start a new one." />
+      <Empty
+        icon="chatbubbles-outline"
+        title="Select a conversation"
+        sub={admin ? 'Choose a support conversation from the list to read and answer it.' : 'Choose a conversation from the list, or start a new one.'}
+      />
     </View>
   );
 

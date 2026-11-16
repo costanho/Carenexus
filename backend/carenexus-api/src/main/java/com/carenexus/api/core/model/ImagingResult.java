@@ -15,6 +15,16 @@ import java.time.LocalDateTime;
 @Builder
 public class ImagingResult {
 
+    public static final String STATUS_PENDING = LabResult.STATUS_PENDING;
+    public static final String STATUS_REQUIRES_REVIEW = LabResult.STATUS_REQUIRES_REVIEW;
+    public static final String STATUS_COMPLETED = LabResult.STATUS_COMPLETED;
+    public static final String STATUS_CRITICAL = LabResult.STATUS_CRITICAL;
+    public static final String STATUS_CANCELLED = LabResult.STATUS_CANCELLED;
+
+    /** The imaging_results.imaging_type CHECK. */
+    public static final java.util.List<String> IMAGING_TYPES = java.util.List.of(
+            "XRAY", "MRI", "CT_SCAN", "ULTRASOUND", "PET", "MAMMOGRAPHY", "DEXA", "ECHO");
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "imaging_id")
@@ -44,9 +54,11 @@ public class ImagingResult {
     @Column(name = "impression", columnDefinition = "TEXT")
     private String impression;
 
+    /** Legacy free-text URL: no longer written by the API and never returned (attachments use documentId). */
     @Column(name = "file_url", length = 500)
     private String fileUrl;
 
+    /** Legacy free-text URL: no longer written by the API and never returned. */
     @Column(name = "thumbnail_url", length = 500)
     private String thumbnailUrl;
 
@@ -63,12 +75,21 @@ public class ImagingResult {
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
+    @Column(name = "review_notes", length = 2000)
+    private String reviewNotes;
+
+    /** Attached document (documents.document_id) of the same patient; null when none. */
+    @Column(name = "document_id")
+    private Integer documentId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
         if (imageDate == null) {
             imageDate = LocalDate.now();
         }

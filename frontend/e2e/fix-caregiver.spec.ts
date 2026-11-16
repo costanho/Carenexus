@@ -10,8 +10,15 @@ import {
 import { escapeRe } from './support/ui';
 
 // Caregiver fixes: Add Loved One date fields in the clinic time zone, the Loved One Overview at
-// 375 px, named notification switches, section headings, the caregiver Notifications page, and
+// 375 px, named notification switches saved on click, section headings, the caregiver Notifications page, and
 // "Message Care Team" for a loved one (opens their conversation, or is disabled with the reason).
+//
+// Tables written: users, patients, legal_acceptances (throwaway e2e-fix-caregiver-…@carenexus.test caregivers and
+// the loved ones they create); dependent_access, consent_records and caregiver_activity_log (grants created and
+// revoked in afterAll); user_settings (Sarah's "Lab results" switch, toggled twice so it ends as it was); the phone of
+// a throwaway caregiver (users, caregivers);
+// e2e-fix-caregiver-… care team conversations (message_threads, thread_members, messages) and their notifications;
+// refresh_tokens and audit_log for every sign-in. scripts/dev-reset-e2e-data.sh removes the tagged rows.
 
 const section = (nav: string) => PROXY_SECTIONS.find(s => s.nav === nav)!;
 
@@ -26,14 +33,25 @@ async function openDashboard(page: Page): Promise<void> {
   // The Loved One Overview card: the innermost box with its heading and the loved-one rows.
   const card = page.locator('div')
     .filter({ has: page.getByRole('heading', { name: 'Loved One Overview', exact: true }) })
-    .filter({ has: page.getByRole('button', { name: /^Open profile for / }) }).last();
+    .filter({ has: page.getByRole('button', { name: /, open profile$/ }) }).last();
   // The rows render after the dependents load; check for "+N more" only once they are there.
-  await expect(card.getByRole('button', { name: /^Open profile for / }).first()).toBeVisible();
+  await expect(card.getByRole('button', { name: /, open profile$/ }).first()).toBeVisible();
   const more = card.getByRole('button', { name: /\+\d+ more$/ });
   if (await more.count()) {
     await more.first().click();
     await expect(card.getByRole('button', { name: /Show less$/ })).toBeVisible();
   }
+}
+
+/** A loved one's row on the Loved One Overview: named "<name>, <access>, …, open profile". */
+function lovedOneRow(page: Page, name: string) {
+  return page.getByRole('button', { name: new RegExp(`^${escapeRe(name)}, .*open profile$`) }).first();
+}
+
+/** One line of "Messaging and video calls" on a loved one's profile: the label and its status badge. */
+function commRow(page: Page, label: string, status: string) {
+  return page.locator('div').filter({ has: page.getByText(label, { exact: true }) })
+    .filter({ has: page.getByText(status, { exact: true }) }).last();
 }
 
 function messageCareTeam(page: Page, name: string, reason?: string) {
@@ -73,39 +91,39 @@ test.describe('fix caregiver', () => {
 
     const depEmail = `${tag}-dep@carenexus.test`;
     const expiry = futureDay(365).iso;
-    const visible = (placeholder: string) => page.getByPlaceholder(placeholder, { exact: true }).filter({ visible: true });
 
-    await page.getByRole('button', { name: /Add Another Loved One/ }).first().click();
+    await page.getByRole('button', { name: 'Add Another Loved One' }).first().click();
     await expect(page.getByRole('heading', { name: 'Add Loved One', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /^Create a new account\./ }).click();
 
-    await visible('e.g. Thomas').fill('Fix');
-    await visible('e.g. Dube').fill('Dependent');
-    await visible('e.g. thomas.dube@email.com').fill(depEmail);
-    await visible('e.g. +263771234567').fill(`+26371${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
-    const depPassword = await page.locator('input[type="password"]').filter({ visible: true }).first().inputValue();
-    await page.getByText('Continue', { exact: true }).click();
+    await page.getByLabel('First name').fill('Fix');
+    await page.getByLabel('Last name').fill('Dependent');
+    await page.getByLabel('Phone number (optional)').fill(`+26371${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+    await page.getByLabel('Email address (optional)').fill(depEmail);
+    const passwordBox = page.getByLabel('Temporary password', { exact: true });
+    await expect(passwordBox).not.toHaveValue('');
+    const depPassword = await passwordBox.inputValue();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
-    await expect(page.getByText('Medical and demographic information for the patient record')).toBeVisible();
-    await page.getByText('Female', { exact: true }).click();
-    await page.getByText('B+', { exact: true }).click();
-    // An impossible date is still refused...
-    await visible('YYYY-MM-DD').fill('1950-02-30');
-    await page.getByText('Continue', { exact: true }).click();
-    await expect(page.getByText('Use the format YYYY-MM-DD')).toBeVisible();
-    // ...and a real one is accepted in a time zone ahead of UTC.
-    await visible('YYYY-MM-DD').fill('1950-03-15');
-    await page.getByText('Continue', { exact: true }).click();
-    await expect(page.getByText('Use the format YYYY-MM-DD'), 'valid date of birth 1950-03-15 accepted').toHaveCount(0);
+    // Health profile: a real date of birth is accepted in a time zone ahead of UTC.
+    await expect(page.getByText(/^Step 2 of 3: /)).toBeVisible();
+    await page.getByLabel('Gender').selectOption({ label: 'Female' });
+    await page.getByLabel('Blood type').selectOption({ label: 'B+' });
+    await page.getByLabel('Date of birth').fill('1950-03-15');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
     await expect(page.getByText('Define your proxy relationship and what you are permitted to access')).toBeVisible();
-    await visible('e.g. Father, Mother, Sibling, Guardian…').fill('Mother');
-    await visible('YYYY-MM-DD (leave blank for no expiry)').fill(expiry);
+    await page.getByLabel('Your relationship to them').fill('Mother');
+    await page.getByLabel('Access end date (optional)').fill(expiry);
+    await page.getByRole('checkbox', { name: /^I am this person's parent or legal guardian\./ }).click();
     const created = page.waitForResponse(r => r.url().endsWith('/api/caregiver/dependents') && r.request().method() === 'POST');
-    await page.getByText('Add Loved One', { exact: true }).last().click();
-    await expect(page.getByText('Use the format YYYY-MM-DD'), `valid access expiry ${expiry} accepted`).toHaveCount(0);
-    expect((await created).status(), 'dependent created').toBeLessThan(300);
+    await page.getByRole('button', { name: 'Add Loved One', exact: true }).click();
+    const res = await created;
+    expect(res.status(), 'dependent created').toBeLessThan(300);
+    const sent = res.request().postDataJSON();
+    expect(sent.dateOfBirth, 'date of birth sent as entered').toBe('1950-03-15');
     dependentsToRevoke.push({ email: depEmail, password: depPassword, role: 'patient', systemId: '', name: 'Fix Dependent' });
-    await expect(page.getByText('Loved One Added!')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Loved One Added!' })).toBeVisible();
     monitor.expectClean('add loved one');
 
     const capi = await Api.login(carer);
@@ -128,12 +146,12 @@ test.describe('fix caregiver', () => {
     await apiIdle(page);
     // Every loved one's health status and blood type is on screen (they used to end past 375 px).
     const deps = await api.sarah.ok(api.sarah.get<any[]>('/api/caregiver/dependents'), 'dependents');
-    for (const d of deps) await expect(page.getByRole('button', { name: `Open profile for ${d.patientName}`, exact: true })).toBeVisible();
+    for (const d of deps) await expect(lovedOneRow(page, d.patientName)).toBeVisible();
     expect(await pageOverflow(page), 'nothing on the caregiver dashboard runs past 375 px').toEqual([]);
     monitor.expectClean('dashboard 375 px');
   });
 
-  test('notification settings: every switch is named and reports its state; email and SMS are not available', async ({ browser }) => {
+  test('notification settings: every switch is named, reports its state and is saved on click', async ({ browser }) => {
     const sarah = await signedInPage(browser, SARAH);
     pages.push(sarah);
     const { page, monitor } = sarah;
@@ -141,36 +159,59 @@ test.describe('fix caregiver', () => {
     await apiIdle(page);
 
     const names = [
-      'Critical Health Alerts', 'Lab Results', 'Medication Reminders', 'Vitals Outside Range',
-      '24-Hour Appointment Reminder', '1-Hour Appointment Reminder', 'Appointment Changes', 'Video Call Ready',
-      'New Messages', 'Prescription Ready', 'Care Plan Updates', 'Referrals',
-      'New Login Alert', 'Proxy Access Changes', 'Weekly Health Summary', 'Push Notifications',
+      'First appointment reminder', 'Second appointment reminder', 'Appointment changes', 'Consultation summaries',
+      'Prescriptions', 'Medication reminders', 'Lab results', 'Imaging results', 'Critical health alerts',
+      'Health readings outside range', 'Referrals', 'Care plan updates', 'Access changes', 'Billing', 'Messages',
+      'New sign-in alerts', 'Quiet hours',
     ];
     for (const name of names) {
       const sw = page.getByRole('switch', { name, exact: true });
       await expect(sw, `switch "${name}"`).toHaveCount(1);
       await expect(sw, `switch "${name}" exposes aria-checked`).toHaveAttribute('aria-checked', /^(true|false)$/);
     }
-    for (const name of ['Email, not available yet', 'SMS, not available yet']) {
-      await expect(page.getByRole('switch', { name, exact: true })).toBeDisabled();
-    }
-    await expect(page.getByText('Not available yet', { exact: true })).toHaveCount(2);
+    // There is no Save button: each switch sends PATCH /api/profile/settings with only its own field.
+    await expect(page.getByRole('button', { name: 'Save notification settings' })).toHaveCount(0);
 
-    // Toggling flips aria-checked; email/SMS are never sent from this screen. Toggled twice, so Sarah's settings stay as they were.
-    const msg = page.getByRole('switch', { name: 'New Messages', exact: true });
-    const before = await msg.getAttribute('aria-checked');
-    await msg.click();
-    await expect(msg).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
-    await msg.click();
-    await expect(msg).toHaveAttribute('aria-checked', before!);
-    const saved = page.waitForRequest(r => r.url().endsWith('/api/profile/settings/notifications') && r.method() === 'PATCH');
-    await page.getByRole('button', { name: 'Save notification settings' }).click();
-    const body = (await saved).postDataJSON();
-    expect(body, 'message notification preference is saved').toHaveProperty('messageNotifications');
-    expect(Object.keys(body), 'email and SMS are not saved').not.toEqual(expect.arrayContaining(['emailNotifications']));
-    expect(Object.keys(body)).not.toEqual(expect.arrayContaining(['smsNotifications']));
-    await expect(page.getByText('Saved!')).toBeVisible();
+    // Toggled twice, so Sarah's settings stay as they were.
+    const labs = page.getByRole('switch', { name: 'Lab results', exact: true });
+    const before = (await labs.getAttribute('aria-checked')) === 'true';
+    for (const value of [!before, before]) {
+      const saved = page.waitForResponse(r => r.url().endsWith('/api/profile/settings') && r.request().method() === 'PATCH');
+      await labs.click();
+      const res = await saved;
+      expect(res.status()).toBeLessThan(300);
+      expect(res.request().postDataJSON()).toEqual({ labResultAlerts: value });
+      await expect(labs).toHaveAttribute('aria-checked', String(value));
+      await expect(page.getByText('Changes saved', { exact: true })).toBeVisible();
+    }
     monitor.expectClean('notification settings');
+  });
+
+  test('a caregiver edits their phone number; only the phone is sent', async ({ browser }) => {
+    const carer = await registerFixCaregiver(fixTag());
+    const cg = await signedInPage(browser, carer);
+    pages.push(cg);
+    const { page, monitor } = cg;
+    await visit(page, section('Profile & Settings'));
+    await apiIdle(page);
+    await page.getByRole('button', { name: 'Edit personal information' }).click();
+    const phone = page.getByRole('group', { name: /^Phone number/ });
+    const dial = (await phone.getByText(/^\+\d{1,4}$/).first().innerText()).trim();
+    const local = `77${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`;
+    await phone.getByPlaceholder('Phone number').fill(local);
+    const put = page.waitForResponse(r => new URL(r.url()).pathname === '/api/profile' && r.request().method() === 'PUT');
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    const res = await put;
+    expect(res.status(), 'phone saved').toBe(200);
+    expect(res.request().postDataJSON(), 'PUT /api/profile carries only the phone').toEqual({ phone: `${dial} ${local}` });
+    await expect(page.getByText('Your personal information was saved.')).toBeVisible();
+    const capi = await Api.login(carer);
+    try {
+      expect((await capi.ok(capi.get<any>('/api/profile'), 'profile')).phone).toBe(`${dial} ${local}`);
+    } finally {
+      await capi.dispose();
+    }
+    monitor.expectClean('caregiver phone');
   });
 
   test('caregiver section titles are headings', async ({ browser }) => {
@@ -184,11 +225,12 @@ test.describe('fix caregiver', () => {
     await visit(page, section('Notification Settings'));
     await expect(page.getByRole('heading', { name: 'Notification Settings', exact: true })).toBeVisible();
     await visit(page, section('Health Summary'));
-    await expect(page.getByRole('heading', { name: 'Latest Vitals', exact: true, level: 2 }).first()).toBeVisible();
+    // Each loved one's card has its blocks as level-3 headings, the vitals block among them.
+    await expect(page.getByRole('heading', { name: 'Vitals & Symptoms', exact: true, level: 3 }).first()).toBeVisible();
     await navButton(page, 'Notifications').click();
     await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
     await openDashboard(page);
-    await page.getByRole('button', { name: 'Open profile for Thomas Dube', exact: true }).click();
+    await lovedOneRow(page, THOMAS.name).click();
     await expect(page.getByRole('heading', { name: 'Patient Profile', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Quick Actions', exact: true })).toBeVisible();
     await apiIdle(page);
@@ -239,7 +281,7 @@ test.describe('fix caregiver', () => {
       'the notification now shows as read').toBeVisible();
 
     // "Mark all as read" clears the rest.
-    const markAll = page.getByRole('button', { name: 'Mark all notifications as read' });
+    const markAll = page.getByRole('button', { name: 'Mark all as read', exact: true });
     if (await markAll.count()) {
       const all = page.waitForResponse(r => r.url().endsWith('/api/notifications/read-all') && r.request().method() === 'POST');
       await markAll.first().click();
@@ -276,9 +318,9 @@ test.describe('fix caregiver', () => {
     await expect(page.getByRole('heading', { name: subject }), 'the existing conversation is open').toBeVisible();
 
     await openDashboard(page);
-    await page.getByRole('button', { name: `Open profile for ${THOMAS.name}`, exact: true }).click();
+    await lovedOneRow(page, THOMAS.name).click();
     await expect(page.getByRole('heading', { name: 'Patient Profile', exact: true })).toBeVisible();
-    await expect(page.getByLabel('Message the care team: Allowed')).toBeVisible();
+    await expect(commRow(page, 'Message the care team', 'Allowed')).toBeVisible();
     await messageCareTeam(page, THOMAS.name).click();
     await expect(page.getByRole('heading', { name: subject }), 'the profile opens the same conversation').toBeVisible();
     expect(created, 'no new conversation was started').toEqual([]);
@@ -342,11 +384,11 @@ test.describe('fix caregiver', () => {
     await waitingBtn.click({ force: true });
     await expect(page.getByRole('heading', { name: 'Loved One Overview', exact: true }), 'a disabled button does nothing').toBeVisible();
 
-    await page.getByRole('button', { name: `Open profile for ${waiting.patientName}`, exact: true }).click();
+    await lovedOneRow(page, waiting.patientName).click();
     await expect(page.getByRole('heading', { name: 'Patient Profile', exact: true })).toBeVisible();
     await expect(messageCareTeam(page, waiting.patientName, waitingReason)).toBeDisabled();
     // The profile's status row uses pendingApproval too.
-    await expect(page.getByLabel(`Message the care team: Waiting for ${waitingFirst} to approve`)).toBeVisible();
+    await expect(commRow(page, 'Message the care team', `Waiting for ${waitingFirst} to approve`)).toBeVisible();
     expect(navigatedToMessages, 'no conversation was looked up or started').toBe(false);
     monitor.expectClean('message care team (disabled)');
   });

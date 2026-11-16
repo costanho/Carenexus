@@ -4,24 +4,39 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-  # Pull requests run the browser end-to-end job; manual runs can too (see the e2e job below).
+  # Nightly: the browser end-to-end suite in Firefox and WebKit (skipped with a notice while
+  # frontend/playwright.config.ts lacks those projects), and both dependency scans, so new
+  # advisories against unchanged code are caught (see the e2e and scan jobs below).
+  schedule:
+    - cron: "0 2 * * *"
+  # Manual runs (Actions > CI > Run workflow).
   workflow_dispatch:
     inputs:
       e2e:
         description: Run the browser end-to-end tests (docker compose stack + Playwright)
         type: boolean
         default: true
+      e2e_browsers:
+        description: Playwright projects for the end-to-end tests
+        type: choice
+        options:
+          - chromium
+          - firefox webkit
+          - chromium firefox webkit
+        default: chromium
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # The nightly run has its own group so a push to main does not cancel it (and the other way round).
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'schedule' && 'nightly' || 'run' }}
   cancel-in-progress: true
 
 jobs:
   backend:
     name: Backend (mvnw verify, Testcontainers)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -37,21 +52,24 @@ jobs:
           cache: maven
           cache-dependency-path: backend/carenexus-api/pom.xml
 
-      # Integration tests start PostgreSQL through Testcontainers, using the
-      # Docker engine that ubuntu-latest runners provide.
+      # Integration tests start PostgreSQL through Testcontainers, using the Docker engine that
+      # ubuntu-latest runners provide. MigrationPathsTest migrates both Flyway paths (schema only,
+      # schema + dev seed) against a fresh database as part of this run.
       - name: Build and test
         run: ./mvnw -B -ntp verify
 
       - name: Upload test reports
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-test-reports
           path: backend/carenexus-api/target/surefire-reports
+          if-no-files-found: ignore
           retention-days: 7
 
   frontend:
-    name: Frontend (npm ci, type check)
+    name: Frontend (lint, type check, web export)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -69,11 +87,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # eslint-config-expo with --max-warnings 0. Findings that predate lint are baselined per rule
+      # and per file in frontend/eslint.config.js; every other file is held to the full rule set.
+      - name: Lint
+        run: npm run lint
+
       - name: Type check
         run: npx tsc --noEmit
 
+      # The production web bundle (expo export), so a broken bundle fails here on every push and pull
+      # request without waiting for the end-to-end job. The API URL only has to be well formed.
+      - name: Web export
+        run: npm run e2e:build
+
   dependency-audit:
-    name: Dependency audit
+    name: Dependency audit (npm)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -95,8 +123,132 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=high
 
+  # OWASP dependency-check over the API's compile and runtime dependencies (Maven profile
+  # `dependency-check` in backend/carenexus-api/pom.xml). Mirrors the npm audit split: CVSS 9.0 or
+  # higher fails the job, CVSS 7.0 to 8.9 is listed in the job summary without failing.
+  # The NVD_API_KEY repository secret (free from nvd.nist.gov) makes the database download fast; the
+  # job works without it but the first download is much slower. The database is cached per day.
+  backend-dependency-check:
+    name: Dependency scan (backend, OWASP dependency-check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: backend/carenexus-api
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: backend/carenexus-api/pom.xml
+
+      - name: Cache key for the vulnerability database
+        id: dc-day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the vulnerability database
+        id: dc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/dependency-check
+          key: dependency-check-data-${{ steps.dc-day.outputs.day }}
+          restore-keys: dependency-check-data-
+
+      - name: OWASP dependency-check (CVSS >= 9, blocking)
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: ./mvnw -B -ntp -Pdependency-check dependency-check:check
+
+      # Saved even when the scan failed on a finding, so the next run only downloads the changes.
+      - name: Save the vulnerability database
+        if: always() && steps.dc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/dependency-check
+          key: dependency-check-data-${{ steps.dc-day.outputs.day }}
+
+      # Report only: every finding with CVSS 7.0 or higher (or rated HIGH / CRITICAL without a score)
+      # goes to the job summary. Accepted residual advisories are recorded in docs/security/DEPENDENCIES.md.
+      - name: High findings (report only)
+        if: always() && hashFiles('backend/carenexus-api/target/dependency-check-report.json') != ''
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          with open("target/dependency-check-report.json", encoding="utf-8") as fh:
+              report = json.load(fh)
+
+          def score(v):
+              scores = []
+              if isinstance(v.get("cvssv3"), dict) and v["cvssv3"].get("baseScore") is not None:
+                  scores.append(float(v["cvssv3"]["baseScore"]))
+              if isinstance(v.get("cvssv2"), dict) and v["cvssv2"].get("score") is not None:
+                  scores.append(float(v["cvssv2"]["score"]))
+              return max(scores) if scores else None
+
+          rows = []
+          for dep in report.get("dependencies", []):
+              packages = ", ".join(p.get("id", "") for p in dep.get("packages", [])) or dep.get("fileName", "")
+              for v in dep.get("vulnerabilities", []):
+                  s = score(v)
+                  severity = str(v.get("severity", "")).upper()
+                  if (s is not None and s >= 7.0) or (s is None and severity in ("HIGH", "CRITICAL")):
+                      rows.append((s if s is not None else -1.0, v.get("name", "?"), packages, severity))
+          rows.sort(key=lambda r: (-r[0], r[1]))
+
+          lines = ["## Backend dependency scan: high and critical findings", ""]
+          if rows:
+              lines += ["| CVSS | Advisory | Package | Severity |", "|---|---|---|---|"]
+              for s, name, pkg, sev in rows:
+                  lines.append(f"| {'n/a' if s < 0 else f'{s:.1f}'} | {name} | {pkg} | {sev} |")
+              lines += ["", "CVSS 9.0 or higher fails the job. Record accepted findings in docs/security/DEPENDENCIES.md."]
+          else:
+              lines.append("No finding with CVSS 7.0 or higher.")
+          text = "\n".join(lines) + "\n"
+          print(text)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(text)
+          PY
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dependency-check-report
+          path: |
+            backend/carenexus-api/target/dependency-check-report.html
+            backend/carenexus-api/target/dependency-check-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Released Flyway files (db/migration and db/seed) are immutable, versions are unique across both
+  # folders, every SQL file follows Flyway naming and no new versioned seed file appears.
+  # Pull requests and branch pushes compare with the merge base of origin/main; a push to main
+  # compares with the commit it replaced.
+  migrations:
+    name: Migrations (immutability, unique versions)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check migrations
+        env:
+          MIGRATIONS_BASE_REF: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.before != '0000000000000000000000000000000000000000') && github.event.before || 'origin/main' }}
+        run: bash scripts/check-migrations.sh
+
   secrets-scan:
     name: Secrets scan (gitleaks)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -116,15 +268,24 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
   # Browser end-to-end tests against the real local stack (PostgreSQL, LiveKit in dev mode, API)
-  # started with docker compose, and the exported web app, in Playwright's bundled Chromium (the
-  # 'chromium' project; locally `npm run e2e:chrome` uses installed Google Chrome). Runs on every
-  # pull request and on manual runs (Actions > CI > Run workflow). The API image builds in the
-  # background while the web app is exported, to keep the job near 20 minutes.
+  # started with docker compose, and the exported web app.
+  #  - pull requests: Playwright's bundled Chromium (the 'chromium' project);
+  #  - nightly: the 'firefox' and 'webkit' projects (smoke and accessibility specs), kept off pull
+  #    requests to hold their time near 20 minutes;
+  #  - manual runs: the projects picked in the e2e_browsers input.
+  # frontend/playwright.config.ts defines 'chromium' always and 'firefox' and 'webkit' only when
+  # E2E_CROSS_BROWSER=1 (they run the smoke, deep-link and accessibility specs). The job sets
+  # E2E_CROSS_BROWSER=1 whenever 'firefox' or 'webkit' is requested, for both the project check
+  # and the test run; the pull-request run (chromium only) leaves it unset. "Select Playwright
+  # projects" still drops a requested project the config does not define (a typo in a manual
+  # run) with a warning and a notice in the job summary.
+  # Locally `npm run e2e:chrome` uses installed Google Chrome. The API image builds in the
+  # background while the web app is exported.
   e2e:
     name: Browser end-to-end (Playwright)
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.e2e)
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.e2e)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -134,31 +295,98 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # `playwright test --list` loads the config without starting the web server or globalSetup,
+      # and exits with 'Project(s) "<p>" not found' for a project the config does not define.
+      # Such projects are dropped with a warning; any other --list failure (a broken config or
+      # spec) fails the step, so a real error is never hidden.
+      - name: Select Playwright projects
+        id: projects
+        working-directory: frontend
+        env:
+          EVENT: ${{ github.event_name }}
+          PICKED: ${{ inputs.e2e_browsers }}
+        run: |
+          case "$EVENT" in
+            schedule) requested="firefox webkit" ;;
+            workflow_dispatch) requested="${PICKED:-chromium}" ;;
+            *) requested="chromium" ;;
+          esac
+          # The cross-browser projects exist only with E2E_CROSS_BROWSER=1 (frontend/playwright.config.ts);
+          # set it for this check and, through GITHUB_ENV, for "Run end-to-end tests".
+          case " $requested " in
+            *" firefox "*|*" webkit "*)
+              export E2E_CROSS_BROWSER=1
+              echo "E2E_CROSS_BROWSER=1" >> "$GITHUB_ENV"
+              ;;
+          esac
+          projects=""
+          missing=""
+          for p in $requested; do
+            if out="$(npx playwright test --list --pass-with-no-tests --project="$p" 2>&1)"; then
+              projects="${projects:+$projects }$p"
+            elif grep -q 'not found. Available projects' <<<"$out"; then
+              echo "::warning title=Playwright project missing::frontend/playwright.config.ts defines no '$p' project; it is skipped."
+              missing="${missing:+$missing }$p"
+            else
+              printf '%s\n' "$out"
+              echo "::error title=Playwright config::'playwright test --list --project=$p' failed."
+              exit 1
+            fi
+          done
+          echo "Requested: $requested (E2E_CROSS_BROWSER=${E2E_CROSS_BROWSER:-unset})"
+          echo "Playwright projects: ${projects:-none}"
+          if [ -n "$missing" ]; then
+            {
+              echo "### Browser end-to-end"
+              echo ""
+              echo "Requested projects not defined in frontend/playwright.config.ts, skipped: \`$missing\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -z "$projects" ]; then
+            echo "No requested Playwright project is defined, so the end-to-end run is skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "list=$projects" >> "$GITHUB_OUTPUT"
+
       # Fresh secrets for every run, in a git-ignored .env that every later `docker compose`
       # command reads (logs included). Never the committed .env.example values.
       - name: Generate per-run secrets
+        if: steps.projects.outputs.run == 'true'
         run: |
           JWT_SECRET="$(openssl rand -base64 64 | tr -d '\n')"
           POSTGRES_PASSWORD="$(openssl rand -hex 24)"
           echo "::add-mask::$JWT_SECRET"
           echo "::add-mask::$POSTGRES_PASSWORD"
           umask 077
-          printf 'JWT_SECRET=%s\nPOSTGRES_PASSWORD=%s\n' "$JWT_SECRET" "$POSTGRES_PASSWORD" > .env
+          printf 'JWT_SECRET=%s\nPOSTGRES_PASSWORD=%s\nRATE_LIMIT_ENABLED=false\n' "$JWT_SECRET" "$POSTGRES_PASSWORD" > .env
 
       - name: Start the stack in the background (postgres, livekit dev, api)
+        if: steps.projects.outputs.run == 'true'
         run: nohup docker compose up -d --build postgres-db livekit carenexus-api > compose-up.log 2>&1 &
 
-      - name: Install dependencies and browsers
+      # Project names match Playwright browser names (chromium, firefox, webkit).
+      - name: Install browsers
+        if: steps.projects.outputs.run == 'true'
         working-directory: frontend
+        env:
+          PROJECTS: ${{ steps.projects.outputs.list }}
         run: |
-          npm ci
-          npx playwright install --with-deps chromium
+          # shellcheck disable=SC2086
+          npx playwright install --with-deps $PROJECTS
 
       - name: Build the web app
+        if: steps.projects.outputs.run == 'true'
         working-directory: frontend
         run: npm run e2e:build
 
       - name: Wait for the API
+        if: steps.projects.outputs.run == 'true'
         run: |
           for i in $(seq 1 120); do
             curl -fsS http://localhost:9000/actuator/health >/dev/null 2>&1 && break
@@ -169,14 +397,20 @@ jobs:
       # globalSetup / globalTeardown run scripts/dev-reset-e2e-data.sh against the compose
       # container (carenexus-postgres), so the run starts and ends without e2e rows.
       - name: Run end-to-end tests
+        if: steps.projects.outputs.run == 'true'
         working-directory: frontend
-        run: npx playwright test --project=chromium
+        env:
+          PROJECTS: ${{ steps.projects.outputs.list }}
+        run: |
+          args=()
+          for p in $PROJECTS; do args+=("--project=$p"); done
+          npx playwright test "${args[@]}"
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-report
+          name: e2e-report-${{ github.event_name }}
           path: |
             frontend/e2e-report
             frontend/e2e-results
@@ -186,4 +420,4 @@ jobs:
         if: failure()
         run: |
           cat compose-up.log || true
-          docker compose logs --no-color --tail=300 carenexus-api livekit
+          docker compose logs --no-color --tail=300 carenexus-api livekit || true

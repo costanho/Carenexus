@@ -1,86 +1,88 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View,
-} from 'react-native';
-import {
-  ACTION_LABELS, availableActions, canReschedule, doctorCallJoin, useDoctorAppointmentActions,
+  ACTION_LABELS, availableActions, canReschedule, canSendReminder, consultationEntryPoint, doctorCallJoin,
+  useAppointmentReminder, useDoctorAppointmentActions,
   type DoctorAppointmentAction,
 } from '@/hooks/use-doctor-appointment-actions';
 import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
-import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import {
+  addClinicDays, applyAppointmentUpdate, clinicDayStart, clinicWeekStart, fetchAppointmentStats, fetchDoctorAppointmentEntry,
+  fetchDoctorPatientName, fetchNeedsOutcome, searchDoctorPatients, useDoctorSchedule,
+  type ApiAppointment, type ApiAppointmentStatus, type DoctorScheduleQuery, type ScheduleEntry,
+} from '@/hooks/use-doctor-schedule';
+import { useResource } from '@/hooks/use-resource';
+import { useSectionNav } from '@/hooks/use-section-nav';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import {
+  accessibleName, ariaHidden, ariaLevel, ariaPressed, Banner, type BannerTone, Button, Card, colors, EmptyView, ErrorView, fontSize,
+  Icon, IconButton, InfoRow, type IoniconsName, LoadingView, NoAccessView, radius, Screen, space, StatusBadge,
+  statusLabel, statusTone, type StatusTone, Tabs, TextField, useUiTheme,
+} from '@/components/web/ui';
 import { callStatusLabel } from '@/lib/calls/join';
+import type { SectionProps } from '@/lib/nav/sections';
+import {
+  clinicNowLocal, formatClinicDate as formatDay, formatClinicDateTime, formatClinicTime as formatTimeOfDay, isClinicToday,
+} from '@/lib/time/clinic';
+import { DoctorBookingDialog } from './doctor-booking-dialog';
 import { DoctorReschedulePanel, formatClinicDate, formatClinicTime } from './doctor-reschedule-panel';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BG2    = '#F3F4F6';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const ORANGE = '#B45309';
-const RED    = '#B91C1C';
-const PURPLE = '#6D28D9';
-const TEAL   = '#0F766E';
-const AMBER  = '#B45309';
+type AppType = ScheduleEntry['type'];
+type TypeFilter = 'ALL' | AppType;
+type StatusFilter = 'ALL' | ApiAppointmentStatus;
+/** The list being shown. Kept in the URL as `tab` so a refresh, Back and notification links keep it. */
+type ViewTab = 'all' | 'today' | 'week' | 'upcoming' | 'past' | 'needs-outcome';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type AppStatus    = ScheduleEntry['status'];
-type AppType      = ScheduleEntry['type'];
-type DateFilter   = 'all' | 'today' | 'week' | 'upcoming' | 'past';
-type StatusFilter = 'ALL' | AppStatus;
-type TypeFilter   = 'ALL' | AppType;
+const VIEW_TABS: readonly ViewTab[] = ['all', 'today', 'week', 'upcoming', 'past', 'needs-outcome'];
+const API_STATUSES: readonly ApiAppointmentStatus[] = ['SCHEDULED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+const PATIENT_ID = /^PAT-\d{5,}$/;
+const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/;
+const PAGE_SIZE = 20;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Presentation helpers (shared with the Schedule screen) ───────────────────
 
-function statusConfig(s: AppStatus) {
-  switch (s) {
-    case 'SCHEDULED':   return { bg: '#EEF2FF', color: BLUE,   label: 'Scheduled',   icon: 'time-outline'               as IoniconsName };
-    case 'COMPLETED':   return { bg: '#D1FAE5', color: GREEN,  label: 'Completed',   icon: 'checkmark-circle-outline'   as IoniconsName };
-    case 'CANCELLED':   return { bg: '#FEE2E2', color: RED,    label: 'Cancelled',   icon: 'close-circle-outline'       as IoniconsName };
-    case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show',     icon: 'alert-circle-outline'       as IoniconsName };
-    case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled', icon: 'refresh-circle-outline'    as IoniconsName };
-    case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress', icon: 'sync-outline'               as IoniconsName };
-    default:            return { bg: BG2,       color: GRAY,  label: String(s),     icon: 'help-circle-outline'        as IoniconsName };
-  }
+const STATUS_TEXT: Record<string, string> = {
+  SCHEDULED: 'Scheduled', COMPLETED: 'Completed', CANCELLED: 'Cancelled', NO_SHOW: 'No Show',
+  RESCHEDULED: 'Rescheduled', IN_PROGRESS: 'In Progress',
+};
+
+/** The words for an appointment status ("No Show", "Rescheduled"). */
+export function appointmentStatusText(status: string): string {
+  return STATUS_TEXT[status] ?? statusLabel(status);
 }
 
-function typeConfig(t: AppType) {
-  switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#047857' };
-    case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF', accent: '#4F46E5' };
-    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#B45309' };
-    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG2,       accent: BORDER    };
-  }
+/**
+ * The status badge of an appointment. One that ended without an outcome is labelled "Awaiting outcome" instead of
+ * Scheduled or Rescheduled; the server decides that (`needs_outcome`), not the device clock.
+ */
+export function appointmentBadge(entry: ScheduleEntry): { label: string; tone: StatusTone; icon?: IoniconsName } {
+  if (entry.needs_outcome) return { label: 'Awaiting outcome', tone: 'warning', icon: 'hourglass-outline' };
+  return { label: appointmentStatusText(entry.status), tone: statusTone('appointment', entry.status) };
 }
 
-function consultConfig(c: ScheduleEntry['consultation']) {
-  if (!c) return { label: 'No consultation', color: LGRAY, bg: BG2,      icon: 'document-outline'          as IoniconsName };
+const TYPE_META: Record<AppType, { icon: IoniconsName; label: string; accent: string }> = {
+  IN_PERSON: { icon: 'location-outline', label: 'In Person', accent: '#047857' },
+  VIDEO:     { icon: 'videocam-outline', label: 'Video',     accent: '#4F46E5' },
+  PHONE:     { icon: 'call-outline',     label: 'Phone',     accent: '#B45309' },
+};
+
+export function appointmentTypeMeta(type: AppType): { icon: IoniconsName; label: string; accent: string } {
+  return TYPE_META[type] ?? { icon: 'calendar-outline', label: String(type), accent: colors.border };
+}
+
+function consultationBadge(c: ScheduleEntry['consultation']): { label: string; tone: StatusTone } {
+  if (!c || c.status === 'CANCELLED') return { label: 'No consultation', tone: 'neutral' };
   switch (c.status) {
-    case 'DRAFT':       return { label: 'Draft',       color: AMBER, bg: '#FEF3C7', icon: 'document-outline'          as IoniconsName };
-    case 'IN_PROGRESS': return { label: 'In Progress', color: TEAL,  bg: '#CCFBF1', icon: 'sync-outline'               as IoniconsName };
-    case 'COMPLETED':   return { label: 'Completed',   color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline'   as IoniconsName };
-    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,   bg: '#FEE2E2', icon: 'close-circle-outline'       as IoniconsName };
-    default:            return { label: 'Consultation', color: GRAY, bg: BG2,       icon: 'document-outline'           as IoniconsName };
+    case 'DRAFT':       return { label: 'Consultation: Draft',       tone: 'warning' };
+    case 'IN_PROGRESS': return { label: 'Consultation: In progress', tone: 'info'    };
+    default:            return { label: 'Consultation: Completed',   tone: 'success' };
   }
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
-}
-
-function isToday(iso: string) {
-  const d = new Date(iso); const n = new Date();
-  return d.toDateString() === n.toDateString();
+/** What to say about reminders on a row, or null when none went out. */
+export function reminderText(entry: ScheduleEntry): string | null {
+  if (entry.reminder_sent_at) return `Reminder sent ${formatClinicDateTime(entry.reminder_sent_at, entry.reminder_sent_at)}`;
+  return entry.reminder_sent ? 'Automatic reminder sent' : null;
 }
 
 const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
@@ -93,593 +95,850 @@ function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
-function dayStart(d = new Date()) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
-function dayEnd(d = new Date())   { const x = new Date(d); x.setHours(23,59,59,999); return x; }
+// ─── Row actions shared by the Appointments and Schedule screens ──────────────
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+export type AppointmentChange = 'status' | 'rescheduled' | 'reminder';
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
+export interface AppointmentFeedback {
+  appointmentId: number;
+  tone:          BannerTone;
+  text:          string;
 }
 
-// ─── Appointment Card ─────────────────────────────────────────────────────────
+export interface AppointmentController {
+  runAction:         (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
+  actionPendingId:   number | null;
+  sendReminder:      (entry: ScheduleEntry) => void;
+  reminderPendingId: number | null;
+  rescheduled:       (entry: ScheduleEntry, date: string, time: string, updated?: ApiAppointment) => void;
+  /** Opens the consultation of an appointment in the Consultations section; absent when that section is not available. */
+  openConsultation?: (entry: ScheduleEntry) => void;
+  /** Opens the private conversation with the patient; absent when Messages is not available. */
+  messagePatient?:   (entry: ScheduleEntry) => void;
+  messagingPatient:  string | null;
+  /** The result of the last reminder or reschedule, shown on its row. */
+  feedback:          AppointmentFeedback | null;
+  dismissFeedback:   () => void;
+}
 
-const ACTION_STYLE: Record<DoctorAppointmentAction, { color: string; icon: IoniconsName }> = {
-  'complete': { color: GREEN,  icon: 'checkmark-circle-outline' },
-  'no-show':  { color: ORANGE, icon: 'alert-circle-outline'     },
-  'cancel':   { color: RED,    icon: 'close-circle-outline'     },
-};
+/**
+ * Everything an appointment row can do: Complete / No-show / Cancel, Reschedule, Send reminder, Start or Continue
+ * consultation and Message patient. `onChanged` receives the row as it is after an action, so the screen can
+ * update its list and counts.
+ */
+export function useAppointmentController({ navigate, onOpenThread, onChanged }: {
+  navigate?:     SectionProps['navigate'];
+  onOpenThread?: (threadId: number) => void;
+  onChanged:     (updated: ScheduleEntry, change: AppointmentChange) => void;
+}): AppointmentController {
+  const [feedback, setFeedback] = useState<AppointmentFeedback | null>(null);
+  const actions  = useDoctorAppointmentActions(updated => { setFeedback(null); onChanged(updated, 'status'); });
+  const reminder = useAppointmentReminder();
+  const messages = useDoctorMessagePatient(onOpenThread);
 
-function AppCard({ entry, busy, onAction, onRescheduled, onMessage, messaging }: {
-  entry:    ScheduleEntry;
-  busy:     boolean;
-  onAction: (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
-  onRescheduled: (entry: ScheduleEntry, date: string, time: string) => void;
-  /** Opens the private conversation with this patient; omitted when Messages is not available. */
-  onMessage?: (entry: ScheduleEntry) => void;
-  messaging?: boolean;
+  async function sendReminder(entry: ScheduleEntry) {
+    const outcome = await reminder.send(entry);
+    if (outcome.ok) {
+      const at = formatClinicDateTime(outcome.result.reminderSentAt, 'earlier this hour');
+      setFeedback({
+        appointmentId: entry.appointment_id,
+        tone: outcome.result.alreadySent ? 'info' : 'success',
+        text: outcome.result.alreadySent
+          ? `A reminder was already sent to ${entry.patient_name} on ${at}. Another one can be sent in the next hour.`
+          : `Reminder sent to ${entry.patient_name}.`,
+      });
+      onChanged(outcome.entry, 'reminder');
+    } else if (outcome.error) {
+      // A 429 arrives here as "Too many attempts. Try again in N minutes."
+      setFeedback({ appointmentId: entry.appointment_id, tone: 'danger', text: outcome.error.message });
+    }
+  }
+
+  function rescheduled(entry: ScheduleEntry, date: string, time: string, updated?: ApiAppointment) {
+    setFeedback({
+      appointmentId: entry.appointment_id,
+      tone: 'success',
+      text: `Appointment with ${entry.patient_name} moved to ${formatClinicDate(date)}, ${formatClinicTime(time)} CAT.`,
+    });
+    // The automatic reminder is re-armed by a move; the manual reminder time is kept.
+    const next: ScheduleEntry = updated
+      ? applyAppointmentUpdate(entry, updated)
+      : { ...entry, scheduled_at: `${date}T${time}:00`, status: 'RESCHEDULED', reminder_sent: false, needs_outcome: false };
+    onChanged(next, 'rescheduled');
+  }
+
+  return {
+    runAction:         actions.run,
+    actionPendingId:   actions.pendingId,
+    sendReminder,
+    reminderPendingId: reminder.pendingId,
+    rescheduled,
+    openConsultation:  navigate
+      ? entry => navigate('consultations', { appointmentId: entry.appointment_id, mode: 'edit' })
+      : undefined,
+    messagePatient:    messages.enabled ? entry => messages.messagePatient(entry.patient_system_id) : undefined,
+    messagingPatient:  messages.pendingPatient,
+    feedback,
+    dismissFeedback:   () => setFeedback(null),
+  };
+}
+
+// ─── Appointment card ─────────────────────────────────────────────────────────
+
+/** One appointment with its details and every action that applies to it right now. */
+export function AppointmentCard({ entry, controller, defaultExpanded = false, headingLevel = 2 }: {
+  entry:            ScheduleEntry;
+  controller:       AppointmentController;
+  /** Start with the details open (an appointment opened from a link). */
+  defaultExpanded?: boolean;
+  /**
+   * Heading level of the patient name: 2 in a plain list, 3 under a level-2 group heading (a day of the schedule,
+   * "Opened appointment"). The reschedule panel's heading is one level below it.
+   */
+  headingLevel?:    2 | 3;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const { accent } = useUiTheme();
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [rescheduling, setRescheduling] = useState(false);
-  const actions = availableActions(entry);
+
+  const actions       = availableActions(entry);
   const reschedulable = canReschedule(entry);
-  const sc  = statusConfig(entry.status);
-  const tc  = typeConfig(entry.type);
-  const cc  = consultConfig(entry.consultation);
-  const ac  = avatarColor(entry.patient_name);
-  const tod = isToday(entry.scheduled_at);
+  const remindable    = canSendReminder(entry);
+  const consult       = controller.openConsultation ? consultationEntryPoint(entry) : null;
+  const badge         = appointmentBadge(entry);
+  const type          = appointmentTypeMeta(entry.type);
+  const consultation  = consultationBadge(entry.consultation);
+  const reminder      = reminderText(entry);
+  const busy          = controller.actionPendingId === entry.appointment_id;
+  const reminding     = controller.reminderPendingId === entry.appointment_id;
+  const messaging     = controller.messagingPatient === entry.patient_system_id;
+  const feedback      = controller.feedback?.appointmentId === entry.appointment_id ? controller.feedback : null;
+  const name          = entry.patient_name;
+  const hasActionRow  = actions.length > 0 || reschedulable || remindable || !!consult || !!controller.messagePatient;
 
   return (
-    <View style={[styles.apptCard, { borderLeftColor: tc.accent }]}>
-      {/* Today badge */}
-      {tod && (
+    <Card padded={false} style={[styles.card, { borderLeftColor: type.accent }]}>
+      {isClinicToday(entry.scheduled_at) && (
         <View style={styles.todayBanner}>
-          <Ionicons name="radio-button-on" size={10} color={BLUE} />
+          <Icon name="radio-button-on" size={10} color={colors.text} />
           <Text style={styles.todayText}>Today</Text>
         </View>
       )}
 
-      {/* Main body */}
-      <View style={styles.apptBody}>
-        {/* Left: avatar + patient info */}
-        <View style={styles.apptLeft}>
-          <View style={[styles.avatar, { backgroundColor: ac }]}>
-            <Text style={styles.avatarText}>{initials(entry.patient_name)}</Text>
+      <View style={styles.body}>
+        <View style={styles.left}>
+          <View style={[styles.avatar, { backgroundColor: avatarColor(name) }]} {...ariaHidden}>
+            <Text style={styles.avatarText}>{initials(name)}</Text>
           </View>
-          <View style={styles.apptPatientCol}>
-            <Text style={styles.patientName}>{entry.patient_name}</Text>
+          <View style={styles.patientCol}>
+            {/* Each card is a section named by its patient, so screen-reader users can move card to card by heading. */}
+            <Text style={styles.patientName} accessibilityRole="header" {...ariaLevel(headingLevel)}>{name}</Text>
             <Text style={styles.apptId}>Appt #{entry.appointment_id}</Text>
-            <View style={styles.apptDateTime}>
-              <Ionicons name="calendar-outline" size={12} color={GRAY} />
-              <Text style={styles.apptDateText}>{formatDate(entry.scheduled_at)}</Text>
+            <View style={styles.metaRow}>
+              <Icon name="calendar-outline" size={12} color={colors.textMuted} />
+              <Text style={styles.metaText}>{formatDay(entry.scheduled_at, entry.scheduled_at)}</Text>
             </View>
-            <View style={styles.apptDateTime}>
-              <Ionicons name="time-outline" size={12} color={GRAY} />
-              <Text style={styles.apptDateText}>
-                {formatTime(entry.scheduled_at)} · {entry.duration_minutes} min
-              </Text>
+            <View style={styles.metaRow}>
+              <Icon name="time-outline" size={12} color={colors.textMuted} />
+              <Text style={styles.metaText}>{formatTimeOfDay(entry.scheduled_at)} · {entry.duration_minutes} min</Text>
             </View>
           </View>
         </View>
 
-        {/* Center: details */}
-        <View style={styles.apptCenter}>
+        <View style={styles.center}>
           {!!entry.reason_for_visit && (
             <View style={styles.detailRow}>
-              <Ionicons name="clipboard-outline" size={13} color={BLUE} style={styles.detailIcon} />
+              <Icon name="clipboard-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
               <Text style={styles.detailText} numberOfLines={2}>{entry.reason_for_visit}</Text>
             </View>
           )}
           {!!entry.facility_name && (
             <View style={styles.detailRow}>
-              <Ionicons name="business-outline" size={13} color={GRAY} style={styles.detailIcon} />
-              <Text style={styles.detailFacility}>{entry.facility_name}</Text>
+              <Icon name="business-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+              <Text style={styles.detailMuted}>{entry.facility_name}</Text>
             </View>
           )}
-          {!entry.facility_name && entry.type !== 'IN_PERSON' && (
+          {entry.type === 'PHONE' && (
             <View style={styles.detailRow}>
-              <Ionicons name="globe-outline" size={13} color={GRAY} style={styles.detailIcon} />
-              <Text style={styles.detailFacility}>Virtual</Text>
+              <Icon name="call-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+              {entry.contact_phone ? (
+                <Text style={styles.detailText} selectable>Call {entry.contact_phone}</Text>
+              ) : (
+                <Text style={styles.detailMuted}>No contact number on this appointment</Text>
+              )}
+            </View>
+          )}
+          {entry.type === 'VIDEO' && !entry.facility_name && (
+            <View style={styles.detailRow}>
+              <Icon name="globe-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+              <Text style={styles.detailMuted}>Virtual</Text>
             </View>
           )}
           {!!entry.notes && (
             <View style={styles.detailRow}>
-              <Ionicons name="chatbubble-outline" size={13} color={LGRAY} style={styles.detailIcon} />
-              <Text style={styles.detailNotes} numberOfLines={2}>{entry.notes}</Text>
+              <Icon name="chatbubble-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+              <Text style={styles.detailMuted} numberOfLines={2}>{entry.notes}</Text>
+            </View>
+          )}
+          {!!reminder && (
+            <View style={styles.detailRow}>
+              <Icon name="notifications-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+              <Text style={styles.detailMuted}>{reminder}</Text>
             </View>
           )}
         </View>
 
-        {/* Right: badges + actions */}
-        <View style={styles.apptRight}>
-          <View style={styles.badgeStack}>
-            <View style={[styles.badge, { backgroundColor: tc.bg }]}>
-              <Ionicons name={tc.icon} size={11} color={tc.color} />
-              <Text style={[styles.badgeText, { color: tc.color }]}>{tc.label}</Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: sc.bg }]}>
-              <Ionicons name={sc.icon} size={11} color={sc.color} />
-              <Text style={[styles.badgeText, { color: sc.color }]}>{sc.label}</Text>
-            </View>
+        <View style={styles.right}>
+          <View style={styles.badges}>
+            <StatusBadge label={type.label} tone="neutral" icon={type.icon} />
+            <StatusBadge label={badge.label} tone={badge.tone} icon={badge.icon} />
+            <StatusBadge label={consultation.label} tone={consultation.tone} icon="document-text-outline" />
           </View>
-
-          {/* Consultation status */}
-          <View style={[styles.consultPill, { backgroundColor: cc.bg }]}>
-            <Ionicons name={cc.icon} size={11} color={cc.color} />
-            <Text style={[styles.consultText, { color: cc.color }]}>{cc.label}</Text>
-          </View>
-
-          {/* Video call */}
           <CallJoinButton
             info={doctorCallJoin(entry)}
-            withName={entry.patient_name}
-            style={styles.videoBtn}
-            textStyle={styles.videoBtnText}
-            iconColor={BLUE}
+            withName={name}
+            style={[styles.joinBtn, { borderColor: accent }]}
+            textStyle={[styles.joinBtnText, { color: accent }]}
+            iconColor={accent}
             iconSize={13}
           />
-
-          <TouchableOpacity
-            style={styles.viewBtn}
-            activeOpacity={0.8}
+          <Pressable
+            style={styles.detailsBtn}
             onPress={() => setExpanded(v => !v)}
             accessibilityRole="button"
-            accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
+            // Starts with the visible words ("Details" / "Hide details"); the rest keeps the earlier name
+            // ("... appointment details"), which the e2e specs use to find a card.
+            accessibilityLabel={expanded
+              ? accessibleName('Hide details', 'hide appointment details')
+              : accessibleName('Details', 'show appointment details')}
             accessibilityState={{ expanded }}
+            aria-expanded={expanded}
           >
-            <Text style={styles.viewBtnText}>{expanded ? 'Hide details' : 'Details'}</Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={BLUE} />
-          </TouchableOpacity>
+            <Text style={[styles.detailsBtnText, { color: accent }]}>{expanded ? 'Hide details' : 'Details'}</Text>
+            <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={accent} />
+          </Pressable>
         </View>
       </View>
 
       {expanded && (
         <View style={styles.detailsPanel}>
-          <DetailLine label="Patient ID"   value={entry.patient_system_id} />
-          <DetailLine label="Appointment"  value={`#${entry.appointment_id}`} />
-          <DetailLine label="Date & time"  value={`${formatDate(entry.scheduled_at)}, ${formatTime(entry.scheduled_at)}`} />
-          <DetailLine label="Duration"     value={`${entry.duration_minutes} min`} />
-          <DetailLine label="Type"         value={tc.label} />
-          <DetailLine label="Status"       value={sc.label} />
-          <DetailLine label="Consultation" value={cc.label} />
-          <DetailLine label="Reason"       value={entry.reason_for_visit ?? '—'} />
-          <DetailLine label="Notes"        value={entry.notes ?? '—'} />
-          {entry.type === 'VIDEO' && (
-            <DetailLine label="Video call" value={callStatusLabel(entry.call_status)} />
-          )}
+          <InfoRow label="Patient ID" value={entry.patient_system_id} />
+          <InfoRow label="Appointment" value={`#${entry.appointment_id}`} />
+          <InfoRow label="Date & time" value={formatClinicDateTime(entry.scheduled_at, entry.scheduled_at)} />
+          <InfoRow label="Duration" value={`${entry.duration_minutes} min`} />
+          <InfoRow label="Type" value={type.label} />
+          <InfoRow
+            label="Status"
+            value={entry.needs_outcome ? `Awaiting outcome (${appointmentStatusText(entry.status).toLowerCase()})` : appointmentStatusText(entry.status)}
+          />
+          <InfoRow label="Consultation" value={consultation.label} />
+          {entry.type === 'IN_PERSON' && <InfoRow label="Facility" value={entry.facility_name} emptyText="No facility recorded" />}
+          {entry.type === 'PHONE' && <InfoRow label="Contact number" value={entry.contact_phone} emptyText="No contact number recorded" />}
+          {entry.type === 'VIDEO' && <InfoRow label="Video call" value={callStatusLabel(entry.call_status)} />}
+          <InfoRow label="Reason" value={entry.reason_for_visit} emptyText="No reason given" />
+          <InfoRow label="Notes" value={entry.notes} emptyText="No notes" />
+          <InfoRow label="Reminders" value={reminder} emptyText="No reminder sent yet" />
         </View>
       )}
 
       {rescheduling && reschedulable && (
         <DoctorReschedulePanel
           entry={entry}
+          headingLevel={headingLevel === 2 ? 3 : 4}
           onClose={() => setRescheduling(false)}
-          onDone={(date, time) => { setRescheduling(false); onRescheduled(entry, date, time); }}
+          onDone={(date, time, updated) => { setRescheduling(false); controller.rescheduled(entry, date, time, updated); }}
         />
       )}
 
-      {(actions.length > 0 || reschedulable || !!onMessage) && (
+      {!!feedback && (
+        <View style={styles.feedback}>
+          <Banner tone={feedback.tone} text={feedback.text} onDismiss={controller.dismissFeedback} />
+        </View>
+      )}
+
+      {hasActionRow && (
         <View style={styles.actionRow}>
-          {!!onMessage && (
-            <TouchableOpacity
-              style={[styles.actionBtn, { borderColor: BLUE }, messaging && { opacity: 0.5 }]}
-              activeOpacity={0.8}
-              disabled={messaging}
-              onPress={() => onMessage(entry)}
-              accessibilityRole="button"
-              accessibilityLabel={`Message ${entry.patient_name}`}
-              accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
-            >
-              <Ionicons name="chatbubble-ellipses-outline" size={13} color={BLUE} />
-              <Text style={[styles.actionBtnText, { color: BLUE }]}>Message patient</Text>
-            </TouchableOpacity>
+          {!!controller.messagePatient && (
+            <Button
+              label="Message patient"
+              accessibilityLabel={`Message patient ${name}`}
+              icon="chatbubble-ellipses-outline"
+              variant="ghost"
+              size="sm"
+              loading={messaging}
+              onPress={() => controller.messagePatient?.(entry)}
+            />
+          )}
+          {!!consult && (
+            <Button
+              label={consult.label}
+              accessibilityLabel={`${consult.label} with ${name}`}
+              icon={consult.kind === 'view' ? 'document-text-outline' : 'create-outline'}
+              variant={consult.kind === 'view' ? 'secondary' : 'primary'}
+              size="sm"
+              onPress={() => controller.openConsultation?.(entry)}
+            />
+          )}
+          {remindable && (
+            <Button
+              label="Send reminder"
+              accessibilityLabel={`Send reminder to ${name}`}
+              icon="notifications-outline"
+              variant="secondary"
+              size="sm"
+              loading={reminding}
+              disabled={busy}
+              onPress={() => controller.sendReminder(entry)}
+            />
           )}
           {reschedulable && !rescheduling && (
-            <TouchableOpacity
-              style={[styles.actionBtn, { borderColor: PURPLE }, busy && { opacity: 0.5 }]}
-              activeOpacity={0.8}
+            <Button
+              label="Reschedule"
+              accessibilityLabel={`Reschedule appointment with ${name}`}
+              icon="calendar-outline"
+              variant="secondary"
+              size="sm"
               disabled={busy}
               onPress={() => setRescheduling(true)}
-              accessibilityRole="button"
-              accessibilityLabel={`Reschedule appointment with ${entry.patient_name}`}
-              accessibilityState={{ disabled: busy }}
-            >
-              <Ionicons name="calendar-outline" size={13} color={PURPLE} />
-              <Text style={[styles.actionBtnText, { color: PURPLE }]}>Reschedule</Text>
-            </TouchableOpacity>
+            />
           )}
           {actions.map(a => (
-            <TouchableOpacity
+            <Button
               key={a}
-              style={[styles.actionBtn, { borderColor: ACTION_STYLE[a].color }, busy && { opacity: 0.5 }]}
-              activeOpacity={0.8}
-              disabled={busy}
-              onPress={() => onAction(entry, a)}
-              accessibilityRole="button"
-              accessibilityLabel={`${ACTION_LABELS[a]} appointment with ${entry.patient_name}`}
-              accessibilityState={{ disabled: busy, busy }}
-            >
-              <Ionicons name={ACTION_STYLE[a].icon} size={13} color={ACTION_STYLE[a].color} />
-              <Text style={[styles.actionBtnText, { color: ACTION_STYLE[a].color }]}>{ACTION_LABELS[a]}</Text>
-            </TouchableOpacity>
+              label={ACTION_LABELS[a]}
+              accessibilityLabel={`${ACTION_LABELS[a]} appointment with ${name}`}
+              icon={ACTION_ICON[a]}
+              variant="secondary"
+              size="sm"
+              loading={busy}
+              onPress={() => controller.runAction(entry, a)}
+            />
           ))}
         </View>
       )}
-    </View>
+    </Card>
   );
 }
 
-function DetailLine({ label, value }: { label: string; value: string }) {
+const ACTION_ICON: Record<DoctorAppointmentAction, IoniconsName> = {
+  'complete': 'checkmark-circle-outline',
+  'no-show':  'alert-circle-outline',
+  'cancel':   'close-circle-outline',
+};
+
+// ─── Small pieces ─────────────────────────────────────────────────────────────
+
+/** A count at the top of the screen. With `onPress` it is a button that opens the matching list. */
+export function StatTile({ icon, label, value, onPress, hint, testID }: {
+  icon: IoniconsName; label: string; value: number | null; onPress?: () => void; hint?: string; testID?: string;
+}) {
+  const { accent, accentBg } = useUiTheme();
+  const shown = value === null ? '—' : String(value);
+  const content = (
+    <>
+      <View style={[styles.statIcon, { backgroundColor: accentBg }]} {...ariaHidden}>
+        <Icon name={icon} size={18} color={accent} />
+      </View>
+      <Text style={styles.statValue}>{shown}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+      {onPress ? <Text style={[styles.statLink, { color: accent }]}>{hint ?? 'View'}</Text> : null}
+    </>
+  );
+  if (!onPress) {
+    return <View style={styles.statTile} testID={testID} accessible accessibilityLabel={`${shown} ${label}`}>{content}</View>;
+  }
   return (
-    <View style={styles.detailLine}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue} selectable>{value}</Text>
-    </View>
+    <Pressable
+      style={({ pressed }) => [styles.statTile, pressed && styles.pressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      // In the order the words are shown (number, label, link text), so the name contains the visible text.
+      accessibilityLabel={`${shown} ${label}, ${hint ?? 'View'}`}
+      testID={testID}
+    >
+      {content}
+    </Pressable>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+/** A filter choice that stays a button and reports whether it is on. */
+export function FilterPill({ label, selected, onPress, icon }: {
+  label: string; selected: boolean; onPress: () => void; icon?: IoniconsName;
+}) {
+  const { accent, accentBg } = useUiTheme();
+  return (
+    <Pressable
+      style={[styles.pill, selected && { backgroundColor: accentBg, borderColor: accent }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      {...ariaPressed(selected)}
+    >
+      {icon ? <Icon name={icon} size={12} color={selected ? accent : colors.textMuted} /> : null}
+      <Text style={[styles.pillText, selected && { color: accent }]}>{label}</Text>
+    </Pressable>
+  );
+}
 
-export default function DoctorWebAppointment({ onOpenThread }: {
-  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+const TAB_LABEL: Record<ViewTab, string> = {
+  'all': 'All Time', 'today': 'Today', 'week': 'This Week', 'upcoming': 'Upcoming', 'past': 'Past',
+  'needs-outcome': 'Needs outcome',
+};
+
+const STATUS_PILLS: readonly { key: StatusFilter; label: string }[] = [
+  { key: 'ALL',         label: 'All'         },
+  { key: 'SCHEDULED',   label: 'Scheduled'   },
+  { key: 'RESCHEDULED', label: 'Rescheduled' },
+  { key: 'COMPLETED',   label: 'Completed'   },
+  { key: 'CANCELLED',   label: 'Cancelled'   },
+  { key: 'NO_SHOW',     label: 'No Show'     },
+];
+
+const TYPE_PILLS: readonly { key: TypeFilter; label: string; icon: IoniconsName }[] = [
+  { key: 'ALL',       label: 'All Types', icon: 'apps-outline'     },
+  { key: 'IN_PERSON', label: 'In Person', icon: 'location-outline' },
+  { key: 'VIDEO',     label: 'Video',     icon: 'videocam-outline' },
+  { key: 'PHONE',     label: 'Phone',     icon: 'call-outline'     },
+];
+
+function isViewTab(value: string | undefined): value is ViewTab {
+  return !!value && (VIEW_TABS as readonly string[]).includes(value);
+}
+
+/** The request behind each tab. "Today", "this week", "upcoming" and "past" are bounded in clinic time. */
+function queryFor(tab: ViewTab, status: StatusFilter, patient: string | null, clock: string): DoctorScheduleQuery {
+  const base: DoctorScheduleQuery = { patientSystemId: patient, pageSize: PAGE_SIZE };
+  const today = clock.slice(0, 10);
+  const chosen = status === 'ALL' ? undefined : [status];
+  switch (tab) {
+    case 'needs-outcome':
+      return { ...base, source: 'needs-outcome' };
+    case 'today':
+      return { ...base, status: chosen, order: 'asc', from: clinicDayStart(today), to: clinicDayStart(addClinicDays(today, 1)) };
+    case 'week': {
+      const monday = clinicWeekStart(today);
+      return { ...base, status: chosen, order: 'asc', from: clinicDayStart(monday), to: clinicDayStart(addClinicDays(monday, 7)) };
+    }
+    case 'upcoming':
+      // Upcoming = still active and not started yet.
+      return { ...base, status: chosen ?? ['SCHEDULED', 'RESCHEDULED'], order: 'asc', from: clock };
+    case 'past':
+      return { ...base, status: chosen, order: 'desc', to: clock };
+    default:
+      return { ...base, status: chosen, order: 'desc' };
+  }
+}
+
+/**
+ * The doctor's appointments: a paged, server-filtered list with the actions of each row.
+ *
+ * URL params: `tab` (all | today | week | upcoming | past | needs-outcome), `status`, `patient` (PAT id: only that
+ * patient's appointments, shown as a removable chip) and `id` (an appointment to open, for example from a
+ * notification). Rendered with `SectionProps`; the older `onOpenThread` prop keeps working.
+ */
+export default function DoctorWebAppointment(props: Partial<SectionProps> & {
+  /** Switch to Messages with this thread open (legacy wiring; `openThread` of SectionProps wins). */
   onOpenThread?: (threadId: number) => void;
 } = {}) {
-  const { entries, loading, error, refetch } = useDoctorSchedule();
-  const { run, pendingId } = useDoctorAppointmentActions(refetch);
-  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
-  const [notice, setNotice] = useState('');
+  const nav = useSectionNav();
+  const params = props.params ?? nav.params;
+  const navigate = props.navigate ?? nav.navigate;
+  const openThread = props.openThread ?? props.onOpenThread ?? (nav.hasSection('messages') ? nav.openThread : undefined);
+  const { setParams } = nav;
 
-  function handleRescheduled(entry: ScheduleEntry, date: string, time: string) {
-    setNotice(`Appointment with ${entry.patient_name} moved to ${formatClinicDate(date)}, ${formatClinicTime(time)} CAT.`);
-    refetch();
+  const tab: ViewTab = isViewTab(params.tab) ? params.tab : 'all';
+  const requestedStatus = (params.status ?? '').toUpperCase().replace(/-/g, '_');
+  const statusParam: StatusFilter = (API_STATUSES as readonly string[]).includes(requestedStatus)
+    ? (requestedStatus as ApiAppointmentStatus) : 'ALL';
+  // Upcoming appointments are active by definition: other statuses do not apply to that tab.
+  const status: StatusFilter = tab === 'upcoming' && statusParam !== 'SCHEDULED' && statusParam !== 'RESCHEDULED' ? 'ALL' : statusParam;
+  const patient = params.patient && PATIENT_ID.test(params.patient) ? params.patient : null;
+  const linkedId = params.id && /^\d{1,9}$/.test(params.id) ? Number(params.id) : null;
+  // mode=book opens the booking form (for `patient` when given, starting on `date`): the Book follow-up link of a
+  // consultation and the Book appointment button below.
+  const booking = params.mode === 'book';
+  const bookingDate = params.date && DATE_PARAM.test(params.date) ? params.date : null;
+  const [booked, setBooked] = useState<string | null>(null);
+
+  // A `patient` value that is not a patient id cannot be a filter: drop it from the URL instead of showing everyone silently.
+  useEffect(() => {
+    if (params.patient && !patient) setParams({ patient: undefined });
+  }, [params.patient, patient, setParams]);
+
+  // The clinic time the time-bounded tabs are measured from; renewed on Refresh and when the tab changes.
+  const [clock, setClock] = useState(() => clinicNowLocal());
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  const [search, setSearch] = useState('');
+
+  const query = useMemo(() => queryFor(tab, status, patient, clock), [tab, status, patient, clock]);
+  const list = useDoctorSchedule(query);
+
+  const stats = useResource(fetchAppointmentStats, []);
+  // With a patient filter the badge counts that patient's rows; without one the stats already carry the count.
+  const patientNeeds = useResource(
+    () => fetchNeedsOutcome(patient, 0, 1).then(page => page.totalElements),
+    [patient],
+    { enabled: !!patient && tab !== 'needs-outcome' },
+  );
+  const needsOutcomeCount = tab === 'needs-outcome' && !list.loading && !list.error
+    ? list.total
+    : patient ? patientNeeds.data ?? 0 : stats.data?.needsOutcomeCount ?? 0;
+
+  const patientName = useResource(() => fetchDoctorPatientName(patient ?? ''), [patient], { enabled: !!patient });
+  const linked = useResource(() => fetchDoctorAppointmentEntry(linkedId ?? 0), [linkedId], {
+    enabled: linkedId !== null, errorMessage: 'That appointment could not be opened.',
+  });
+
+  // Patients whose name matches the search text, offered as a server-side filter.
+  const [lookup, setLookup] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setLookup(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const suggestions = useResource(() => searchDoctorPatients(lookup), [lookup], { enabled: lookup.length >= 2 && !patient });
+
+  const { updateEntry, refetch: refetchList } = list;
+  const { refetch: refetchStats } = stats;
+  const { refetch: refetchPatientNeeds } = patientNeeds;
+  const { setData: setLinked } = linked;
+
+  const onChanged = useCallback((updated: ScheduleEntry, change: AppointmentChange) => {
+    setLinked(prev => (prev && prev.appointment_id === updated.appointment_id ? updated : prev));
+    if (change === 'reminder') { updateEntry(updated.appointment_id, updated); return; }
+    // A row that got an outcome (or a new time) leaves the Needs outcome list; elsewhere it is updated in place.
+    if (tab === 'needs-outcome') refetchList();
+    else updateEntry(updated.appointment_id, updated);
+    refetchStats();
+    refetchPatientNeeds();
+  }, [tab, updateEntry, refetchList, refetchStats, refetchPatientNeeds, setLinked]);
+
+  const controller = useAppointmentController({ navigate, onOpenThread: openThread, onChanged });
+
+  function selectTab(next: ViewTab) {
+    setClock(clinicNowLocal());
+    setParams({ tab: next === 'all' ? undefined : next });
   }
 
-  const [dateFilter,   setDateFilter]   = useState<DateFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-  const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('ALL');
-  const [search,       setSearch]       = useState('');
+  const openBooking = () => { setBooked(null); setParams({ mode: 'book' }); };
+  const closeBooking = () => setParams({ mode: undefined, date: undefined });
 
-  const now     = useMemo(() => new Date(), []);
-  const todayS  = useMemo(() => dayStart(), []);
-  const todayE  = useMemo(() => dayEnd(),   []);
-  const weekE   = useMemo(() => { const d = dayEnd(); d.setDate(d.getDate() + 7); return d; }, []);
-
-  const stats = useMemo(() => ({
-    total:      entries.length,
-    scheduled:  entries.filter(e => e.status === 'SCHEDULED').length,
-    completed:  entries.filter(e => e.status === 'COMPLETED').length,
-    cancelled:  entries.filter(e => e.status === 'CANCELLED').length,
-    noShow:     entries.filter(e => e.status === 'NO_SHOW').length,
-    inProgress: entries.filter(e => e.status === 'IN_PROGRESS').length,
-  }), [entries]);
-
-  const filtered = useMemo(() => {
-    return entries
-      .filter(e => {
-        const d = new Date(e.scheduled_at);
-        switch (dateFilter) {
-          case 'today':    return d >= todayS && d <= todayE;
-          case 'week':     return d >= todayS && d <= weekE;
-          case 'upcoming': return d >= now;
-          case 'past':     return d < todayS;
-          default:         return true;
-        }
-      })
-      .filter(e => statusFilter === 'ALL' || e.status === statusFilter)
-      .filter(e => typeFilter   === 'ALL' || e.type   === typeFilter)
-      .filter(e => !search || e.patient_name.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
-  }, [entries, dateFilter, statusFilter, typeFilter, search, now, todayS, todayE, weekE]);
-
-  const dateFilters:   { key: DateFilter;   label: string }[] = [
-    { key: 'all',      label: 'All Time'  },
-    { key: 'today',    label: 'Today'     },
-    { key: 'week',     label: 'This Week' },
-    { key: 'upcoming', label: 'Upcoming'  },
-    { key: 'past',     label: 'Past'      },
-  ];
-
-  const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'ALL',         label: 'All'         },
-    { key: 'SCHEDULED',   label: 'Scheduled'   },
-    { key: 'IN_PROGRESS', label: 'In Progress' },
-    { key: 'COMPLETED',   label: 'Completed'   },
-    { key: 'CANCELLED',   label: 'Cancelled'   },
-    { key: 'NO_SHOW',     label: 'No Show'     },
-    { key: 'RESCHEDULED', label: 'Rescheduled' },
-  ];
-
-  const typeFilters: { key: TypeFilter; label: string; icon: IoniconsName }[] = [
-    { key: 'ALL',       label: 'All Types', icon: 'apps-outline'       },
-    { key: 'IN_PERSON', label: 'In Person', icon: 'location-outline'   },
-    { key: 'VIDEO',     label: 'Video',     icon: 'videocam-outline'   },
-    { key: 'PHONE',     label: 'Phone',     icon: 'call-outline'       },
-  ];
-
-  // Keep the list mounted while refreshing after an action, so the page does not jump back to the top.
-  if (loading && entries.length === 0) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
+  function refresh() {
+    setClock(clinicNowLocal());
+    list.refetch();
+    stats.refetch();
+    patientNeeds.refetch();
+    linked.refetch();
   }
 
-  if (error && entries.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={52} color={RED} />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
+  const needle = search.trim().toLowerCase();
+  const refined = typeFilter !== 'ALL' || needle.length > 0;
+  const visible = useMemo(() => list.entries
+    .filter(e => e.appointment_id !== linkedId)
+    .filter(e => typeFilter === 'ALL' || e.type === typeFilter)
+    .filter(e => !needle || e.patient_name.toLowerCase().includes(needle)),
+  [list.entries, linkedId, typeFilter, needle]);
+
+  const chipName = patientName.data
+    ?? list.entries.find(e => e.patient_system_id === patient)?.patient_name
+    ?? (linked.data?.patient_system_id === patient ? linked.data?.patient_name : undefined)
+    ?? patient;
+
+  const statusPills = tab === 'upcoming'
+    ? STATUS_PILLS.filter(p => p.key === 'ALL' || p.key === 'SCHEDULED' || p.key === 'RESCHEDULED')
+    : STATUS_PILLS;
+
+  const feedbackOnRow = !!controller.feedback && (
+    visible.some(e => e.appointment_id === controller.feedback?.appointmentId)
+    || linked.data?.appointment_id === controller.feedback?.appointmentId
+  );
+
+  const count = visible.length;
+  const countText = refined
+    ? `${count} of ${list.entries.length} loaded appointment${list.entries.length === 1 ? '' : 's'} match`
+    : list.total > list.entries.length
+      ? `Showing ${list.entries.length} of ${list.total} appointments`
+      : `${count} appointment${count === 1 ? '' : 's'}`;
+
+  let body: ReactNode;
+  if (list.loading && list.entries.length === 0) {
+    body = <LoadingView label="Loading appointments…" compact />;
+  } else if (list.error && list.entries.length === 0) {
+    body = list.errorStatus === 403
+      ? <NoAccessView compact />
+      : <ErrorView message={list.error} onRetry={list.refetch} compact />;
+  } else if (count === 0) {
+    body = tab === 'needs-outcome' && !refined ? (
+      <EmptyView
+        icon="checkmark-done-outline"
+        title="Nothing is awaiting an outcome"
+        sub="Appointments that ended without being completed, cancelled or marked as no-show are listed here."
+      />
+    ) : (
+      <EmptyView
+        icon="calendar-outline"
+        title="No appointments found"
+        sub={refined || status !== 'ALL' || patient || tab !== 'all'
+          ? 'Try adjusting your filters or search term'
+          : 'Appointments booked with you will appear here.'}
+      />
+    );
+  } else {
+    body = (
+      <View style={styles.list} role="list" aria-label="Appointments" aria-busy={list.refreshing || list.loadingMore}>
+        {visible.map(e => (
+          <View key={e.appointment_id} role="listitem" style={styles.listItem}>
+            <AppointmentCard entry={e} controller={controller} />
+          </View>
+        ))}
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">Appointments</Text>
-          <Text style={styles.pageSub}>Complete appointment history for your patients</Text>
+    <Screen
+      title="Appointments"
+      subtitle="Complete appointment history for your patients"
+      theme={props.theme}
+      role="doctor"
+      actions={(
+        <View style={styles.headerActions}>
+          <Button label="Book appointment" icon="add" size="sm" onPress={openBooking} />
+          <Button label="Refresh" icon="refresh-outline" variant="secondary" size="sm" onPress={refresh} loading={list.refreshing} />
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats */}
+      )}
+    >
+      {booked ? <Banner tone="success" text={booked} onDismiss={() => setBooked(null)} /> : null}
+      <DoctorBookingDialog
+        open={booking}
+        patientSystemId={patient}
+        patientName={patient ? chipName : null}
+        initialDate={bookingDate}
+        onClose={closeBooking}
+        onBooked={(appointment, name) => {
+          closeBooking();
+          setBooked(`Appointment booked${name ? ` for ${name}` : ''} on ${formatClinicDateTime(appointment.scheduledAt, appointment.scheduledAt)}.`);
+          refresh();
+        }}
+      />
       <View style={styles.statsRow}>
-        <StatCard icon="calendar-number-outline"   iconBg="#EEF2FF" iconColor={BLUE}   label="Total"       value={stats.total}      />
-        <StatCard icon="time-outline"              iconBg="#EEF2FF" iconColor={BLUE}   label="Scheduled"   value={stats.scheduled}  />
-        <StatCard icon="sync-outline"              iconBg="#CCFBF1" iconColor={TEAL}   label="In Progress" value={stats.inProgress} />
-        <StatCard icon="checkmark-circle-outline"  iconBg="#D1FAE5" iconColor={GREEN}  label="Completed"   value={stats.completed}  />
-        <StatCard icon="close-circle-outline"      iconBg="#FEE2E2" iconColor={RED}    label="Cancelled"   value={stats.cancelled}  />
-        <StatCard icon="alert-circle-outline"      iconBg="#FEF3C7" iconColor={ORANGE} label="No Show"     value={stats.noShow}     />
+        <StatTile icon="calendar-number-outline" label="Total" value={stats.data?.totalAppointments ?? null} />
+        <StatTile
+          icon="time-outline" label="Upcoming" value={stats.data?.scheduledCount ?? null}
+          onPress={() => selectTab('upcoming')} hint="View upcoming"
+        />
+        <StatTile
+          icon="hourglass-outline" label="Needs outcome" value={stats.data?.needsOutcomeCount ?? null}
+          onPress={() => selectTab('needs-outcome')} hint="Review"
+        />
+        <StatTile icon="checkmark-circle-outline" label="Completed" value={stats.data?.completedCount ?? null} />
+        <StatTile icon="close-circle-outline" label="Cancelled" value={stats.data?.cancelledCount ?? null} />
+        <StatTile icon="alert-circle-outline" label="No Show" value={stats.data?.noShowCount ?? null} />
       </View>
+      {!!stats.error && !stats.data && (
+        <Banner tone="warning" text="The appointment counts could not be loaded." action={{ label: 'Retry', onPress: stats.refetch }} />
+      )}
 
-      {/* Filters */}
-      <View style={styles.filterCard}>
-        {/* Row 1 — Date tabs */}
-        <View style={styles.filterRow}>
-          {dateFilters.map(f => (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.dateTab, dateFilter === f.key && styles.dateTabActive]}
-              onPress={() => setDateFilter(f.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.dateTabText, dateFilter === f.key && styles.dateTabTextActive]}>{f.label}</Text>
-            </TouchableOpacity>
+      <Tabs
+        label="Appointment lists"
+        tabs={VIEW_TABS.map(key => ({ key, label: TAB_LABEL[key], badge: key === 'needs-outcome' ? needsOutcomeCount : undefined }))}
+        active={tab}
+        onChange={selectTab}
+      />
+
+      <Card style={styles.filterCard}>
+        {tab === 'needs-outcome' ? (
+          <Text style={styles.filterNote}>
+            These appointments ended but are still open. Record what happened: complete them, mark a no-show or cancel them.
+          </Text>
+        ) : (
+          <View style={styles.pillRow} role="group" aria-label="Status">
+            {statusPills.map(p => (
+              <FilterPill
+                key={p.key}
+                label={p.label}
+                selected={status === p.key}
+                onPress={() => setParams({ status: p.key === 'ALL' ? undefined : p.key.toLowerCase().replace(/_/g, '-') })}
+              />
+            ))}
+          </View>
+        )}
+        <View style={styles.pillRow} role="group" aria-label="Appointment type">
+          {TYPE_PILLS.map(p => (
+            <FilterPill key={p.key} label={p.label} icon={p.icon} selected={typeFilter === p.key} onPress={() => setTypeFilter(p.key)} />
           ))}
         </View>
+        <View style={styles.searchWrap}>
+          <TextField
+            label="Search appointments by patient"
+            value={search}
+            onChange={setSearch}
+            placeholder="Patient name"
+            maxLength={100}
+            autoCapitalize="none"
+          />
+        </View>
+        {!patient && lookup.length >= 2 && (suggestions.data?.length ?? 0) > 0 && (
+          <View style={styles.suggestions}>
+            <Text style={styles.filterNote}>Show every appointment of one patient:</Text>
+            <View style={styles.pillRow}>
+              {(suggestions.data ?? []).slice(0, 6).map(option => (
+                <Button
+                  key={option.patientSystemId}
+                  label={option.fullName}
+                  accessibilityLabel={`${option.fullName}, show only this patient's appointments`}
+                  icon="person-outline"
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => { setSearch(''); setParams({ patient: option.patientSystemId }); }}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+        {refined && list.hasMore && (
+          <Text style={styles.filterNote}>
+            The type and name filters apply to the {list.entries.length} appointments loaded so far. Load more to look further.
+          </Text>
+        )}
+      </Card>
 
-        <View style={styles.filterDivider} />
-
-        {/* Row 2 — Status + Type pills + Search */}
-        <View style={styles.filterRow2}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-            {statusFilters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, statusFilter === f.key && styles.pillActive]}
-                onPress={() => setStatusFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, statusFilter === f.key && styles.pillTextActive]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-            <View style={styles.pillDivider} />
-            {typeFilters.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, styles.pillType, typeFilter === f.key && styles.pillTypeActive]}
-                onPress={() => setTypeFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name={f.icon} size={12} color={typeFilter === f.key ? GREEN : GRAY} />
-                <Text style={[styles.pillText, typeFilter === f.key && styles.pillTypeTextActive]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Search */}
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={15} color={LGRAY} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search patient…"
-              accessibilityLabel="Search appointments by patient"
-              placeholderTextColor={LGRAY}
-              value={search}
-              onChangeText={setSearch}
-            />
-            {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
-                <Ionicons name="close-circle" size={15} color={LGRAY} />
-              </TouchableOpacity>
-            )}
+      {!!patient && (
+        <View style={styles.chipRow}>
+          <View style={styles.chip}>
+            <Icon name="person-outline" size={14} color={colors.textMuted} />
+            <Text style={styles.chipText}>Patient: {chipName}</Text>
+            <IconButton label="Remove patient filter" icon="close" size="sm" onPress={() => setParams({ patient: undefined })} />
           </View>
         </View>
-      </View>
-
-      {!!notice && (
-        <View style={styles.notice} accessibilityRole="alert">
-          <Ionicons name="checkmark-circle-outline" size={16} color={GREEN} />
-          <Text style={styles.noticeText}>{notice}</Text>
-          <TouchableOpacity onPress={() => setNotice('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Dismiss message">
-            <Ionicons name="close" size={16} color={GRAY} />
-          </TouchableOpacity>
-        </View>
       )}
 
-      {/* Result count */}
-      <Text style={styles.resultCount}>
-        {filtered.length} appointment{filtered.length !== 1 ? 's' : ''}
-      </Text>
-
-      {/* List */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="calendar-outline" size={60} color={BORDER} />
-          <Text style={styles.emptyTitle}>No appointments found</Text>
-          <Text style={styles.emptySub}>Try adjusting your filters or search term</Text>
-        </View>
-      ) : (
-        <View style={styles.list}>
-          {filtered.map(e => (
-            <AppCard
-              key={e.appointment_id}
-              entry={e}
-              busy={pendingId === e.appointment_id}
-              onAction={run}
-              onRescheduled={handleRescheduled}
-              onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
-              messaging={pendingPatient === e.patient_system_id}
+      {linkedId !== null && (
+        <View style={styles.linked}>
+          <View style={styles.linkedHeader}>
+            <Text style={styles.linkedTitle} accessibilityRole="header" {...ariaLevel(2)}>Opened appointment</Text>
+            <Button label="Close" icon="close" variant="ghost" size="sm" accessibilityLabel="Close opened appointment" onPress={() => setParams({ id: undefined })} />
+          </View>
+          {linked.loading ? (
+            <LoadingView label="Opening appointment…" compact />
+          ) : linked.data ? (
+            <AppointmentCard entry={linked.data} controller={controller} defaultExpanded headingLevel={3} />
+          ) : (
+            <Banner
+              tone="warning"
+              text={linked.error && linked.errorStatus !== 403 && linked.errorStatus !== 404
+                ? linked.error
+                : 'That appointment could not be opened. It may belong to another doctor or no longer exist.'}
+              action={linked.error && linked.errorStatus !== 403 && linked.errorStatus !== 404 ? { label: 'Retry', onPress: linked.refetch } : undefined}
             />
-          ))}
+          )}
         </View>
       )}
-    </ScrollView>
+
+      {!!controller.feedback && !feedbackOnRow && (
+        <Banner tone={controller.feedback.tone} text={controller.feedback.text} onDismiss={controller.dismissFeedback} />
+      )}
+      {!!list.error && list.entries.length > 0 && (
+        <Banner tone="danger" text={list.error} action={{ label: 'Retry', onPress: list.refetch }} />
+      )}
+
+      <Text style={styles.count} role="status" aria-live="polite">{list.loading && list.entries.length === 0 ? ' ' : countText}</Text>
+
+      {body}
+
+      {list.hasMore && list.entries.length > 0 && (
+        <View style={styles.footer}>
+          <Button label="Load more" icon="chevron-down" variant="secondary" onPress={list.loadMore} loading={list.loadingMore} />
+        </View>
+      )}
+    </Screen>
   );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  statTile: {
+    flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 110,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg,
+    padding: space.md, gap: 4,
   },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  pressed:   { opacity: 0.85 },
+  statIcon:  { width: 34, height: 34, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  statValue: { fontSize: 22, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.xs, color: colors.textMuted },
+  statLink:  { fontSize: fontSize.xs, fontWeight: '600' },
 
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 90,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 14, gap: 5,
+  filterCard:  { gap: space.md },
+  filterNote:  { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 19 },
+  pillRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  pill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32,
+    paddingHorizontal: space.md, paddingVertical: 6, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.borderInput, backgroundColor: colors.surface,
   },
-  statIconBg: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 24, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 11, color: GRAY },
+  pillText:    { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '500' },
+  searchWrap:  { maxWidth: 420, width: '100%' },
+  suggestions: { gap: space.sm },
 
-  filterCard:    { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16, marginBottom: 16 },
-  filterRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  filterDivider: { height: 1, backgroundColor: BORDER, marginVertical: 12 },
-  filterRow2:    { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-
-  dateTab:           { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: BORDER },
-  dateTabActive:     { backgroundColor: BLUE, borderColor: BLUE },
-  dateTabText:       { fontSize: 13, color: GRAY, fontWeight: '500' },
-  dateTabTextActive: { color: WHITE },
-
-  pill:             { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillActive:       { backgroundColor: '#EEF2FF', borderColor: BLUE },
-  pillText:         { fontSize: 12, color: GRAY, fontWeight: '500' },
-  pillTextActive:   { color: BLUE },
-  pillType:         { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pillTypeActive:   { backgroundColor: '#F0FDF4', borderColor: GREEN },
-  pillTypeTextActive: { color: GREEN },
-  pillDivider:      { width: 1, backgroundColor: BORDER, marginHorizontal: 4 },
-
-  searchBox: {
-    flex: 1, minWidth: 180,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: BG,
+  chipRow:  { flexDirection: 'row', flexWrap: 'wrap' },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: space.sm, maxWidth: '100%',
+    paddingLeft: space.md, paddingRight: space.xs, paddingVertical: 2,
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.pill, backgroundColor: colors.surface,
   },
-  searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
+  chipText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text, flexShrink: 1 },
 
-  resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 12 },
-  notice: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
-    backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0', borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10,
-  },
-  noticeText: { flex: 1, fontSize: 13, color: '#065F46', fontWeight: '500' },
+  linked:       { gap: space.sm },
+  linkedHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  linkedTitle:  { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
 
-  list: { gap: 12 },
+  count:    { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '500' },
+  list:     { gap: space.md, minWidth: 0 },
+  listItem: { minWidth: 0 },
+  footer:   { alignItems: 'center' },
 
   // Card
-  apptCard: {
-    backgroundColor: WHITE,
-    borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, borderLeftWidth: 4,
-    overflow: 'hidden',
-  },
+  card:        { borderLeftWidth: 4, overflow: 'hidden' },
   todayBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 14, paddingVertical: 6,
+    backgroundColor: colors.bgSubtle, paddingHorizontal: space.lg, paddingVertical: 6,
   },
-  todayText: { fontSize: 11, color: BLUE, fontWeight: '700' },
+  todayText:   { fontSize: 11, color: colors.text, fontWeight: '700' },
 
-  apptBody:  { flexDirection: 'row', gap: 16, padding: 16, flexWrap: 'wrap' },
+  body:        { flexDirection: 'row', flexWrap: 'wrap', gap: space.lg, padding: space.lg },
+  left:        { flexDirection: 'row', gap: space.md, flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 },
+  avatar:      { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avatarText:  { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  patientCol:  { gap: 3, flexShrink: 1, minWidth: 0 },
+  patientName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  apptId:      { fontSize: 11, color: colors.textSubtle, fontWeight: '500' },
+  metaRow:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  metaText:    { fontSize: fontSize.xs, color: colors.textMuted },
 
-  apptLeft: { flexDirection: 'row', gap: 12, minWidth: 200 },
-  avatar:   { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarText: { color: WHITE, fontSize: 16, fontWeight: '700' },
-  apptPatientCol: { gap: 3 },
-  patientName:    { fontSize: 15, fontWeight: '700', color: TEXT },
-  apptId:         { fontSize: 11, color: LGRAY, fontWeight: '500' },
-  apptDateTime:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  apptDateText:   { fontSize: 12, color: GRAY },
+  center:      { flexGrow: 2, flexShrink: 1, flexBasis: 200, minWidth: 0, gap: space.sm, justifyContent: 'center' },
+  detailRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  detailIcon:  { marginTop: 2 },
+  detailText:  { flex: 1, fontSize: fontSize.sm, color: colors.text, lineHeight: 18 },
+  detailMuted: { flex: 1, fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
 
-  apptCenter: { flex: 1, minWidth: 200, gap: 8, justifyContent: 'center' },
-  detailRow:  { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  detailIcon: { marginTop: 1 },
-  detailText:     { flex: 1, fontSize: 13, color: TEXT, lineHeight: 18 },
-  detailFacility: { flex: 1, fontSize: 12, color: GRAY },
-  detailNotes:    { flex: 1, fontSize: 12, color: LGRAY, lineHeight: 18 },
-
-  apptRight:    { alignItems: 'flex-end', gap: 8, minWidth: 130, justifyContent: 'center' },
-  badgeStack:   { gap: 5, alignItems: 'flex-end' },
-  badge:        { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  badgeText:    { fontSize: 11, fontWeight: '600' },
-  consultPill:  { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  consultText:  { fontSize: 11, fontWeight: '600' },
-  videoBtn: {
+  right:       { alignItems: 'flex-start', gap: space.sm, flexGrow: 1, flexShrink: 1, flexBasis: 150, minWidth: 0, justifyContent: 'center' },
+  badges:      { gap: 5, alignItems: 'flex-start' },
+  joinBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderWidth: 1, borderColor: BLUE, borderRadius: 8,
+    borderWidth: 1, borderRadius: radius.md,
     paddingHorizontal: 10, paddingVertical: 5,
   },
-  videoBtnText: { fontSize: 12, color: BLUE, fontWeight: '500' },
-  viewBtn:    { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  viewBtnText:{ fontSize: 13, color: BLUE, fontWeight: '500' },
+  joinBtnText:    { fontSize: fontSize.xs, fontWeight: '600' },
+  detailsBtn:     { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 28 },
+  detailsBtnText: { fontSize: fontSize.sm, fontWeight: '600' },
 
-  detailsPanel: { borderTopWidth: 1, borderTopColor: BORDER, paddingHorizontal: 16, paddingVertical: 12, gap: 6, backgroundColor: BG },
-  detailLine:   { flexDirection: 'row', gap: 12 },
-  detailLabel:  { width: 110, fontSize: 12, color: GRAY, fontWeight: '600' },
-  detailValue:  { flex: 1, fontSize: 12, color: TEXT },
-
-  actionRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 14 },
-  actionBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: WHITE },
-  actionBtnText: { fontSize: 12, fontWeight: '600' },
-
-  emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:   { fontSize: 14, color: GRAY, textAlign: 'center' },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  detailsPanel: { borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: space.lg, paddingVertical: space.md, backgroundColor: colors.bg },
+  feedback:     { paddingHorizontal: space.lg, paddingBottom: space.md },
+  actionRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, justifyContent: 'flex-end',
+    paddingHorizontal: space.lg, paddingBottom: space.md,
+  },
 });

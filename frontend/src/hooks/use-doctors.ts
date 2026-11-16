@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { api } from '@/lib/auth/auth.interceptor';
+import { fetchPage, hasNextPage, mapPage, MAX_PAGE_SIZE } from '@/lib/api/paged';
+import type { PageResponse } from '@/lib/api/types';
+import { type PagedState, usePaged } from './use-paged';
 
 export interface Doctor {
   doctor_id:        number;
@@ -65,11 +67,48 @@ function toDoctor(d: any): Doctor {
   };
 }
 
-// ─── Shared active-doctor list ────────────────────────────────────────────────
-// The booking form, the appointment list and the dashboard panels all need this list, so
-// mounted consumers share one request and its result for STALE_MS.
+// ─── Doctor directory ─────────────────────────────────────────────────────────
+// GET /api/doctors/profile/directory lists the doctors who can be booked (active and approved), by name, as a
+// paged envelope. `query` matches the name or the specialization on the server.
+
+const DIRECTORY_URL = '/api/doctors/profile/directory';
+
+/** One page of the directory, as `Doctor` rows. Rejects with the axios error on failure. */
+export function fetchDoctorDirectory(page: number, size: number, query?: string): Promise<PageResponse<Doctor>> {
+  return fetchPage<unknown>(DIRECTORY_URL, page, size, { query: query?.trim() || undefined })
+    .then(result => mapPage(result, toDoctor));
+}
+
+/** Longest search text the directory accepts. */
+export const DOCTOR_SEARCH_MAX_LENGTH = 100;
+
+/**
+ * The directory filtered by a search text (name or specialization), loaded page by page:
+ * `const directory = useDoctorDirectory(query); directory.items; directory.loadMore()`.
+ * A change of `query` starts again from the first page. Debounce the text before passing it.
+ */
+export function useDoctorDirectory(query: string, options: { pageSize?: number; enabled?: boolean } = {}): PagedState<Doctor> {
+  const text = query.trim().slice(0, DOCTOR_SEARCH_MAX_LENGTH);
+  return usePaged<Doctor>(
+    (page, size) => fetchDoctorDirectory(page, size, text),
+    [text],
+    {
+      pageSize:     options.pageSize,
+      enabled:      options.enabled,
+      keyOf:        d => d.doctor_system_id,
+      errorMessage: 'Failed to load doctors.',
+    },
+  );
+}
+
+// ─── Shared doctor list ───────────────────────────────────────────────────────
+// Pickers, the appointment list and the clinical lists need doctors by id, so mounted consumers share one
+// load and its result for STALE_MS. The list is the directory without a filter, read page by page up to
+// LIST_LIMIT rows (the size of the array endpoint it replaces); a clinic with more doctors is searched through
+// `useDoctorDirectory` instead.
 
 const STALE_MS = 60_000;
+const LIST_LIMIT = 200;
 
 interface State {
   doctors: Doctor[];
@@ -96,9 +135,24 @@ function getSnapshot(): State {
   return snapshot;
 }
 
+async function loadDirectoryList(): Promise<Doctor[]> {
+  const doctors: Doctor[] = [];
+  const seen = new Set<string>();
+  for (let page = 0; doctors.length < LIST_LIMIT; page++) {
+    const result = await fetchDoctorDirectory(page, MAX_PAGE_SIZE);
+    for (const d of result.content) {
+      if (!d.doctor_system_id || seen.has(d.doctor_system_id)) continue;
+      seen.add(d.doctor_system_id);
+      doctors.push(d);
+    }
+    if (!hasNextPage(result) || result.content.length === 0) break;
+  }
+  return doctors.slice(0, LIST_LIMIT);
+}
+
 /**
- * The active doctors (GET /api/doctors/profile/list/active), from the shared cache when it is
- * fresh. Concurrent callers share one request. Rejects with the axios error on failure.
+ * The bookable doctors (GET /api/doctors/profile/directory, first 200 by name), from the shared cache when
+ * it is fresh. Concurrent callers share one load. Rejects with the axios error on failure.
  */
 export function loadActiveDoctors(force = false): Promise<Doctor[]> {
   if (inFlight) return inFlight;
@@ -106,15 +160,13 @@ export function loadActiveDoctors(force = false): Promise<Doctor[]> {
     return Promise.resolve(snapshot.doctors);
   }
   if (!snapshot.doctors.length) setSnapshot({ ...snapshot, loading: true, error: null });
-  inFlight = api.get<any[]>('/api/doctors/profile/list/active')
-    .then(({ data }) => {
-      const doctors = (data ?? []).map(toDoctor);
+  inFlight = loadDirectoryList()
+    .then(doctors => {
       loadedAt = Date.now();
       setSnapshot({ doctors, loading: false, error: null });
       return doctors;
     })
     .catch((err) => {
-      console.error('useDoctors error:', err?.response?.status, err?.message);
       setSnapshot({ doctors: snapshot.doctors, loading: false, error: 'Failed to load doctors.' });
       throw err;
     })

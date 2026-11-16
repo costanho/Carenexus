@@ -1,0 +1,9 @@
+Subject: Your CareNexus clinician account is approved
+
+Hello {{name}},
+
+An administrator has verified your licence details and approved your CareNexus clinician account. You can now sign in:
+
+{{link}}
+
+If you did not register as a clinician on CareNexus, please contact your clinic's support team.

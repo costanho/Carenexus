@@ -1,0 +1,9 @@
+Subject: CareNexus delivery test for {{name}}
+
+Hello {{name}},
+
+This is a test message from CareNexus. It confirms that outbound delivery is configured on this installation.
+
+{{link}}
+
+No action is needed.

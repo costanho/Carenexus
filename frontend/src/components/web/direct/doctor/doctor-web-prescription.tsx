@@ -1,482 +1,391 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View, useWindowDimensions,
-} from 'react-native';
+  Banner, type BannerTone, Button, colors, fontSize, IconButton, LoadingView, PagedList, radius, ROLE_THEME, Screen,
+  SelectField, space, Tabs, TextField,
+} from '@/components/web/ui';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import {
-  type DoctorPrescription, type PrescriptionStatus,
-  useDoctorPrescriptions,
+  type DoctorPrescription, getPrescriptionSchedule, PRESCRIPTION_STATUSES, type PrescriptionDto,
+  type PrescriptionSchedulePlan, type PrescriptionStatus, toDoctorPrescription, toPrescriptionDto,
+  useDoctorPrescriptionCounts, useDoctorPrescriptions,
 } from '@/hooks/use-doctor-prescriptions';
+import { useResource } from '@/hooks/use-resource';
+import { api } from '@/lib/auth/auth.interceptor';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import type { ApiError } from '@/lib/api/errors';
+import type { SectionProps } from '@/lib/nav/sections';
+import { CLINIC_ZONE_LABEL } from '@/lib/time/clinic';
+import { PRESCRIPTION_LIMITS } from '@/lib/validation/prescription';
+import { EditPrescriptionDialog } from './prescription/edit-prescription-dialog';
+import { EditScheduleDialog } from './prescription/edit-schedule-dialog';
+import { STATUS_LABEL, type StatusAction } from './prescription/labels';
+import { PrescriptionCard } from './prescription/prescription-card';
+import { PrescriptionForm, type PrescriptionSavedInfo } from './prescription/prescription-form';
+import { StatusActionDialog } from './prescription/status-action-dialog';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const AMBER  = '#B45309';
-const RED    = '#B91C1C';
-const TEAL   = '#0F766E';
-const PURPLE = '#6D28D9';
+// Doctor > Prescriptions: the prescriptions the signed-in doctor wrote, with issuing, editing and status changes.
+//
+// URL params (CONTRACTS 12.1):
+//   patient         PAT id; the list is filtered to that patient on the server and a removable chip shows the name
+//   status          one of the five statuses; absent = all
+//   consultationId  opens "New prescription" linked to that consultation (with `patient` as its patient)
+//   mode=new        opens "New prescription" (with `patient` prefilled when present)
+//   id              a prescription to show first, above the list (a link from the patient history, a correction
+//                   request or a clinical alert); one written by another doctor is shown read-only
 
-type IoniconsName  = React.ComponentProps<typeof Ionicons>['name'];
-type StatusFilter  = 'ALL' | PrescriptionStatus;
+type StatusTab = 'ALL' | PrescriptionStatus;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function statusConfig(s: PrescriptionStatus) {
-  switch (s) {
-    case 'ACTIVE':    return { label: 'Active',    color: GREEN, bg: '#D1FAE5', border: '#6EE7B7', icon: 'checkmark-circle-outline' as IoniconsName };
-    case 'COMPLETED': return { label: 'Completed', color: BLUE,  bg: '#EEF2FF', border: '#C7D2FE', icon: 'checkbox-outline'         as IoniconsName };
-    case 'EXPIRED':   return { label: 'Expired',   color: RED,   bg: '#FEE2E2', border: '#FECACA', icon: 'close-circle-outline'     as IoniconsName };
-    default:          return { label: s,           color: GRAY,  bg: '#F3F4F6', border: BORDER,    icon: 'help-circle-outline'      as IoniconsName };
-  }
+interface Notice {
+  tone:    BannerTone;
+  text:    string;
+  action?: { label: string; onPress: () => void };
 }
 
-function routeConfig(r: string) {
-  switch (r.toUpperCase()) {
-    case 'ORAL':       return { label: 'Oral',       color: TEAL,   bg: '#CCFBF1', icon: 'cafe-outline'      as IoniconsName };
-    case 'TOPICAL':    return { label: 'Topical',    color: PURPLE, bg: '#EDE9FE', icon: 'color-fill-outline' as IoniconsName };
-    case 'IV':         return { label: 'IV',         color: RED,    bg: '#FEE2E2', icon: 'pulse-outline'     as IoniconsName };
-    case 'IM':         return { label: 'IM',         color: AMBER,  bg: '#FEF3C7', icon: 'fitness-outline'   as IoniconsName };
-    case 'INHALED':    return { label: 'Inhaled',    color: BLUE,   bg: '#EEF2FF', icon: 'cloudy-outline'    as IoniconsName };
-    case 'SUBLINGUAL': return { label: 'Sublingual', color: AMBER,  bg: '#FEF3C7', icon: 'water-outline'     as IoniconsName };
-    default:           return { label: r,            color: GRAY,   bg: '#F3F4F6', icon: 'medical-outline'   as IoniconsName };
-  }
+const SEARCH_DELAY_MS = 350;
+
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+function statusFromParam(value: string | undefined): PrescriptionStatus | null {
+  const s = (value ?? '').trim().toUpperCase().replace(/-/g, '_');
+  return (PRESCRIPTION_STATUSES as readonly string[]).includes(s) ? (s as PrescriptionStatus) : null;
 }
 
-function isExpiringSoon(expiry: string | null): boolean {
-  if (!expiry) return false;
-  const days = (new Date(expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-  return days >= 0 && days <= 14;
+function positiveInt(value: string | undefined): number | null {
+  return value && /^[1-9]\d{0,9}$/.test(value.trim()) ? Number(value.trim()) : null;
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
-function avatarColor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+function timesSentence(times: readonly string[]): string {
+  return times.length > 0
+    ? `Dose times: ${times.join(', ')} (${CLINIC_ZONE_LABEL}).`
+    : 'No doses are scheduled.';
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+export default function DoctorWebPrescription(props: Partial<SectionProps> = {}) {
+  const nav = useSectionNav();
+  const params = props.params ?? nav.params;
+  const theme = props.theme ?? ROLE_THEME.doctor;
+  const { setParams } = nav;
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
+  // ── Filters ────────────────────────────────────────────────────────────────
+  const patientFilter = params.patient?.trim() || null;
+  const statusFilter = statusFromParam(params.status);
+  const [searchText, setSearchText] = useState('');
+  const search = useDebounced(searchText.trim(), SEARCH_DELAY_MS);
+
+  const list = useDoctorPrescriptions(
+    { status: statusFilter, patientSystemId: patientFilter, search },
+    { pageSize: 20 },
+  );
+  const counts = useDoctorPrescriptionCounts({ patientSystemId: patientFilter, search });
+  const { patients, applyUpdate, refetch: refetchList } = list;
+  const { refetch: refetchCounts } = counts;
+
+  const refreshAll = useCallback(() => { refetchList(); refetchCounts(); }, [refetchList, refetchCounts]);
+
+  // ── The prescription a link points at (`id`) ──────────────────────────────
+  const { user } = useCurrentUser();
+  const linkedId = positiveInt(params.id);
+  const linked = useResource<PrescriptionDto>(
+    () => api.get<unknown>(`/api/prescriptions/${linkedId}`).then(r => toPrescriptionDto(r.data)),
+    [linkedId],
+    { enabled: linkedId !== null, errorMessage: 'That prescription could not be opened.' },
+  );
+  const closeLinked = useCallback(() => setParams({ id: undefined }), [setParams]);
+
+  // While the linked prescription is shown above the list, its row is left out of the list, so it never appears
+  // twice with two sets of actions.
+  const shownAboveId = linked.data && linkedId !== null && linked.data.prescriptionId === linkedId ? linkedId : null;
+  const listState = useMemo(() => {
+    if (shownAboveId === null) return list.paged;
+    const items = list.paged.items.filter(rx => rx.prescription_id !== shownAboveId);
+    if (items.length === list.paged.items.length) return list.paged;
+    return { ...list.paged, items, total: Math.max(items.length, list.paged.total - 1) };
+  }, [list.paged, shownAboveId]);
+  const onlyLinked = shownAboveId !== null && listState.items.length === 0 && list.paged.items.length > 0;
+
+  // ── Messages about the last action ─────────────────────────────────────────
+  const [notice, setNotice] = useState<Notice | null>(null);
+  // Identifies the latest notice, so a late follow-up (the dose times of a new prescription) never replaces a newer one.
+  const noticeSeq = useRef(0);
+  const show = useCallback((next: Notice | null) => {
+    noticeSeq.current += 1;
+    setNotice(next);
+    return noticeSeq.current;
+  }, []);
+
+  // ── Dialogs ────────────────────────────────────────────────────────────────
+  const consultationParam = positiveInt(params.consultationId);
+  const openedByUrl = consultationParam !== null || params.mode === 'new';
+  const [formOpenedHere, setFormOpenedHere] = useState(false);
+  const formOpen = formOpenedHere || openedByUrl;
+
+  const [editing, setEditing] = useState<DoctorPrescription | null>(null);
+  const [scheduling, setScheduling] = useState<DoctorPrescription | null>(null);
+  const [statusRequest, setStatusRequest] = useState<{ prescription: DoctorPrescription; action: StatusAction } | null>(null);
+  const [scheduleVersion, setScheduleVersion] = useState(0);
+
+  const closeForm = useCallback(() => {
+    setFormOpenedHere(false);
+    // The request to open the form is used up: without this a refresh would open it again.
+    if (openedByUrl) setParams({ consultationId: undefined, mode: undefined });
+  }, [openedByUrl, setParams]);
+
+  const viewOf = useCallback((dto: PrescriptionDto): DoctorPrescription => {
+    const row = toDoctorPrescription(dto);
+    return { ...row, patient_name: patients.nameOf(dto.patientSystemId) };
+  }, [patients]);
+
+  const onCreated = (created: PrescriptionDto, info: PrescriptionSavedInfo) => {
+    closeForm();
+    refreshAll();
+    if (info.differsFromForm) {
+      show({
+        tone: 'warning',
+        text: `${created.medicationName} had already been issued by an earlier attempt of this form and was not issued again. `
+          + 'Changes made after that attempt were not applied: check the prescription in the list, and cancel it and '
+          + 'issue a new one if it is not right.',
+      });
+      return;
+    }
+    const issued = `${created.medicationName} was prescribed for ${patients.nameOf(created.patientSystemId)}.`;
+    if (info.scheduleTimes.length > 0) {
+      show({ tone: 'success', text: `${issued} ${timesSentence(info.scheduleTimes)}` });
+      return;
+    }
+    const seq = show({ tone: 'success', text: issued });
+    // No times were given: the server works them out from the frequency when it can. Show what the patient gets.
+    getPrescriptionSchedule(created.prescriptionId)
+      .then(plan => {
+        if (noticeSeq.current !== seq) return;
+        setNotice(plan.times.length > 0
+          ? { tone: 'success', text: `${issued} ${timesSentence(plan.times)}` }
+          : {
+              // Expected for "as needed" or weekly medication, so it is information, not a warning.
+              tone: 'info',
+              text: `${issued} No doses are scheduled yet: no dose times were given and none could be worked out from the frequency.`,
+              action: { label: 'Edit schedule times', onPress: () => setScheduling(viewOf(created)) },
+            });
+      })
+      .catch(() => { /* the prescription is issued; its dose times stay available under "Show details" */ });
+  };
+
+  const onEdited = (updated: PrescriptionDto) => {
+    setEditing(null);
+    applyUpdate(updated);
+    linked.setData(prev => (prev && prev.prescriptionId === updated.prescriptionId ? updated : prev));
+    refreshAll();
+    show({ tone: 'success', text: `${updated.medicationName} was updated.` });
+  };
+
+  const onStatusChanged = (updated: PrescriptionDto, action: StatusAction) => {
+    setStatusRequest(null);
+    applyUpdate(updated);
+    linked.setData(prev => (prev && prev.prescriptionId === updated.prescriptionId ? updated : prev));
+    refreshAll();
+    setScheduleVersion(v => v + 1);
+    show({ tone: 'success', text: `${updated.medicationName} ${action.done}.` });
+  };
+
+  const onScheduleSaved = (plan: PrescriptionSchedulePlan) => {
+    const name = scheduling?.medication_name ?? 'The prescription';
+    setScheduling(null);
+    setScheduleVersion(v => v + 1);
+    show({ tone: 'success', text: `${name}: schedule times saved. ${timesSentence(plan.times)}` });
+  };
+
+  /** A write was refused because the prescription changed elsewhere (completed, cancelled, expired) or is gone. */
+  const onStale = (error: ApiError) => {
+    setEditing(null);
+    setScheduling(null);
+    setStatusRequest(null);
+    refreshAll();
+    show({ tone: 'warning', text: `${error.message.replace(/[.\s]+$/, '')}. The list has been refreshed.` });
+  };
+
+  // ── Filter controls ────────────────────────────────────────────────────────
+  const tabs = useMemo(() => [
+    { key: 'ALL' as StatusTab, label: 'All', badge: counts.total ?? undefined },
+    ...PRESCRIPTION_STATUSES.map(s => ({ key: s as StatusTab, label: STATUS_LABEL[s], badge: counts.counts?.[s] })),
+  ], [counts.total, counts.counts]);
+
+  const patientOptions = useMemo(
+    () => patients.options.map(o => ({ value: o.patientSystemId, label: o.fullName })),
+    [patients.options],
+  );
+  const patientName = patientFilter ? patients.nameOf(patientFilter) : '';
+  const filtered = !!statusFilter || !!patientFilter || !!search;
+
+  const clearFilters = () => {
+    setSearchText('');
+    setParams({ status: undefined, patient: undefined });
+  };
+
+  const header = (
+    <View style={styles.filters}>
+      <Tabs<StatusTab>
+        tabs={tabs}
+        active={statusFilter ?? 'ALL'}
+        onChange={key => setParams({ status: key === 'ALL' ? undefined : key })}
+        label="Filter prescriptions by status"
+      />
+      <View style={styles.filterRow}>
+        <View style={styles.filterCell}>
+          <TextField
+            label="Search by medication"
+            value={searchText}
+            onChange={setSearchText}
+            placeholder="Medication or generic name"
+            maxLength={PRESCRIPTION_LIMITS.search}
+            autoCapitalize="none"
+          />
+        </View>
+        <View style={styles.filterCell}>
+          <SelectField
+            label="Patient"
+            value={patientFilter ?? ''}
+            onChange={id => setParams({ patient: id || undefined })}
+            options={patientOptions}
+            placeholder={patients.loading ? 'Loading…' : patientOptions.length === 0 ? 'No patients to choose from' : 'All patients'}
+            allowEmpty={patientOptions.length > 0}
+            disabled={patients.loading || patientOptions.length === 0}
+            hint={patients.error ?? undefined}
+          />
+        </View>
       </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      {patientFilter ? (
+        <View style={styles.chipRow}>
+          <View style={[styles.chip, { backgroundColor: theme.accentBg, borderColor: theme.accent }]}>
+            <Text style={styles.chipText}>Patient: {patientName}</Text>
+            <IconButton
+              label={`Remove patient filter, ${patientName}`}
+              icon="close"
+              size="sm"
+              onPress={() => setParams({ patient: undefined })}
+              style={styles.chipRemove}
+            />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
-}
-
-// ─── Prescription Card ───────────────────────────────────────────────────────
-
-function RxCard({ rx }: { rx: DoctorPrescription }) {
-  const [expanded, setExpanded] = useState(false);
-  const sc  = statusConfig(rx.status);
-  const rc  = routeConfig(rx.route);
-  const pac = avatarColor(rx.patient_name);
-  const dac = avatarColor(rx.doctor_name);
-  const expiringSoon = isExpiringSoon(rx.expiry_date);
 
   return (
-    <View style={[styles.card, { borderLeftColor: sc.color }]}>
-      {/* Expiring soon banner */}
-      {expiringSoon && rx.status === 'ACTIVE' && !!rx.expiry_date && (
-        <View style={styles.expiryBanner}>
-          <Ionicons name="warning-outline" size={13} color={AMBER} />
-          <Text style={styles.expiryBannerText}>Expiring soon — {formatDate(rx.expiry_date)}</Text>
-        </View>
-      )}
-
-      {/* Header row */}
-      <View style={styles.cardHeader}>
-        <View style={styles.badgeRow}>
-          <View style={[styles.badge, { backgroundColor: sc.bg, borderColor: sc.border }]}>
-            <Ionicons name={sc.icon} size={11} color={sc.color} />
-            <Text style={[styles.badgeText, { color: sc.color }]}>{sc.label}</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: rc.bg, borderColor: BORDER }]}>
-            <Ionicons name={rc.icon} size={11} color={rc.color} />
-            <Text style={[styles.badgeText, { color: rc.color }]}>{rc.label}</Text>
-          </View>
-          {rx.refills_allowed > 0 && (
-            <View style={[styles.badge, { backgroundColor: '#F3F4F6', borderColor: BORDER }]}>
-              <Ionicons name="refresh-outline" size={11} color={GRAY} />
-              <Text style={[styles.badgeText, { color: '#4B5563' }]}>{rx.refills_allowed} refill{rx.refills_allowed !== 1 ? 's' : ''}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.prescribedDate}>{formatDate(rx.prescribed_date)}</Text>
-      </View>
-
-      {/* Medication name */}
-      <View style={styles.medicationBlock}>
-        <View style={styles.rxIconWrap}>
-          <Ionicons name="medkit-outline" size={22} color={BLUE} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.medicationName}>{rx.medication_name}</Text>
-          {!!rx.generic_name && (
-            <Text style={styles.genericName}>{rx.generic_name}</Text>
-          )}
-        </View>
-      </View>
-
-      {/* Dosage / Frequency / Quantity row */}
-      <View style={styles.infoGrid}>
-        <View style={styles.infoCell}>
-          <Ionicons name="flask-outline" size={13} color={LGRAY} />
-          <View>
-            <Text style={styles.infoCellLabel}>Dosage</Text>
-            <Text style={styles.infoCellValue}>{rx.dosage}</Text>
-          </View>
-        </View>
-        <View style={styles.infoCell}>
-          <Ionicons name="time-outline" size={13} color={LGRAY} />
-          <View>
-            <Text style={styles.infoCellLabel}>Frequency</Text>
-            <Text style={styles.infoCellValue}>{rx.frequency}</Text>
-          </View>
-        </View>
-        {!!rx.quantity && (
-          <View style={styles.infoCell}>
-            <Ionicons name="layers-outline" size={13} color={LGRAY} />
-            <View>
-              <Text style={styles.infoCellLabel}>Quantity</Text>
-              <Text style={styles.infoCellValue}>{rx.quantity}</Text>
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* Patient + doctor */}
-      <View style={styles.personRow}>
-        <View style={styles.personChip}>
-          <View style={[styles.miniAvatar, { backgroundColor: pac }]}>
-            <Text style={styles.miniAvatarText}>{initials(rx.patient_name)}</Text>
-          </View>
-          <View>
-            <Text style={styles.personRole}>Patient</Text>
-            <Text style={styles.personName}>{rx.patient_name}</Text>
-          </View>
-        </View>
-        <View style={styles.personDivider} />
-        <View style={styles.personChip}>
-          <View style={[styles.miniAvatar, { backgroundColor: dac }]}>
-            <Text style={styles.miniAvatarText}>{initials(rx.doctor_name)}</Text>
-          </View>
-          <View>
-            <Text style={styles.personRole}>Prescribed by</Text>
-            <Text style={styles.personName}>{rx.doctor_name}</Text>
-          </View>
-        </View>
-        {!!rx.doctor_specialization && (
-          <View style={styles.specBadge}>
-            <Text style={styles.specText}>{rx.doctor_specialization}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Expiry date row */}
-      {!!rx.expiry_date && (
-        <View style={styles.expiryRow}>
-          <Ionicons name="calendar-outline" size={13} color={LGRAY} />
-          <Text style={styles.expiryLabel}>Expires:</Text>
-          <Text style={[styles.expiryValue, expiringSoon && { color: AMBER, fontWeight: '700' }]}>
-            {formatDate(rx.expiry_date)}
-          </Text>
-        </View>
-      )}
-
-      {/* Special instructions — expandable */}
-      {!!rx.special_instructions && (
+    <Screen
+      title="Prescriptions"
+      subtitle="Issue prescriptions and manage the ones you have written"
+      role="doctor"
+      theme={props.theme}
+      actions={(
         <>
-          {expanded && (
-            <View style={styles.instructionsBox}>
-              <View style={styles.instructionsHeader}>
-                <Ionicons name="information-circle-outline" size={15} color={BLUE} />
-                <Text style={styles.instructionsLabel}>Special Instructions</Text>
-              </View>
-              <Text style={styles.instructionsText}>{rx.special_instructions}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={styles.expandBtn} onPress={() => setExpanded(e => !e)} activeOpacity={0.7}>
-            <Text style={styles.expandBtnText}>{expanded ? 'Hide instructions' : 'View instructions'}</Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={BLUE} />
-          </TouchableOpacity>
+          <Button label="Refresh" icon="refresh-outline" variant="secondary" onPress={refreshAll} loading={list.refreshing} />
+          <Button label="New prescription" icon="add" onPress={() => setFormOpenedHere(true)} />
         </>
       )}
-    </View>
-  );
-}
+    >
+      {notice ? (
+        <Banner tone={notice.tone} text={notice.text} action={notice.action} onDismiss={() => show(null)} />
+      ) : null}
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-const STATUS_FILTERS: { key: StatusFilter; label: string; color: string }[] = [
-  { key: 'ALL',       label: 'All',       color: BLUE  },
-  { key: 'ACTIVE',    label: 'Active',    color: GREEN },
-  { key: 'COMPLETED', label: 'Completed', color: BLUE  },
-  { key: 'EXPIRED',   label: 'Expired',   color: RED   },
-];
-
-export default function DoctorWebPrescription() {
-  const { prescriptions, loading, error, refetch } = useDoctorPrescriptions();
-  const { width } = useWindowDimensions();
-  const twoCol = width >= 1200;
-
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-  const [search,       setSearch]       = useState('');
-
-  const stats = useMemo(() => ({
-    total:     prescriptions.length,
-    active:    prescriptions.filter(r => r.status === 'ACTIVE').length,
-    completed: prescriptions.filter(r => r.status === 'COMPLETED').length,
-    expired:   prescriptions.filter(r => r.status === 'EXPIRED').length,
-    refills:   prescriptions.filter(r => r.refills_allowed > 0 && r.status === 'ACTIVE').length,
-    expiring:  prescriptions.filter(r => isExpiringSoon(r.expiry_date) && r.status === 'ACTIVE').length,
-  }), [prescriptions]);
-
-  const filtered = useMemo(() => (
-    prescriptions
-      .filter(r => statusFilter === 'ALL' || r.status === statusFilter)
-      .filter(r => !search
-        || r.medication_name.toLowerCase().includes(search.toLowerCase())
-        || r.generic_name?.toLowerCase().includes(search.toLowerCase())
-        || r.patient_name.toLowerCase().includes(search.toLowerCase())
-        || r.doctor_name.toLowerCase().includes(search.toLowerCase())
-      )
-  ), [prescriptions, statusFilter, search]);
-
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-
-  if (error) return (
-    <View style={styles.center}>
-      <Ionicons name="alert-circle-outline" size={52} color={RED} />
-      <Text style={styles.errorText}>{error}</Text>
-      <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-        <Text style={styles.retryBtnText}>Retry</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* Page header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">Prescriptions</Text>
-          <Text style={styles.pageSub}>Medication prescriptions for all your patients</Text>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <StatCard icon="medical-outline"          iconBg="#EEF2FF" iconColor={BLUE}  label="Total"     value={stats.total}     />
-        <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Active"    value={stats.active}    />
-        <StatCard icon="checkbox-outline"         iconBg="#EEF2FF" iconColor={BLUE}  label="Completed" value={stats.completed} />
-        <StatCard icon="close-circle-outline"     iconBg="#FEE2E2" iconColor={RED}   label="Expired"   value={stats.expired}   />
-        <StatCard icon="refresh-outline"          iconBg="#F3F4F6" iconColor={GRAY}  label="Refillable" value={stats.refills}  />
-        <StatCard icon="warning-outline"          iconBg="#FEF3C7" iconColor={AMBER} label="Expiring"  value={stats.expiring}  />
-      </View>
-
-      {/* Filters */}
-      <View style={styles.filterCard}>
-        <View style={styles.filterRow}>
-          <View style={styles.pillGroup}>
-            {STATUS_FILTERS.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, statusFilter === f.key && { backgroundColor: f.color + '18', borderColor: f.color }]}
-                onPress={() => setStatusFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, statusFilter === f.key && { color: f.color, fontWeight: '700' }]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={15} color={LGRAY} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search medication, patient, doctor…"
-              placeholderTextColor={LGRAY}
-              value={search}
-              onChangeText={setSearch}
+      {linkedId !== null ? (
+        linked.loading ? (
+          <LoadingView label="Opening the prescription…" compact />
+        ) : linked.data ? (
+          <View style={styles.linked} role="region" aria-label="Opened prescription">
+            <View style={styles.linkedHead}>
+              <Text style={styles.linkedNote}>Opened from a link</Text>
+              <Button label="Close" icon="close" variant="ghost" size="sm" onPress={closeLinked} accessibilityLabel="Close the opened prescription" />
+            </View>
+            <PrescriptionCard
+              rx={viewOf(linked.data)}
+              scheduleVersion={scheduleVersion}
+              onEdit={setEditing}
+              onEditSchedule={setScheduling}
+              onStatusAction={(prescription, action) => setStatusRequest({ prescription, action })}
+              readOnly={!user || linked.data.doctorSystemId !== user.system_id}
             />
-            {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
-                <Ionicons name="close-circle" size={15} color={LGRAY} />
-              </TouchableOpacity>
-            )}
           </View>
-        </View>
-      </View>
+        ) : (
+          <Banner
+            tone="warning"
+            text={linked.errorStatus === 403 || linked.errorStatus === 404
+              ? 'That prescription is not available to you. It may have been removed, or the patient is no longer in your care.'
+              : linked.error ?? 'That prescription could not be opened.'}
+            action={linked.errorStatus === 403 || linked.errorStatus === 404 ? undefined : { label: 'Retry', onPress: linked.refetch }}
+            onDismiss={closeLinked}
+          />
+        )
+      ) : null}
 
-      {/* Result count */}
-      <Text style={styles.resultCount}>
-        {filtered.length} prescription{filtered.length !== 1 ? 's' : ''}
-      </Text>
+      <PagedList
+        state={listState}
+        label="Prescriptions"
+        keyOf={rx => rx.prescription_id}
+        header={header}
+        renderItem={rx => (
+          <PrescriptionCard
+            rx={rx}
+            scheduleVersion={scheduleVersion}
+            onEdit={setEditing}
+            onEditSchedule={setScheduling}
+            onStatusAction={(prescription, action) => setStatusRequest({ prescription, action })}
+          />
+        )}
+        empty={onlyLinked
+          ? {
+              icon: 'medkit-outline', title: 'No other prescriptions',
+              sub: 'The opened prescription is the only one in this list.',
+            }
+          : filtered
+          ? {
+              icon: 'search-outline', title: 'No prescriptions match these filters',
+              sub: 'Try another status, patient or search.',
+              action: { label: 'Clear filters', onPress: clearFilters, icon: 'close-outline' },
+            }
+          : {
+              icon: 'medkit-outline', title: 'No prescriptions yet',
+              sub: 'Prescriptions you issue for your patients appear here.',
+              action: { label: 'New prescription', onPress: () => setFormOpenedHere(true), icon: 'add' },
+            }}
+        noAccessMessage="You don't have access to prescriptions."
+      />
 
-      {/* Cards */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="medical-outline" size={60} color={BORDER} />
-          <Text style={styles.emptyTitle}>No prescriptions found</Text>
-          <Text style={styles.emptySub}>Try adjusting your filters or search</Text>
-        </View>
-      ) : twoCol ? (
-        <View style={styles.grid}>
-          <View style={styles.col}>
-            {filtered.filter((_, i) => i % 2 === 0).map(r => <RxCard key={r.prescription_id} rx={r} />)}
-          </View>
-          <View style={styles.col}>
-            {filtered.filter((_, i) => i % 2 === 1).map(r => <RxCard key={r.prescription_id} rx={r} />)}
-          </View>
-        </View>
-      ) : (
-        <View style={{ gap: 14 }}>
-          {filtered.map(r => <RxCard key={r.prescription_id} rx={r} />)}
-        </View>
-      )}
-    </ScrollView>
+      <PrescriptionForm
+        open={formOpen}
+        onClose={closeForm}
+        onSaved={onCreated}
+        patientSystemId={patientFilter}
+        consultationId={consultationParam}
+      />
+      <EditPrescriptionDialog prescription={editing} onClose={() => setEditing(null)} onSaved={onEdited} onStale={onStale} />
+      <EditScheduleDialog prescription={scheduling} onClose={() => setScheduling(null)} onSaved={onScheduleSaved} onStale={onStale} />
+      <StatusActionDialog request={statusRequest} onClose={() => setStatusRequest(null)} onDone={onStatusChanged} onStale={onStale} />
+    </Screen>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  filters:    { gap: space.md, minWidth: 0 },
+  // The two filters share a row on a wide screen and stack on a phone.
+  filterRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  filterCell: { flexGrow: 1, flexShrink: 1, flexBasis: 240, minWidth: 0 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: 2, maxWidth: '100%',
+    paddingLeft: space.md, paddingRight: 2, paddingVertical: 2, borderWidth: 1, borderRadius: radius.pill,
   },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  chipText:   { flexShrink: 1, fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
+  chipRemove: { borderRadius: radius.pill },
 
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 90,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 14, gap: 5,
-  },
-  statIconBg: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 24, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 11, color: GRAY },
-
-  filterCard:  { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16, marginBottom: 16 },
-  filterRow:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  pillGroup:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  pill:        { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillText:    { fontSize: 13, color: GRAY, fontWeight: '500' },
-  searchBox:   {
-    flex: 1, minWidth: 220,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: BG,
-  },
-  searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
-
-  resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 16 },
-
-  grid: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
-  col:  { flex: 1, gap: 14 },
-
-  // Card
-  card: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, borderLeftWidth: 4, overflow: 'hidden',
-    padding: 18, gap: 14,
-  },
-
-  expiryBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
-    borderWidth: 1, borderColor: '#FDE68A',
-    marginBottom: -4,
-  },
-  expiryBannerText: { fontSize: 12, color: AMBER, fontWeight: '600' },
-
-  cardHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  badgeRow:      { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  badge:         { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
-  badgeText:     { fontSize: 11, fontWeight: '600' },
-  prescribedDate:{ fontSize: 12, color: LGRAY },
-
-  medicationBlock:{ flexDirection: 'row', alignItems: 'center', gap: 14 },
-  rxIconWrap:     {
-    width: 48, height: 48, borderRadius: 12,
-    backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center',
-  },
-  medicationName: { fontSize: 16, fontWeight: '700', color: TEXT, lineHeight: 22 },
-  genericName:    { fontSize: 12, color: GRAY, marginTop: 2, fontStyle: 'italic' },
-
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, backgroundColor: BG, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: BORDER },
-  infoCell: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, minWidth: 130, flex: 1 },
-  infoCellLabel: { fontSize: 10, color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5 },
-  infoCellValue: { fontSize: 13, color: TEXT, fontWeight: '500', marginTop: 1 },
-
-  personRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
-  personChip:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  personDivider: { width: 1, height: 28, backgroundColor: BORDER },
-  miniAvatar:    { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  miniAvatarText:{ color: WHITE, fontSize: 10, fontWeight: '700' },
-  personRole:    { fontSize: 10, color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5 },
-  personName:    { fontSize: 12, fontWeight: '600', color: TEXT },
-  specBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: BORDER },
-  specText:      { fontSize: 11, color: GRAY },
-
-  expiryRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  expiryLabel:{ fontSize: 12, color: GRAY },
-  expiryValue:{ fontSize: 12, color: TEXT, fontWeight: '600' },
-
-  instructionsBox: {
-    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 14,
-    borderWidth: 1, borderColor: '#BFDBFE', gap: 8,
-  },
-  instructionsHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  instructionsLabel:  { fontSize: 12, fontWeight: '700', color: BLUE },
-  instructionsText:   { fontSize: 13, color: GRAY, lineHeight: 20 },
-
-  expandBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
-  expandBtnText: { fontSize: 13, color: BLUE, fontWeight: '500' },
-
-  emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:   { fontSize: 14, color: GRAY },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  linked:     { gap: space.sm, minWidth: 0 },
+  linkedHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  linkedNote: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textMuted },
 });

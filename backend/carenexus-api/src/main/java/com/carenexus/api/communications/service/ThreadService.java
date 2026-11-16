@@ -2,6 +2,7 @@ package com.carenexus.api.communications.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.exception.BadRequestException;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.common.service.AuditService;
@@ -10,7 +11,7 @@ import com.carenexus.api.communications.dto.request.AddThreadMembersRequest;
 import com.carenexus.api.communications.dto.request.ArchiveThreadRequest;
 import com.carenexus.api.communications.dto.request.CreateThreadRequest;
 import com.carenexus.api.communications.dto.response.LastMessageResponse;
-import com.carenexus.api.communications.dto.response.PageResponse;
+import com.carenexus.api.common.dto.PageResponse;
 import com.carenexus.api.communications.dto.response.ThreadMemberResponse;
 import com.carenexus.api.communications.dto.response.ThreadResponse;
 import com.carenexus.api.communications.model.Message;
@@ -36,8 +37,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Conversations: list, create (PRIVATE / CARE_TEAM), membership, per-user archive (contract 7.3).
- * Every method re-checks access through {@link CommunicationsAccessService}.
+ * Conversations: list, create (PRIVATE / CARE_TEAM), membership, per-user archive (contract 7.3,
+ * be-communications-hardening section 4). Every method re-checks access through {@link CommunicationsAccessService}.
+ * SUPPORT conversations are created by {@link SupportThreadService}; here they appear in the opener's list, are read
+ * through {@link #getThread}, and refuse member changes (409) and, for administrators, archiving (409).
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +54,12 @@ public class ThreadService {
     static final String PRIVATE_MEMBERS = "Members of a private conversation cannot be changed";
     static final String ONLY_PATIENT_OR_DOCTOR = "Only the patient or a doctor can change members";
     static final String PATIENT_NOT_REMOVABLE = "The patient cannot be removed from their care team conversation";
+    static final String SUPPORT_MEMBERS = "Members of a support conversation cannot be changed";
+    static final String SUPPORT_NOT_ARCHIVED = "Support conversations are closed, not archived";
+    static final String TYPE_INVALID = "Conversation type must be PRIVATE or CARE_TEAM";
+    static final String PATIENT_REQUIRED = "Patient ID is required";
+    /** Largest page of the conversation list. */
+    static final int MAX_PAGE_SIZE = 50;
 
     private final CommunicationsAccessService accessService;
     private final MessageThreadRepository threadRepository;
@@ -65,25 +74,38 @@ public class ThreadService {
 
     // ==================== READ ====================
 
+    /**
+     * The caller's conversations (ADMIN: 403). PRIVATE and CARE_TEAM threads the caller is an active member of and
+     * can act for the patient of; without a patient filter also the caller's own SUPPORT threads. Audited: one READ
+     * MESSAGE_THREAD row per distinct patient on the page (SUPPORT threads add none).
+     */
     @Transactional(readOnly = true)
     public PageResponse<ThreadResponse> listThreads(String patientSystemId, boolean archived, int page, int size) {
-        Caller caller = accessService.requireCaller();
+        Caller caller = accessService.requireMessagingCaller();
         int safePage = Math.max(page, 0);
-        int safeSize = Math.min(Math.max(size, 1), 50);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
         Set<String> allowed = accessService.actablePatients(caller);
         String filter = patientSystemId != null && !patientSystemId.isBlank() ? patientSystemId.trim() : null;
+        boolean includeSupport = filter == null;
         if (filter != null) {
             allowed = allowed.contains(filter) ? Set.of(filter) : Set.of();
+            if (allowed.isEmpty()) {
+                return PageResponse.empty(safePage, safeSize);
+            }
         }
-        if (allowed.isEmpty()) {
-            return PageResponse.empty(safePage, safeSize);
-        }
-        Page<MessageThread> threads = threadRepository.findForMember(caller.systemId(), allowed, archived,
-                PageRequest.of(safePage, safeSize));
+        Collection<String> patients = allowed.isEmpty() ? List.of(MessageThreadRepository.NO_PATIENT) : allowed;
+        Page<MessageThread> threads = threadRepository.findForMemberWithSupport(caller.systemId(), patients,
+                includeSupport, archived, PageRequest.of(safePage, safeSize));
+        auditService.logListRead(CommunicationsAccessService.RESOURCE_THREAD, threads.getContent(),
+                MessageThread::getPatientSystemId);
         return PageResponse.of(threads, toResponses(caller, threads.getContent()));
     }
 
+    /**
+     * One conversation. An administrator reaches a SUPPORT conversation only after joining it
+     * ({@link SupportThreadService#joinIfAdministrator}, called by the controller first).
+     */
     @Transactional(readOnly = true)
     public ThreadResponse getThread(Integer threadId) {
         Caller caller = accessService.requireCaller();
@@ -93,24 +115,32 @@ public class ThreadService {
 
     // ==================== CREATE ====================
 
+    /**
+     * Creates a PRIVATE or CARE_TEAM conversation or returns the existing one (same clientThreadId, or an active
+     * PRIVATE conversation of the same pair about the same patient). ADMIN: 403. The request is Bean-validated by
+     * the controller; the checks below repeat the format rules for callers that bypass it.
+     */
     public ThreadResult createThread(CreateThreadRequest request) {
-        Caller caller = accessService.requireCaller();
+        Caller caller = accessService.requireMessagingCaller();
         if (request == null) {
-            throw new RuntimeException("Request body is required");
+            throw new BadRequestException("Malformed request body");
         }
         String patientSystemId = RecipientService.resolvePatient(caller, request.getPatientSystemId());
         String type = request.getType() != null ? request.getType().trim().toUpperCase(Locale.ROOT) : "";
+        if (type.isEmpty()) {
+            throw new BadRequestException("type: is required");
+        }
         if (!MessageThread.PRIVATE.equals(type) && !MessageThread.CARE_TEAM.equals(type)) {
-            throw new RuntimeException("Conversation type must be PRIVATE or CARE_TEAM");
+            throw new BadRequestException(TYPE_INVALID);
         }
         String subject = request.getSubject() != null && !request.getSubject().isBlank() ? request.getSubject().trim() : null;
         if (subject != null && subject.length() > 200) {
-            throw new RuntimeException("Subject must be at most 200 characters");
+            throw new BadRequestException("subject: must be at most 200 characters");
         }
         String clientThreadId = request.getClientThreadId() != null && !request.getClientThreadId().isBlank()
                 ? request.getClientThreadId().trim() : null;
         if (clientThreadId != null && !CLIENT_ID.matcher(clientThreadId).matches()) {
-            throw new RuntimeException("clientThreadId must be 8-64 letters, digits, '-' or '_'");
+            throw new BadRequestException("clientThreadId: must be 8-64 letters, digits, '-' or '_'");
         }
 
         accessService.requireCanActFor(patientSystemId);
@@ -141,13 +171,13 @@ public class ThreadService {
         String legacyType;
         if (MessageThread.PRIVATE.equals(type)) {
             if (requested.size() != 1) {
-                throw new RuntimeException(PRIVATE_SHAPE);
+                throw new BadRequestException(PRIVATE_SHAPE);
             }
             String otherId = requested.iterator().next();
             requireEligible(eligible, otherId);
             String otherRole = CommunicationLabels.role(eligible.get(otherId));
             if (!RecipientService.isPrivatePairAllowed(caller.role(), otherRole)) {
-                throw new RuntimeException(PRIVATE_SHAPE);
+                throw new BadRequestException(PRIVATE_SHAPE);
             }
             List<MessageThread> existing = threadRepository.findPrivateThreadsBetween(patientSystemId, caller.systemId(), otherId);
             if (!existing.isEmpty()) {
@@ -166,7 +196,7 @@ public class ThreadService {
             boolean hasDoctor = memberIds.stream()
                     .anyMatch(id -> AuthorizationService.DOCTOR.equals(CommunicationLabels.role(eligible.get(id))));
             if (!hasDoctor) {
-                throw new RuntimeException(NEEDS_DOCTOR);
+                throw new BadRequestException(NEEDS_DOCTOR);
             }
             legacyType = MessageThread.CARE_TEAM;
         }
@@ -205,7 +235,7 @@ public class ThreadService {
      */
     @Transactional(readOnly = true)
     public Optional<ThreadResponse> findOwnThreadByClientId(String clientThreadId) {
-        Caller caller = accessService.requireCaller();
+        Caller caller = accessService.requireMessagingCaller();
         if (clientThreadId == null || clientThreadId.isBlank()) {
             return Optional.empty();
         }
@@ -223,7 +253,7 @@ public class ThreadService {
         // Same thread row lock as sendMessage: a send committing between reading MAX(message_id) and saving the
         // new member would otherwise land below the boundary (hidden from the new member) or above it.
         threadRepository.findForUpdateById(threadId);
-        ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
+        ThreadAccess access = requireAccessForMemberChange(caller, threadId);
         MessageThread thread = access.thread();
         if (!thread.isCareTeam()) {
             throw new ConflictException(PRIVATE_MEMBERS);
@@ -237,7 +267,7 @@ public class ThreadService {
                     .filter(id -> !id.isEmpty()).forEach(ids::add);
         }
         if (ids.isEmpty()) {
-            throw new RuntimeException("Choose at least one person to add");
+            throw new BadRequestException("systemIds: choose at least one person to add");
         }
         Map<String, User> eligible = accessService.eligibleMembers(thread.getPatientSystemId());
         for (String id : ids) {
@@ -277,7 +307,7 @@ public class ThreadService {
 
     public void removeMember(Integer threadId, String targetSystemId) {
         Caller caller = accessService.requireCaller();
-        ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
+        ThreadAccess access = requireAccessForMemberChange(caller, threadId);
         MessageThread thread = access.thread();
         if (!thread.isCareTeam()) {
             throw new ConflictException(PRIVATE_MEMBERS);
@@ -320,11 +350,15 @@ public class ThreadService {
         auditService.logClinicalAccess("UPDATE", CommunicationsAccessService.RESOURCE_THREAD, threadId, thread.getPatientSystemId());
     }
 
+    /** Per-user archive flag. In a SUPPORT conversation only the opener may archive (administrators: 409). */
     public void setArchived(Integer threadId, ArchiveThreadRequest request) {
         Caller caller = accessService.requireCaller();
+        if (caller.is(AuthorizationService.ADMIN) && accessService.requireThread(threadId).isSupport()) {
+            throw new ConflictException(SUPPORT_NOT_ARCHIVED);
+        }
         ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
         if (request == null || request.getArchived() == null) {
-            throw new RuntimeException("archived must be true or false");
+            throw new BadRequestException("archived: must be true or false");
         }
         ThreadMember member = access.member();
         member.setArchivedAt(request.getArchived() ? Instant.now() : null);
@@ -366,6 +400,22 @@ public class ThreadService {
         return memberships.size();
     }
 
+    /**
+     * Thread access for 4.5 / 4.6. SUPPORT conversations never change members: 409 for their participants and for
+     * any administrator (administrators may open every SUPPORT conversation, so the 409 reveals nothing). An
+     * administrator on a clinical conversation gets the access service's 403.
+     */
+    private ThreadAccess requireAccessForMemberChange(Caller caller, Integer threadId) {
+        if (caller.is(AuthorizationService.ADMIN) && accessService.requireThread(threadId).isSupport()) {
+            throw new ConflictException(SUPPORT_MEMBERS);
+        }
+        ThreadAccess access = accessService.requireThreadAccess(caller, threadId);
+        if (access.thread().isSupport()) {
+            throw new ConflictException(SUPPORT_MEMBERS);
+        }
+        return access;
+    }
+
     // ==================== RESPONSE ASSEMBLY ====================
 
     public ThreadResponse toResponse(Caller caller, MessageThread thread) {
@@ -394,14 +444,20 @@ public class ThreadService {
                 .collect(Collectors.toMap(Message::getThreadId, m -> m, (a, b) -> a.getMessageId() > b.getMessageId() ? a : b));
 
         Set<String> userIds = new HashSet<>();
-        threads.forEach(t -> userIds.add(t.getPatientSystemId()));
+        threads.forEach(t -> {
+            if (t.getPatientSystemId() != null) {
+                userIds.add(t.getPatientSystemId());
+            }
+        });
         membersByThread.values().forEach(list -> list.forEach(m -> userIds.add(m.getSystemId())));
         lastByThread.values().forEach(m -> userIds.add(m.getSenderSystemId()));
         Map<String, User> users = accessService.usersById(userIds);
 
         List<ThreadResponse> responses = new ArrayList<>();
         for (MessageThread thread : threads) {
-            String patientName = CommunicationLabels.name(users.get(thread.getPatientSystemId()), thread.getPatientSystemId());
+            // null for a SUPPORT conversation: labels then read "(Caregiver)" / "(Support)"
+            String patientName = thread.getPatientSystemId() == null ? null
+                    : CommunicationLabels.name(users.get(thread.getPatientSystemId()), thread.getPatientSystemId());
             List<ThreadMember> members = membersByThread.getOrDefault(thread.getThreadId(), List.of());
             ThreadMember mine = members.stream().filter(m -> m.getSystemId().equals(caller.systemId())).findFirst().orElse(null);
 
@@ -441,12 +497,14 @@ public class ThreadService {
                     .members(memberResponses)
                     .lastMessage(lastResponse)
                     .unreadCount(stats[0])
-                    .hasUrgentUnread(stats[1] > 0)
+                    .hasUrgentUnread(!thread.isSupport() && stats[1] > 0)
                     .archived(mine != null && mine.getArchivedAt() != null)
                     // the caller's newest visible message: never reveals activity before the caller joined
                     .lastMessageAt(lastResponse != null ? lastResponse.getSentAt() : null)
                     .createdAt(CommunicationLabels.toInstant(thread.getCreatedAt()))
                     .canManageMembers(thread.isCareTeam() && caller.canManageMembers())
+                    .closed(thread.isClosed())
+                    .closedAt(thread.isClosed() ? CommunicationLabels.toInstant(thread.getClosedAt()) : null)
                     .build());
         }
         return responses;
@@ -464,6 +522,6 @@ public class ThreadService {
         String name = user != null && AuthorizationService.DOCTOR.equals(CommunicationLabels.role(user))
                 ? CommunicationLabels.label(user, systemId, null)
                 : "This person";
-        throw new RuntimeException(name + " cannot be added to this conversation");
+        throw new BadRequestException(name + " cannot be added to this conversation");
     }
 }

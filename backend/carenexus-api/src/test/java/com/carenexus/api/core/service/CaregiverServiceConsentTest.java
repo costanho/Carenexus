@@ -3,6 +3,8 @@ package com.carenexus.api.core.service;
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
 import com.carenexus.api.auth.service.AuthService;
+import com.carenexus.api.calls.service.CallInfoService;
+import com.carenexus.api.common.event.CaregiverGrantRecordedEvent;
 import com.carenexus.api.common.event.CaregiverAccessChangedEvent;
 import com.carenexus.api.common.event.CaregiverApprovalPendingEvent;
 import com.carenexus.api.common.event.CaregiverMessagingRegainedEvent;
@@ -32,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -60,9 +63,8 @@ public class CaregiverServiceConsentTest {
     @Mock private UserRepository userRepository;
     @Mock private PatientRepository patientRepository;
     @Mock private CaregiverRepository caregiverRepository;
-    @Mock private AppointmentService appointmentService;
-    @Mock private ConsultationService consultationService;
     @Mock private AuthService authService;
+    @Mock private CallInfoService callInfoService;
     @Mock private AuditService auditService;
     @Mock private ObjectMapper objectMapper;
     @Mock private ApplicationEventPublisher eventPublisher;
@@ -170,7 +172,8 @@ public class CaregiverServiceConsentTest {
         when(caregiverRepository.findBySystemId(CAREGIVER)).thenReturn(Optional.of(new Caregiver()));
         User created = new User();
         created.setSystemId(PATIENT);
-        when(authService.createActiveUserAccount(any(), any(), any(), any(), any(), eq("PATIENT"))).thenReturn(created);
+        when(authService.createActiveUserAccount(any(), any(), any(), any(), any(), eq("PATIENT"), eq(false), eq(false)))
+                .thenReturn(created);
 
         CreateDependentRequest full = CreateDependentRequest.builder()
                 .firstName("Thomas").lastName("Dube").email("t@example.com").password("Secret123")
@@ -287,7 +290,7 @@ public class CaregiverServiceConsentTest {
         access.setCanMessageCareTeam(true);
         access.setMessagingApprovedAt(Instant.now());
         access.setMessagingApprovedBySystemId(PATIENT);
-        when(dependentAccessRepository.findUnrevokedForPatient(PATIENT)).thenReturn(List.of(access));
+        when(dependentAccessRepository.findUnrevokedForPatient(eq(PATIENT), any(Pageable.class))).thenReturn(List.of(access));
 
         CaregiverDependentResponse response = caregiverService.getCaregiverAccessForPatient(PATIENT).get(0);
         assertEquals("EXPIRED", response.getAccessStatus());
@@ -506,5 +509,132 @@ public class CaregiverServiceConsentTest {
         List<CaregiverApprovalPendingEvent> approvals = events(CaregiverApprovalPendingEvent.class);
         assertEquals(2, approvals.size());
         assertFalse(approvals.get(1).pending());
+    }
+
+    // ==================== FLAG NORMALISATION AND CONSENT LEDGER EVENTS ====================
+
+    private List<CaregiverGrantRecordedEvent> recorded() {
+        return events(CaregiverGrantRecordedEvent.class);
+    }
+
+    @Test
+    public void normalisation_fullAccessStoresEveryDataFlag_viewOnlyClearsWriteFlags_customKeepsThem() {
+        DependentAccess full = DependentAccess.builder().accessLevel("FULL_ACCESS").build();
+        CaregiverService.normalizeFlags(full);
+        assertTrue(full.getCanViewRecords() && full.getCanViewAppointments() && full.getCanViewMedications()
+                && full.getCanViewLabResults() && full.getCanViewImaging() && full.getCanViewConsultations()
+                && full.getCanScheduleAppointments() && full.getCanManageCarePlan()
+                && full.getCanViewBilling() && full.getCanManageBilling());
+        assertFalse(full.getCanMessageCareTeam(), "communication flags are never set by the level");
+        assertFalse(full.getCanJoinCalls());
+
+        DependentAccess viewOnly = DependentAccess.builder().accessLevel("VIEW_ONLY")
+                .canViewRecords(true).canScheduleAppointments(true).canManageCarePlan(true).canManageBilling(true).build();
+        CaregiverService.normalizeFlags(viewOnly);
+        assertTrue(viewOnly.getCanViewRecords());
+        assertFalse(viewOnly.getCanScheduleAppointments());
+        assertFalse(viewOnly.getCanManageCarePlan());
+        assertFalse(viewOnly.getCanManageBilling());
+
+        DependentAccess custom = DependentAccess.builder().accessLevel("CUSTOM").canManageCarePlan(true).build();
+        CaregiverService.normalizeFlags(custom);
+        assertTrue(custom.getCanManageCarePlan());
+        assertFalse(custom.getCanViewRecords());
+    }
+
+    @Test
+    public void patientChange_kindPrecedence_approvalThenExtensionThenPermissions() {
+        DependentAccess access = activeGrant();
+        access.setAccessLevel("CUSTOM");
+        access.setExpiresAt(LocalDateTime.now().plusDays(5));
+        access.setCanJoinCalls(true); // requested
+        stored(access);
+
+        // approval and extension in one request: COMMUNICATION_APPROVED wins
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID, UpdateDependentAccessRequest.builder()
+                .canJoinCalls(true).expiresAt(LocalDateTime.now().plusDays(40).toString()).build());
+        assertEquals(List.of(CaregiverGrantRecordedEvent.COMMUNICATION_APPROVED), recorded().stream().map(CaregiverGrantRecordedEvent::kind).toList());
+        assertEquals(PATIENT, recorded().get(0).actorSystemId());
+
+        clearInvocations(eventPublisher);
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().expiresAt("").canViewImaging(true).build());
+        assertEquals(List.of(CaregiverGrantRecordedEvent.EXTENDED), recorded().stream().map(CaregiverGrantRecordedEvent::kind).toList());
+
+        clearInvocations(eventPublisher);
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canViewImaging(false).build());
+        assertEquals(List.of(CaregiverGrantRecordedEvent.PERMISSIONS_CHANGED), recorded().stream().map(CaregiverGrantRecordedEvent::kind).toList());
+
+        // nothing changed: no ledger event (the access-changed event is still published)
+        clearInvocations(eventPublisher);
+        caregiverService.updateCaregiverAccessAsPatient(PATIENT, false, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canViewImaging(false).build());
+        assertTrue(recorded().isEmpty());
+        assertNotNull(lastEvent());
+    }
+
+    @Test
+    public void caregiverNarrowing_publishesNarrowed_onlyWhenSomethingChanged() {
+        DependentAccess access = activeGrant();
+        access.setAccessLevel("CUSTOM");
+        stored(access);
+
+        caregiverService.updateDependentAccess(CAREGIVER, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canViewRecords(false).build());
+        List<CaregiverGrantRecordedEvent> events = recorded();
+        assertEquals(1, events.size());
+        assertEquals(new CaregiverGrantRecordedEvent(ACCESS_ID, PATIENT, CAREGIVER, CAREGIVER,
+                CaregiverGrantRecordedEvent.NARROWED, false), events.get(0));
+
+        clearInvocations(eventPublisher);
+        caregiverService.updateDependentAccess(CAREGIVER, ACCESS_ID,
+                UpdateDependentAccessRequest.builder().canViewRecords(false).build());
+        assertTrue(recorded().isEmpty());
+    }
+
+    @Test
+    public void caregiverPatch_onAnExpiredGrant_isForbidden() {
+        DependentAccess access = activeGrant();
+        access.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        stored(access);
+        AuthorizationException ex = assertThrows(AuthorizationException.class, () -> caregiverService
+                .updateDependentAccess(CAREGIVER, ACCESS_ID, UpdateDependentAccessRequest.builder().canViewRecords(false).build()));
+        assertEquals(CaregiverService.INACTIVE_MESSAGE, ex.getMessage());
+    }
+
+    @Test
+    public void revoke_publishesRevokedOnce_withTheCallerAsActor() {
+        DependentAccess access = activeGrant();
+        access.setGuardianAttestedAt(Instant.now());
+        stored(access);
+
+        caregiverService.revokeCaregiverAccessAsPatient(ADMIN, true, ACCESS_ID);
+        assertEquals(List.of(new CaregiverGrantRecordedEvent(ACCESS_ID, PATIENT, CAREGIVER, ADMIN,
+                CaregiverGrantRecordedEvent.REVOKED, true)), recorded());
+
+        clearInvocations(eventPublisher);
+        caregiverService.revokeCaregiverAccessAsPatient(ADMIN, true, ACCESS_ID);
+        assertTrue(recorded().isEmpty(), "a repeated DELETE records nothing");
+    }
+
+    @Test
+    public void createDependent_managedWithoutAttestation_orWithOnlyOneCredential_isRejectedBeforeAnyWrite() {
+        when(caregiverRepository.findBySystemId(CAREGIVER)).thenReturn(Optional.of(new Caregiver()));
+
+        com.carenexus.api.common.exception.BadRequestException managed = assertThrows(
+                com.carenexus.api.common.exception.BadRequestException.class,
+                () -> caregiverService.createDependent(CAREGIVER, CreateDependentRequest.builder()
+                        .firstName("Rudo").lastName("Moyo").relationship("mother").build()));
+        assertEquals(CaregiverService.ATTESTATION_REQUIRED_MESSAGE, managed.getMessage());
+
+        com.carenexus.api.common.exception.BadRequestException oneOnly = assertThrows(
+                com.carenexus.api.common.exception.BadRequestException.class,
+                () -> caregiverService.createDependent(CAREGIVER, CreateDependentRequest.builder()
+                        .firstName("Rudo").lastName("Moyo").email("rudo@example.com").relationship("mother").build()));
+        assertEquals(CaregiverService.CREDENTIALS_TOGETHER_MESSAGE, oneOnly.getMessage());
+
+        verifyNoInteractions(authService);
+        verify(dependentAccessRepository, never()).save(any());
     }
 }

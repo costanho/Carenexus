@@ -12,10 +12,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @TestConfiguration
 public class PostgresTestContainerConfig {
 
+    /** Same major version as docker-compose.yml and the deployment target. */
+    public static final String POSTGRES_IMAGE = "postgres:16-alpine";
+
     @Bean
     @ServiceConnection
     public PostgreSQLContainer<?> postgresContainer() {
-        return new PostgreSQLContainer<>("postgres:15-alpine")
+        return new PostgreSQLContainer<>(POSTGRES_IMAGE)
                 .withDatabaseName("carenexus_test")
                 .withUsername("carenexus")
                 .withPassword("test_password")

@@ -42,7 +42,7 @@ export function ErrorBlock({ message, onRetry, compact }: { message: string; onR
   const { accent } = useTheme();
   return (
     <View style={[styles.center, compact && styles.compact]} accessibilityRole="alert">
-      <Ionicons name="alert-circle-outline" size={compact ? 22 : 36} color={RED} importantForAccessibility="no" />
+      <Ionicons aria-hidden name="alert-circle-outline" size={compact ? 22 : 36} color={RED} importantForAccessibility="no" />
       <Text style={styles.msg}>{message}</Text>
       {onRetry && (
         <TouchableOpacity
@@ -52,7 +52,7 @@ export function ErrorBlock({ message, onRetry, compact }: { message: string; onR
           accessibilityRole="button"
           accessibilityLabel="Retry"
         >
-          <Ionicons name="refresh-outline" size={14} color={accent} importantForAccessibility="no" />
+          <Ionicons aria-hidden name="refresh-outline" size={14} color={accent} importantForAccessibility="no" />
           <Text style={[styles.outlineText, { color: accent }]}>Retry</Text>
         </TouchableOpacity>
       )}
@@ -63,7 +63,7 @@ export function ErrorBlock({ message, onRetry, compact }: { message: string; onR
 export function Empty({ icon, title, sub, children }: { icon: IoniconsName; title: string; sub?: string; children?: React.ReactNode }) {
   return (
     <View style={styles.center}>
-      <Ionicons name={icon} size={40} color={BORDER} importantForAccessibility="no" />
+      <Ionicons aria-hidden name={icon} size={40} color={BORDER} importantForAccessibility="no" />
       <Text style={styles.emptyTitle}>{title}</Text>
       {sub ? <Text style={styles.sub}>{sub}</Text> : null}
       {children}
@@ -76,16 +76,26 @@ export function Banner({ tone, icon, text }: { tone: 'warning' | 'danger' | 'inf
   const bg    = tone === 'danger' ? RED_BG : tone === 'warning' ? AMBER_BG : '#F3F4F6';
   return (
     <View style={[styles.banner, { backgroundColor: bg }]} accessibilityRole="alert" accessibilityLiveRegion="polite">
-      <Ionicons name={icon} size={16} color={color} importantForAccessibility="no" />
+      <Ionicons aria-hidden name={icon} size={16} color={color} importantForAccessibility="no" />
       <Text style={[styles.bannerText, { color }]}>{text}</Text>
     </View>
   );
 }
 
-export function CountBadge({ count, color = RED, label }: { count: number; color?: string; label?: string }) {
+/**
+ * The unread count shown in a conversation row. It is decorative: the row's accessible name already ends with
+ * "N unread", and a labelled badge inside the row would make the row's visible text differ from its name.
+ * `label` is accepted so existing callers keep compiling; the row's name carries that text.
+ */
+export function CountBadge({ count, color = RED }: { count: number; color?: string; label?: string }) {
   if (count <= 0) return null;
   return (
-    <View style={[styles.badge, { backgroundColor: color }]} accessibilityLabel={label ?? `${count} unread`}>
+    <View
+      style={[styles.badge, { backgroundColor: color }]}
+      aria-hidden
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+    >
       <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
     </View>
   );
@@ -94,19 +104,22 @@ export function CountBadge({ count, color = RED, label }: { count: number; color
 export function UrgentTag() {
   return (
     <View style={styles.urgentTag}>
-      <Ionicons name="alert-circle" size={11} color={RED} importantForAccessibility="no" />
+      <Ionicons aria-hidden name="alert-circle" size={11} color={RED} importantForAccessibility="no" />
       <Text style={styles.urgentText}>Urgent{' '}</Text>
     </View>
   );
 }
 
-export function Avatar({ text, color, size = 36 }: { text: string; color: string; size?: number }) {
+/** Round badge with initials, or with `icon` for a conversation that is not about one person (support). */
+export function Avatar({ text, color, size = 36, icon }: { text: string; color: string; size?: number; icon?: IoniconsName }) {
   return (
-    <View
+    <View aria-hidden
       style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }]}
       importantForAccessibility="no-hide-descendants"
     >
-      <Text style={[styles.avatarText, { fontSize: size > 32 ? 13 : 11 }]}>{text}</Text>
+      {icon
+        ? <Ionicons aria-hidden name={icon} size={size > 32 ? 18 : 14} color={WHITE} importantForAccessibility="no" />
+        : <Text style={[styles.avatarText, { fontSize: size > 32 ? 13 : 11 }]}>{text}</Text>}
     </View>
   );
 }

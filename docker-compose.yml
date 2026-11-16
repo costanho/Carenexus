@@ -1,7 +1,13 @@
-# Local development stack: Postgres + LiveKit (dev mode) + API (Spring profile 'docker', which also loads the demo seed data).
-# Not a production deployment. Before the first `docker compose up`:
+# Local development stack: Postgres + LiveKit (dev mode) + API (Spring profile 'docker', which also loads the demo
+# seed data) + the web app (static export behind nginx).
+# Not a production deployment: the 'docker' profile is a developer profile (demo accounts, development secrets,
+# local providers) and the API refuses to start when it is combined with CARENEXUS_ENVIRONMENT=staging|production.
+# Before the first `docker compose up`:
 #   cp .env.example .env
 # (.env is git-ignored). Real environments must generate their own secrets.
+#
+#   docker compose up -d --build                     # everything; web on http://localhost:8081
+#   docker compose up -d --build postgres-db livekit carenexus-api   # backend only (CI, `npx expo start --web`)
 services:
   postgres-db:
     image: postgres:16
@@ -51,6 +57,11 @@ services:
       context: ./backend/carenexus-api
       dockerfile: Dockerfile
     container_name: carenexus-api
+    # Every variable in .env reaches the API, so the optional settings documented in .env.example work in this
+    # stack too. The `environment` entries below win over .env (the profile and the datasource stay fixed).
+    env_file:
+      - path: .env
+        required: false
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/carenexus_db
@@ -60,6 +71,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is not set - copy .env.example to .env}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-900000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081,http://localhost:19006}
+      # Links in emails and notifications point at the web app (carenexus-web below, or `npx expo start --web`).
+      CARENEXUS_WEB_BASE_URL: ${CARENEXUS_WEB_BASE_URL:-http://localhost:8081}
       # LiveKit dev defaults come from the 'docker' profile; override only when needed.
       LIVEKIT_URL: ${LIVEKIT_URL:-http://livekit:7880}
       LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-ws://localhost:7880}
@@ -69,6 +82,14 @@ services:
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       # How often lapsed caregiver grants are swept (ends their conversation memberships).
       MESSAGING_ACCESS_EXPIRY_SWEEP_MS: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:-60000}
+      # Rate limits are on by default. The browser end-to-end suites sign in and open conversations far more often
+      # than the per-IP and per-user buckets allow, so their runs set RATE_LIMIT_ENABLED=false in .env.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      # Help & Support contact and clinic name (fallbacks of the administrator's system settings; empty = not shown
+      # / the code default "CareNexus").
+      CLINIC_NAME: ${CLINIC_NAME:-}
+      SUPPORT_CONTACT_EMAIL: ${SUPPORT_CONTACT_EMAIL:-}
+      SUPPORT_CONTACT_PHONE: ${SUPPORT_CONTACT_PHONE:-}
     ports:
       - "9000:9000"
     depends_on:
@@ -83,6 +104,23 @@ services:
       retries: 5
       interval: 10s
       start_period: 40s
+
+  carenexus-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Inlined into the bundle at build time: rebuild (`--build`) after changing them.
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-http://localhost:9000}
+        EXPO_PUBLIC_SUPPORT_EMAIL: ${EXPO_PUBLIC_SUPPORT_EMAIL:-}
+    container_name: carenexus-web
+    environment:
+      # Origins the browser may connect to: the API and LiveKit as the browser sees them.
+      CSP_CONNECT_SRC: ${CSP_CONNECT_SRC:-http://localhost:9000 ws://localhost:7880}
+    # Port 8081 is also the Expo dev server's and the e2e static server's port: stop this service before
+    # `npx expo start --web` or `npm run e2e`, or run those on another port.
+    ports:
+      - "8081:8081"
 
 volumes:
   postgres-data:

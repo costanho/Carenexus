@@ -3,6 +3,19 @@ import type { PasswordStrength } from './register.types';
 /** Regex used by both the Zod schema and any standalone phone checks. */
 export const PHONE_REGEX = /^\+\d+\s\d[\d\s\-()+]{4,}$/;
 
+/** The phone format the API accepts (ValidationPatterns.PHONE): 7 to 15 digits with optional separators. */
+export const API_PHONE_REGEX = /^\+?(?:[ .()-]*\d){7,15}[ .()-]*$/;
+
+/** Length of a string in UTF-8 bytes (the unit of the password limit). */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
 /**
  * Returns the visual strength level of a password.
  * Level 0 = empty, 1 = weak, 2 = good, 3 = strong.

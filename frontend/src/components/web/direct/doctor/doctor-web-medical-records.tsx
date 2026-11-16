@@ -1,200 +1,309 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { DoctorCorrectionQueue } from '@/components/web/corrections';
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View, useWindowDimensions,
-} from 'react-native';
-import { type DoctorMedicalRecord, type RecordType, useDoctorMedicalRecords } from '@/hooks/use-doctor-medical-records';
+  ariaPressed, Banner, type BannerTone, Button, Card, colors, CONTROL_HEIGHT, fontSize, Icon, IconButton,
+  type IoniconsName, PagedList, type PagedState, radius, Screen, space, Tabs, useUiTheme,
+} from '@/components/web/ui';
+import { useOpenCorrectionCount } from '@/hooks/use-correction-requests';
+import {
+  deleteMedicalRecord, type DoctorMedicalRecord, type MedicalRecordDto, type RecordCounts, type RecordType,
+  useDoctorMedicalRecords, useDoctorRecordCounts,
+} from '@/hooks/use-doctor-medical-records';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import { apiError } from '@/lib/api/errors';
+import { ROLE_THEME, type SectionProps } from '@/lib/nav/sections';
+import { confirmAction } from '@/lib/ui/dialogs';
+import {
+  isRecordType, normaliseRecordSearch, RECORD_SEARCH_MAX, RECORD_TYPES, SYSTEM_ID_PATTERN,
+} from '@/lib/validation/medical-record';
+import { RecordCard } from './records/record-card';
+import { RecordDetailPanel } from './records/record-detail-panel';
+import { RecordForm } from './records/record-form';
+import { RECORD_TYPE_META } from './records/record-meta';
 
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const LGRAY  = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const BLUE   = '#4F46E5';
-const GREEN  = '#047857';
-const TEAL   = '#0F766E';
-const AMBER  = '#B45309';
-const RED    = '#B91C1C';
-const PURPLE = '#6D28D9';
-const NAVY   = '#1E3A5F';
+// Doctor > Medical Records. Two tabs, kept in the URL (`tab`):
+//   records      the records the doctor wrote: server-side type, patient and text filters, "Load more",
+//                new / edit / delete, and a record opened by `id` (notification and queue links)
+//   corrections  the correction requests assigned to the doctor (`id` = the request to highlight)
+// The reserved `patient` param filters both tabs to one patient and shows a removable chip.
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type TypeFilter   = 'ALL' | RecordType;
+type TabKey = 'records' | 'corrections';
+type TypeFilter = 'ALL' | RecordType;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
-function typeConfig(t: RecordType): { label: string; color: string; bg: string; border: string; icon: IoniconsName } {
-  switch (t) {
-    case 'CONSULT':      return { label: 'Consultation',  color: BLUE,   bg: '#EEF2FF', border: '#C7D2FE', icon: 'medical-outline' };
-    case 'LAB':          return { label: 'Lab Result',    color: TEAL,   bg: '#CCFBF1', border: '#99F6E4', icon: 'flask-outline'             };
-    case 'PRESCRIPTION': return { label: 'Prescription',  color: GREEN,  bg: '#D1FAE5', border: '#6EE7B7', icon: 'medkit-outline'            };
-    case 'REFERRAL':     return { label: 'Referral',      color: NAVY,   bg: '#DBEAFE', border: '#93C5FD', icon: 'git-compare-outline'       };
-    case 'NOTE':         return { label: 'Note',          color: AMBER,  bg: '#FEF3C7', border: '#FDE68A', icon: 'document-text-outline'     };
-    case 'IMAGING':      return { label: 'Imaging',       color: PURPLE, bg: '#EDE9FE', border: '#C4B5FD', icon: 'image-outline'             };
-    default:             return { label: t,               color: GRAY,   bg: '#F3F4F6', border: BORDER,    icon: 'document-outline'          };
-  }
+interface Notice { tone: BannerTone; text: string }
+
+function toPositiveInt(value: string | undefined): number | null {
+  if (!value || !/^[1-9]\d*$/.test(value.trim())) return null;
+  const n = Number(value.trim());
+  return Number.isSafeInteger(n) ? n : null;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+function useDebounced(value: string, delayMs: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
+export default function DoctorWebMedicalRecords(props: Partial<SectionProps>) {
+  const nav = useSectionNav();
+  const params = props.params ?? nav.params;
+  const navigate = props.navigate ?? nav.navigate;
+  const { setParams, hasSection } = nav;
+  const theme = props.theme ?? ROLE_THEME.doctor;
 
-const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
-function avatarColor(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
+  const tab: TabKey = params.tab === 'corrections' ? 'corrections' : 'records';
+  const patientFilter = SYSTEM_ID_PATTERN.test(params.patient ?? '') ? (params.patient as string) : null;
+  const typeParam = (params.type ?? '').trim().toUpperCase();
+  const typeFilter: TypeFilter = isRecordType(typeParam) ? typeParam : 'ALL';
+  const openRecordId = tab === 'records' ? toPositiveInt(params.id) : null;
 
-// ─── Record Card ─────────────────────────────────────────────────────────────
+  const [search, setSearch] = useState('');
+  const q = normaliseRecordSearch(useDebounced(search, SEARCH_DEBOUNCE_MS));
 
-function RecordCard({ record }: { record: DoctorMedicalRecord }) {
-  const [expanded, setExpanded] = useState(false);
-  const tc  = typeConfig(record.record_type);
-  const pac = avatarColor(record.patient_name);
-  const dac = avatarColor(record.doctor_name);
-  const hasExtra = !!(record.treatment_plan || record.observations || record.icd_codes.length > 0);
+  const list = useDoctorMedicalRecords({
+    type:            typeFilter === 'ALL' ? null : typeFilter,
+    patientSystemId: patientFilter,
+    q,
+    pageSize:        PAGE_SIZE,
+    enabled:         tab === 'records',
+  });
+  const counts = useDoctorRecordCounts(patientFilter, tab === 'records');
+  const openCorrections = useOpenCorrectionCount();
+
+  const [form, setForm] = useState<{ record: DoctorMedicalRecord | null; key: number } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deleting = useRef(false);
+  const formSeq = useRef(0);
+
+  const { refetch: refetchList, doctorSystemId, patientNames, patientNameOf } = list;
+  const refetchCounts = counts.refetch;
+  const refresh = useCallback(() => { refetchList(); refetchCounts(); }, [refetchList, refetchCounts]);
+
+  const openForm = (record: DoctorMedicalRecord | null) => {
+    setNotice(null);
+    formSeq.current += 1;
+    setForm({ record, key: formSeq.current });
+  };
+
+  const closeDetail = useCallback(() => setParams({ id: undefined }), [setParams]);
+
+  const onSaved = (saved: MedicalRecordDto, created: boolean) => {
+    setForm(null);
+    setNotice({
+      tone: 'success',
+      text: created ? `Record filed for ${patientNameOf(saved.patientSystemId)}.` : 'Record updated.',
+    });
+    refresh();
+  };
+
+  const remove = async (record: DoctorMedicalRecord) => {
+    if (deleting.current) return;
+    const confirmed = await confirmAction(
+      'Delete this record?',
+      `"${record.title}" will be removed from the medical records of ${record.patient_name}. This cannot be undone.`,
+      'Delete',
+      true,
+    );
+    if (!confirmed || deleting.current) return;
+    deleting.current = true;
+    setDeletingId(record.record_id);
+    setNotice(null);
+    try {
+      await deleteMedicalRecord(record.record_id);
+      setNotice({ tone: 'success', text: 'Record deleted.' });
+    } catch (e) {
+      const failure = apiError(e, 'The record could not be deleted.');
+      // 404: someone (or an earlier click) already deleted it; the list just needs a refresh.
+      if (failure.status !== 404) {
+        setNotice({ tone: 'danger', text: failure.message });
+        return;
+      }
+      setNotice({ tone: 'info', text: 'This record had already been deleted.' });
+    } finally {
+      deleting.current = false;
+      setDeletingId(null);
+    }
+    if (openRecordId === record.record_id) closeDetail();
+    refresh();
+  };
+
+  const openConsultation = hasSection('consultations')
+    ? (record: DoctorMedicalRecord) => {
+        if (record.consultation_id) navigate('consultations', { id: record.consultation_id, patient: record.patient_system_id });
+      }
+    : undefined;
+
+  const state = useMemo<PagedState<DoctorMedicalRecord>>(() => ({
+    items:       list.records,
+    loading:     list.loading,
+    loadingMore: list.loadingMore,
+    refreshing:  list.refreshing,
+    error:       list.error,
+    errorStatus: list.errorStatus,
+    hasMore:     list.hasMore,
+    total:       list.total,
+    loadMore:    list.loadMore,
+    refetch:     refresh,
+    // Rows are replaced by reloading after a change, never patched in place.
+    setItems:    () => undefined,
+  }), [list.records, list.loading, list.loadingMore, list.refreshing, list.error, list.errorStatus, list.hasMore, list.total, list.loadMore, refresh]);
+
+  const filtered = typeFilter !== 'ALL' || !!q || !!patientFilter;
 
   return (
-    <View style={[styles.card, { borderLeftColor: tc.color }]}>
-      {/* Card header */}
-      <View style={styles.cardHeader}>
-        {/* Type badge */}
-        <View style={[styles.typeBadge, { backgroundColor: tc.bg, borderColor: tc.border }]}>
-          <Ionicons name={tc.icon} size={12} color={tc.color} />
-          <Text style={[styles.typeBadgeText, { color: tc.color }]}>{tc.label}</Text>
-        </View>
-
-        {/* Date + time */}
-        <View style={styles.dateRow}>
-          <Ionicons name="calendar-outline" size={12} color={LGRAY} />
-          <Text style={styles.dateText}>{formatDate(record.created_at)}</Text>
-          <Text style={styles.dateText}>·</Text>
-          <Ionicons name="time-outline" size={12} color={LGRAY} />
-          <Text style={styles.dateText}>{formatTime(record.created_at)}</Text>
-        </View>
-      </View>
-
-      {/* Title */}
-      <Text style={styles.cardTitle}>{record.title}</Text>
-
-      {/* Patient + doctor row */}
-      <View style={styles.personRow}>
-        {/* Patient */}
-        <View style={styles.personChip}>
-          <View style={[styles.miniAvatar, { backgroundColor: pac }]}>
-            <Text style={styles.miniAvatarText}>{initials(record.patient_name)}</Text>
-          </View>
-          <View>
-            <Text style={styles.personRole}>Patient</Text>
-            <Text style={styles.personName}>{record.patient_name}</Text>
-          </View>
-        </View>
-
-        <View style={styles.personDivider} />
-
-        {/* Doctor */}
-        <View style={styles.personChip}>
-          <View style={[styles.miniAvatar, { backgroundColor: dac }]}>
-            <Text style={styles.miniAvatarText}>{initials(record.doctor_name)}</Text>
-          </View>
-          <View>
-            <Text style={styles.personRole}>Author</Text>
-            <Text style={styles.personName}>{record.doctor_name}</Text>
-          </View>
-        </View>
-
-        {record.doctor_specialization && (
-          <View style={[styles.specBadge]}>
-            <Text style={styles.specText}>{record.doctor_specialization}</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Description */}
-      {!!record.description && (
-        <View style={styles.descBox}>
-          <Text style={styles.descText} numberOfLines={expanded ? undefined : 3}>
-            {record.description}
-          </Text>
-        </View>
-      )}
-
-      {/* Expanded content */}
-      {expanded && (
+    <Screen
+      title="Medical Records"
+      subtitle="All records for patients associated with you"
+      theme={theme}
+      actions={tab === 'records' ? (
         <>
-          {!!record.treatment_plan && (
-            <View style={[styles.expandSection, { borderLeftColor: GREEN }]}>
-              <View style={styles.expandLabelRow}>
-                <Ionicons name="clipboard-outline" size={13} color={GREEN} />
-                <Text style={[styles.expandLabel, { color: GREEN }]}>Treatment Plan</Text>
-              </View>
-              <Text style={styles.expandText}>{record.treatment_plan}</Text>
-            </View>
-          )}
+          <Button label="Refresh" icon="refresh-outline" variant="secondary" onPress={refresh} loading={list.refreshing} />
+          <Button label="New record" icon="add" onPress={() => openForm(null)} disabled={!doctorSystemId} />
+        </>
+      ) : undefined}
+    >
+      <Tabs<TabKey>
+        label="Medical records views"
+        tabs={[
+          { key: 'records', label: 'Records' },
+          { key: 'corrections', label: 'Correction requests', badge: openCorrections.count ?? undefined },
+        ]}
+        active={tab}
+        onChange={key => { setNotice(null); setParams({ tab: key === 'corrections' ? 'corrections' : undefined, id: undefined }); }}
+      />
 
-          {!!record.observations && (
-            <View style={[styles.expandSection, { borderLeftColor: BLUE }]}>
-              <View style={styles.expandLabelRow}>
-                <Ionicons name="eye-outline" size={13} color={BLUE} />
-                <Text style={[styles.expandLabel, { color: BLUE }]}>Observations</Text>
-              </View>
-              <Text style={styles.expandText}>{record.observations}</Text>
-            </View>
-          )}
+      {patientFilter ? (
+        <PatientChip name={patientNameOf(patientFilter)} onRemove={() => setParams({ patient: undefined })} />
+      ) : null}
 
-          {record.icd_codes.length > 0 && (
-            <View style={styles.icdSection}>
-              <View style={styles.expandLabelRow}>
-                <Ionicons name="code-slash-outline" size={13} color={PURPLE} />
-                <Text style={[styles.expandLabel, { color: PURPLE }]}>ICD Codes</Text>
+      {notice ? <Banner tone={notice.tone} text={notice.text} onDismiss={() => setNotice(null)} /> : null}
+
+      {tab === 'corrections' ? (
+        <DoctorCorrectionQueue
+          highlightId={params.id}
+          patientSystemId={patientFilter}
+          patientName={patientFilter ? patientNameOf(patientFilter) : null}
+        />
+      ) : (
+        <>
+          {list.patientNamesError && !list.loading ? (
+            <Banner tone="warning" text="Patient names could not be loaded, so records show the patient ID." action={{ label: 'Retry', onPress: refetchList }} />
+          ) : null}
+          <PagedList
+            state={state}
+            label="Medical records"
+            keyOf={r => r.record_id}
+            header={(
+              <View style={styles.listHeader}>
+                {counts.counts ? <RecordStats counts={counts.counts} /> : null}
+                <RecordFilters
+                  type={typeFilter}
+                  onType={next => setParams({ type: next === 'ALL' ? undefined : next })}
+                  search={search}
+                  onSearch={setSearch}
+                />
               </View>
-              <View style={styles.icdRow}>
-                {record.icd_codes.map((c, i) => (
-                  <View key={i} style={styles.icdChip}>
-                    <Text style={styles.icdCode}>{c.code}</Text>
-                    <Text style={styles.icdDesc}>{c.description}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
+            )}
+            empty={filtered
+              ? { icon: 'search-outline', title: 'No records match', sub: 'Change the type, the search or the patient filter to see more records.' }
+              : {
+                  icon: 'folder-open-outline', title: 'No medical records yet',
+                  sub: 'Records you file, and the ones created when you complete a consultation, appear here.',
+                  action: { label: 'New record', icon: 'add', onPress: () => openForm(null) },
+                }}
+            renderItem={record => (
+              <RecordCard
+                record={record}
+                canEdit={!!doctorSystemId && record.doctor_system_id === doctorSystemId}
+                onEdit={openForm}
+                onDelete={r => { void remove(r); }}
+                deleting={deletingId === record.record_id}
+                onOpenConsultation={openConsultation}
+              />
+            )}
+          />
         </>
       )}
 
-      {/* Footer */}
-      {hasExtra && (
-        <TouchableOpacity
-          style={styles.expandBtn}
-          onPress={() => setExpanded(e => !e)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.expandBtnText}>{expanded ? 'Show less' : 'View full record'}</Text>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={BLUE} />
-        </TouchableOpacity>
-      )}
+      {openRecordId !== null && !form ? (
+        <RecordDetailPanel
+          key={openRecordId}
+          recordId={openRecordId}
+          doctorSystemId={doctorSystemId}
+          patientNames={patientNames}
+          onClose={closeDetail}
+          onEdit={record => { closeDetail(); openForm(record); }}
+          onDelete={r => { void remove(r); }}
+          deleting={deletingId === openRecordId}
+          onOpenConsultation={openConsultation}
+        />
+      ) : null}
+
+      {form ? (
+        <RecordForm
+          key={form.key}
+          record={form.record}
+          initialPatientSystemId={patientFilter}
+          onClose={() => setForm(null)}
+          onSaved={onSaved}
+          onMissing={() => {
+            setForm(null);
+            setNotice({ tone: 'info', text: 'This record no longer exists. It may have been deleted.' });
+            refresh();
+          }}
+        />
+      ) : null}
+    </Screen>
+  );
+}
+
+// ─── Patient filter chip ─────────────────────────────────────────────────────
+
+function PatientChip({ name, onRemove }: { name: string; onRemove: () => void }) {
+  const { accent, accentBg } = useUiTheme();
+  return (
+    <View style={styles.chipRow}>
+      <View style={[styles.chip, { backgroundColor: accentBg, borderColor: accent }]}>
+        <Icon name="person-outline" size={14} color={accent} />
+        <Text style={styles.chipText}>{`Patient: ${name}`}</Text>
+        <IconButton label={`Remove the patient filter (${name})`} icon="close" size="sm" onPress={onRemove} />
+      </View>
     </View>
   );
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+// ─── Counts ──────────────────────────────────────────────────────────────────
 
-function StatCard({ icon, iconBg, iconColor, label, value }: {
-  icon: IoniconsName; iconBg: string; iconColor: string; label: string; value: number;
-}) {
+/** Types that always get a tile; the others appear once the doctor has a record of that type. */
+const ALWAYS_COUNTED: readonly RecordType[] = ['CONSULT', 'LAB', 'PRESCRIPTION', 'REFERRAL', 'NOTE'];
+
+/** How many records the doctor has written, in total and per type (for the filtered patient when one is set). */
+function RecordStats({ counts }: { counts: RecordCounts }) {
+  const types = RECORD_TYPES.filter(t => ALWAYS_COUNTED.includes(t) || counts[t] > 0);
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
+    <View style={styles.stats} role="group" aria-label="Number of records">
+      <StatTile label="Total" value={counts.ALL} icon="folder-open-outline" fg={colors.text} bg={colors.bgSubtle} />
+      {types.map(t => {
+        const meta = RECORD_TYPE_META[t];
+        return <StatTile key={t} label={meta.plural} value={counts[t]} icon={meta.icon} fg={meta.fg} bg={meta.bg} />;
+      })}
+    </View>
+  );
+}
+
+function StatTile({ label, value, icon, fg, bg }: { label: string; value: number; icon: IoniconsName; fg: string; bg: string }) {
+  return (
+    <View style={styles.stat}>
+      <View style={[styles.statIcon, { backgroundColor: bg }]}>
+        <Icon name={icon} size={16} color={fg} />
       </View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
@@ -202,242 +311,93 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Type and text filters ───────────────────────────────────────────────────
 
-const TYPE_FILTERS: { key: TypeFilter; label: string; color: string }[] = [
-  { key: 'ALL',          label: 'All',          color: BLUE   },
-  { key: 'CONSULT',      label: 'Consultations', color: BLUE   },
-  { key: 'LAB',          label: 'Lab Results',  color: TEAL   },
-  { key: 'PRESCRIPTION', label: 'Prescriptions', color: GREEN  },
-  { key: 'REFERRAL',     label: 'Referrals',    color: NAVY   },
-  { key: 'NOTE',         label: 'Notes',        color: AMBER  },
-  { key: 'IMAGING',      label: 'Imaging',      color: PURPLE },
-];
-
-export default function DoctorWebMedicalRecords() {
-  const { records, loading, error, refetch } = useDoctorMedicalRecords();
-  const { width } = useWindowDimensions();
-  const twoCol = width >= 1200;
-
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
-  const [search,     setSearch]     = useState('');
-
-  const stats = useMemo(() => ({
-    total:        records.length,
-    consults:     records.filter(r => r.record_type === 'CONSULT').length,
-    labs:         records.filter(r => r.record_type === 'LAB').length,
-    prescriptions:records.filter(r => r.record_type === 'PRESCRIPTION').length,
-    referrals:    records.filter(r => r.record_type === 'REFERRAL').length,
-    notes:        records.filter(r => r.record_type === 'NOTE').length,
-  }), [records]);
-
-  const filtered = useMemo(() => (
-    records
-      .filter(r => typeFilter === 'ALL' || r.record_type === typeFilter)
-      .filter(r => !search
-        || r.title.toLowerCase().includes(search.toLowerCase())
-        || r.patient_name.toLowerCase().includes(search.toLowerCase())
-        || r.doctor_name.toLowerCase().includes(search.toLowerCase())
-        || r.icd_codes.some(c => c.code.toLowerCase().includes(search.toLowerCase()) || c.description.toLowerCase().includes(search.toLowerCase()))
-      )
-  ), [records, typeFilter, search]);
-
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
-
-  if (error) return (
-    <View style={styles.center}>
-      <Ionicons name="alert-circle-outline" size={52} color={RED} />
-      <Text style={styles.errorText}>{error}</Text>
-      <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-        <Text style={styles.retryBtnText}>Retry</Text>
-      </TouchableOpacity>
-    </View>
-  );
+function RecordFilters({ type, onType, search, onSearch }: {
+  type:     TypeFilter;
+  onType:   (type: TypeFilter) => void;
+  search:   string;
+  onSearch: (text: string) => void;
+}) {
+  const { accent, accentBg } = useUiTheme();
+  const [focused, setFocused] = useState(false);
+  const options: { key: TypeFilter; label: string }[] = [
+    { key: 'ALL', label: 'All' },
+    ...RECORD_TYPES.map(t => ({ key: t as TypeFilter, label: RECORD_TYPE_META[t].plural })),
+  ];
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-
-      {/* Page header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">Medical Records</Text>
-          <Text style={styles.pageSub}>All records for patients associated with you</Text>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
-          <Ionicons name="refresh-outline" size={16} color={BLUE} />
-          <Text style={styles.refreshText}>Refresh</Text>
-        </TouchableOpacity>
+    <Card style={styles.filters}>
+      <View style={styles.pills} role="group" aria-label="Record type">
+        {options.map(option => {
+          const selected = option.key === type;
+          return (
+            <Pressable
+              key={option.key}
+              accessibilityRole="button"
+              accessibilityLabel={option.label}
+              {...ariaPressed(selected)}
+              onPress={() => { if (!selected) onType(option.key); }}
+              style={[styles.pill, selected && { backgroundColor: accentBg, borderColor: accent }]}
+            >
+              <Text style={[styles.pillText, selected && { color: accent, fontWeight: '700' }]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <StatCard icon="folder-open-outline"   iconBg="#EEF2FF" iconColor={BLUE}   label="Total"         value={stats.total}         />
-        <StatCard icon="pulse-outline"            iconBg="#EEF2FF" iconColor={BLUE}   label="Consultations" value={stats.consults}      />
-        <StatCard icon="flask-outline"          iconBg="#CCFBF1" iconColor={TEAL}   label="Lab Results"   value={stats.labs}          />
-        <StatCard icon="medkit-outline"         iconBg="#D1FAE5" iconColor={GREEN}  label="Prescriptions" value={stats.prescriptions} />
-        <StatCard icon="git-compare-outline"    iconBg="#DBEAFE" iconColor={NAVY}   label="Referrals"     value={stats.referrals}     />
-        <StatCard icon="document-text-outline"  iconBg="#FEF3C7" iconColor={AMBER}  label="Notes"         value={stats.notes}         />
+      <View style={[styles.searchBox, focused && { borderColor: accent }]}>
+        <Icon name="search-outline" size={16} color={colors.placeholder} />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={onSearch}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          maxLength={RECORD_SEARCH_MAX}
+          placeholder="Search by title or ICD-10 code"
+          placeholderTextColor={colors.placeholder}
+          // Starts with the words shown in the box (its placeholder), then names what is searched.
+          accessibilityLabel="Search by title or ICD-10 code, medical records"
+          inputMode="search"
+        />
+        {search ? <IconButton label="Clear search" icon="close-circle" size="sm" onPress={() => onSearch('')} /> : null}
       </View>
-
-      {/* Filters */}
-      <View style={styles.filterCard}>
-        <View style={styles.filterRow}>
-          <View style={styles.pillGroup}>
-            {TYPE_FILTERS.map(f => (
-              <TouchableOpacity
-                key={f.key}
-                style={[styles.pill, typeFilter === f.key && { backgroundColor: f.color + '18', borderColor: f.color }]}
-                onPress={() => setTypeFilter(f.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pillText, typeFilter === f.key && { color: f.color, fontWeight: '700' }]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={15} color={LGRAY} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by title, patient, ICD code…"
-              placeholderTextColor={LGRAY}
-              value={search}
-              onChangeText={setSearch}
-            />
-            {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
-                <Ionicons name="close-circle" size={15} color={LGRAY} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </View>
-
-      {/* Result count */}
-      <Text style={styles.resultCount}>{filtered.length} record{filtered.length !== 1 ? 's' : ''}</Text>
-
-      {/* Records grid / list */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="folder-open-outline" size={60} color={BORDER} />
-          <Text style={styles.emptyTitle}>No records found</Text>
-          <Text style={styles.emptySub}>Try adjusting your filters or search</Text>
-        </View>
-      ) : twoCol ? (
-        <View style={styles.grid}>
-          <View style={styles.col}>
-            {filtered.filter((_, i) => i % 2 === 0).map(r => <RecordCard key={r.record_id} record={r} />)}
-          </View>
-          <View style={styles.col}>
-            {filtered.filter((_, i) => i % 2 === 1).map(r => <RecordCard key={r.record_id} record={r} />)}
-          </View>
-        </View>
-      ) : (
-        <View style={{ gap: 14 }}>
-          {filtered.map(r => <RecordCard key={r.record_id} record={r} />)}
-        </View>
-      )}
-    </ScrollView>
+    </Card>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  scroll:    { flex: 1, backgroundColor: BG },
-  container: { padding: 24, paddingBottom: 48 },
-  center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
-  pageSub:     { fontSize: 14, color: GRAY },
-  refreshBtn:  {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: WHITE,
+  chipRow:  { flexDirection: 'row', flexWrap: 'wrap' },
+  chip: {
+    flexDirection: 'row', alignItems: 'center', gap: space.xs, maxWidth: '100%',
+    paddingLeft: space.md, paddingRight: 2, paddingVertical: 2, borderWidth: 1, borderRadius: radius.pill,
   },
-  refreshText: { fontSize: 13, color: BLUE, fontWeight: '500' },
+  chipText: { flexShrink: 1, fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
 
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
-  statCard: {
-    flex: 1, minWidth: 90,
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 12, padding: 14, gap: 5, alignItems: 'flex-start',
+  listHeader: { gap: space.md, minWidth: 0 },
+  stats:      { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  stat: {
+    flexGrow: 1, flexShrink: 1, flexBasis: 100, minWidth: 100, gap: 2, padding: space.md,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface,
   },
-  statIconBg: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  statValue:  { fontSize: 24, fontWeight: '700', color: TEXT },
-  statLabel:  { fontSize: 11, color: GRAY },
+  statIcon:  { width: 28, height: 28, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  statValue: { fontSize: fontSize.title, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.xs, color: colors.textMuted },
 
-  filterCard: { backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 16, marginBottom: 16 },
-  filterRow:  { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
-  pillGroup:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  pill:       { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: WHITE },
-  pillText:   { fontSize: 13, color: GRAY, fontWeight: '500' },
-  searchBox:  {
-    flex: 1, minWidth: 220,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: BG,
+  filters: { gap: space.md },
+  pills:   { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  pill: {
+    minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: space.xs,
+    paddingHorizontal: space.md, paddingVertical: space.xs,
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.pill, backgroundColor: colors.surface,
   },
-  searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
+  pillText:  { fontSize: fontSize.sm, fontWeight: '500', color: colors.textMuted },
 
-  resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 16 },
-
-  grid: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
-  col:  { flex: 1, gap: 14 },
-
-  // Card
-  card: {
-    backgroundColor: WHITE, borderWidth: 1, borderColor: BORDER,
-    borderRadius: 16, borderLeftWidth: 4, overflow: 'hidden',
-    padding: 18, gap: 12,
+  searchBox: {
+    minHeight: CONTROL_HEIGHT, flexDirection: 'row', alignItems: 'center', gap: space.sm,
+    paddingLeft: space.md, paddingRight: space.xs,
+    borderWidth: 1, borderColor: colors.borderInput, borderRadius: radius.md, backgroundColor: colors.surface,
   },
-  cardHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  typeBadge:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
-  typeBadgeText: { fontSize: 11, fontWeight: '700' },
-  dateRow:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dateText:    { fontSize: 11, color: LGRAY },
-  cardTitle:   { fontSize: 15, fontWeight: '700', color: TEXT, lineHeight: 22 },
-
-  personRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
-  personChip:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  personDivider: { width: 1, height: 28, backgroundColor: BORDER },
-  miniAvatar:    { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  miniAvatarText:{ color: WHITE, fontSize: 10, fontWeight: '700' },
-  personRole:    { fontSize: 10, color: LGRAY, textTransform: 'uppercase', letterSpacing: 0.5 },
-  personName:    { fontSize: 12, fontWeight: '600', color: TEXT },
-  specBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: BORDER },
-  specText:      { fontSize: 11, color: GRAY },
-
-  descBox:  { backgroundColor: BG, borderRadius: 8, padding: 12, borderWidth: 1, borderColor: BORDER },
-  descText: { fontSize: 13, color: GRAY, lineHeight: 20 },
-
-  expandSection: { borderLeftWidth: 3, paddingLeft: 12, gap: 6 },
-  expandLabelRow:{ flexDirection: 'row', alignItems: 'center', gap: 5 },
-  expandLabel:   { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  expandText:    { fontSize: 13, color: GRAY, lineHeight: 20 },
-
-  icdSection: { gap: 8 },
-  icdRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  icdChip:    {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#EDE9FE', borderWidth: 1, borderColor: '#C4B5FD',
-    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
-  },
-  icdCode:    { fontSize: 11, fontWeight: '700', color: PURPLE },
-  icdDesc:    { fontSize: 11, color: GRAY },
-
-  expandBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', paddingTop: 4 },
-  expandBtnText: { fontSize: 13, color: BLUE, fontWeight: '500' },
-
-  emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },
-  emptySub:   { fontSize: 14, color: GRAY },
-
-  errorText:    { fontSize: 15, color: GRAY, textAlign: 'center' },
-  retryBtn:     { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryBtnText: { color: WHITE, fontWeight: '600', fontSize: 14 },
+  searchInput: { flex: 1, minWidth: 0, minHeight: CONTROL_HEIGHT - 2, fontSize: fontSize.md, color: colors.text },
 });

@@ -1,9 +1,16 @@
-import { useEffect, useState } from 'react';
-import { api } from '@/lib/auth/auth.interceptor';
-import { getUser } from '@/lib/auth/auth.storage';
+import { useMemo } from 'react';
+import {
+  parseProfileList, useMyProfile,
+  type UpdateUserProfile, type UserProfile,
+} from './use-my-profile';
+
+// The signed-in patient's profile in the snake_case view model the dashboard and native screens read.
+// It is the same GET /api/profile as `useMyProfile`; the web profile screen edits through `updateProfile`.
 
 export interface PatientProfile {
   user_id:             number;
+  /** The account's system id (PAT-…). */
+  system_id:           string;
   first_name:          string;
   last_name:           string;
   email:               string;
@@ -30,54 +37,42 @@ interface State {
   loading:  boolean;
   error:    string | null;
   refetch:  () => void;
+  /** The profile exactly as the API returns it (camelCase), for the edit forms. */
+  raw:      UserProfile | null;
+  /** True while `refetch` reloads a profile that is already on screen. */
+  refreshing: boolean;
+  /** PUT /api/profile with the changed fields only; resolves with the saved profile, rejects with the request error. */
+  updateProfile: (changes: UpdateUserProfile) => Promise<UserProfile>;
 }
 
-function parseStringArray(raw: any): string[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  try { return JSON.parse(raw); } catch { return []; }
+export function toPatientProfile(p: UserProfile): PatientProfile {
+  return {
+    user_id:            p.userId,
+    system_id:          p.systemId,
+    first_name:         p.firstName,
+    last_name:          p.lastName,
+    email:              p.email ?? '',
+    phone:              p.phone,
+    role:               p.role,
+    is_active:          p.isActive ? 1 : 0,
+    avatar_url:         null,
+    user_created_at:    p.createdAt,
+    user_updated_at:    p.updatedAt,
+    patient_id:         null,
+    // A patient's public identifier is the account's own system id.
+    patient_system_id:  p.patientSystemId ?? (p.role === 'PATIENT' && p.systemId ? p.systemId : null),
+    date_of_birth:      p.dateOfBirth,
+    gender:             p.gender,
+    blood_type:         p.bloodType,
+    allergies:          parseProfileList(p.allergies),
+    chronic_conditions: parseProfileList(p.chronicConditions),
+    health_status:      p.healthStatus,
+    patient_created_at: p.createdAt || null,
+  };
 }
 
 export function usePatientProfile(): State {
-  const [profile,  setProfile]  = useState<PatientProfile | null>(null);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [tick,     setTick]     = useState(0);
-
-  useEffect(() => {
-    setLoading(true);
-
-    // The signed-in user's system id (PAT-…) is the patient's public identifier; it fills in
-    // when the profile response leaves patientSystemId out.
-    Promise.all([api.get<any>('/api/profile'), getUser().catch(() => null)])
-      .then(([{ data: d }, stored]) => {
-        const ownSystemId = String(stored?.role ?? '').toLowerCase() === 'patient' ? stored?.system_id ?? null : null;
-        setProfile({
-          user_id:            d.userId            ?? 0,
-          first_name:         d.firstName         ?? '',
-          last_name:          d.lastName          ?? '',
-          email:              d.email             ?? '',
-          phone:              d.phone             ?? null,
-          role:               d.role              ?? '',
-          is_active:          d.isActive          ? 1 : 0,
-          avatar_url:         null,
-          user_created_at:    d.createdAt         ? String(d.createdAt) : '',
-          user_updated_at:    d.updatedAt         ? String(d.updatedAt) : '',
-          patient_id:         null,
-          patient_system_id:  d.patientSystemId   ?? ownSystemId,
-          date_of_birth:      d.dateOfBirth       ? String(d.dateOfBirth) : null,
-          gender:             (d.gender           ?? null) as PatientProfile['gender'],
-          blood_type:         d.bloodType         ?? null,
-          allergies:          parseStringArray(d.allergies),
-          chronic_conditions: parseStringArray(d.chronicConditions),
-          health_status:      (d.healthStatus     ?? null) as PatientProfile['health_status'],
-          patient_created_at: d.createdAt         ? String(d.createdAt) : null,
-        });
-        setError(null);
-      })
-      .catch(() => setError('Failed to load profile.'))
-      .finally(() => setLoading(false));
-  }, [tick]);
-
-  return { profile, loading, error, refetch: () => setTick(t => t + 1) };
+  const { profile: raw, loading, refreshing, error, refetch, updateProfile } = useMyProfile();
+  const profile = useMemo(() => (raw ? toPatientProfile(raw) : null), [raw]);
+  return { profile, loading, error, refetch, raw, refreshing, updateProfile };
 }

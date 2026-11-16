@@ -1,6 +1,6 @@
 import { type Browser, type BrowserContext, type BrowserContextOptions, expect, type Locator, type Page, type Response } from '@playwright/test';
-import { API_URL, type DemoUser, ROLE_HOME } from './env';
-import { escapeRe, login } from './ui';
+import { API_URL, type DemoUser, type LoginRole, ROLE_HOME } from './env';
+import { escapeRe, login, mediaPermissions, sectionMain, sectionUrl, type SectionParamsInput, urlShowsSection } from './ui';
 
 // Shared helpers for the smoke suite (smoke-*.spec.ts): a page monitor that fails on page errors,
 // console errors and unexpected API statuses, the per-role section inventory, and small UI helpers.
@@ -75,7 +75,7 @@ export interface MonitoredPage { context: BrowserContext; page: Page; monitor: P
 
 /** New context + page with a monitor attached before anything loads, then signs in through the UI. */
 export async function signedInPage(browser: Browser, user: DemoUser, options: BrowserContextOptions = {}): Promise<MonitoredPage> {
-  const context = await browser.newContext({ permissions: ['camera', 'microphone'], ...options });
+  const context = await browser.newContext({ permissions: mediaPermissions(browser), ...options });
   const page = await context.newPage();
   page.on('dialog', d => { d.accept().catch(() => {}); });
   const monitor = new PageMonitor(page, user.role);
@@ -115,63 +115,162 @@ export async function expectNoArtifacts(page: Page, where: string): Promise<void
 // ── Navigation ──────────────────────────────────────────────────────────────
 
 export interface Section {
-  /** Sidebar button label (accessible name, without an unread suffix). */
+  /** Sidebar button label (accessible name, without an unread or count suffix). */
   nav:     string;
   /** Text that only shows when this section is open (its title or subtitle). */
   marker:  string | RegExp;
   /** The visible section title, which should be exposed as a heading. */
   title:   string;
+  /** Registry key (`?section=<key>`, CONTRACTS 12.1); the main landmark is named after `nav`. */
+  key?:    string;
 }
 
+// The section lists follow the registries in src/components/web/sections/<role>.sections.tsx, in sidebar order.
+// `marker` is the screen's subtitle (or another text only that screen shows), `title` its page heading.
+
+/** Shared texts: the full notification list shows the "All types" filter (the bell panel does not). */
+const NOTIFICATIONS_MARKER = 'All types';
+const SETTINGS_MARKER = 'Choose what you are notified about and how. Changes are saved as soon as you make them.';
+const HELP_MARKER = 'How to use CareNexus and where to get help';
+
 export const PATIENT_SECTIONS: Section[] = [
-  { nav: 'Dashboard',               marker: 'Health Overview',                                   title: 'Health Overview' },
-  { nav: 'Book Appointment',        marker: 'Schedule a visit with your healthcare provider',    title: 'Book Appointment' },
-  { nav: 'My Appointments',         marker: 'Track and manage all your healthcare appointments', title: 'My Appointments' },
+  { key: 'dashboard',            nav: 'Dashboard',               marker: 'Health Overview',                                   title: 'Health Overview' },
+  { key: 'book-appointment',     nav: 'Book Appointment',        marker: 'Schedule a visit with your healthcare provider',    title: 'Book Appointment' },
+  { key: 'my-appointments',      nav: 'My Appointments',         marker: 'Track and manage all your healthcare appointments', title: 'My Appointments' },
   // "Join Consultation" opens My Appointments by design (calls are joined from the list).
-  { nav: 'Join Consultation',       marker: 'Track and manage all your healthcare appointments', title: 'My Appointments' },
-  { nav: 'Consultation History',    marker: 'Your complete clinical record',                     title: 'Consultation History' },
-  { nav: 'Medical Records',         marker: 'Your complete health record',                       title: 'Medical Records' },
-  { nav: 'Prescriptions',           marker: 'Your medication history',                           title: 'Prescriptions' },
-  { nav: 'Lab Results',             marker: 'Your laboratory test history',                      title: 'Lab Results' },
-  { nav: 'Imaging Results',         marker: 'Your radiology and imaging history',                title: 'Imaging Results' },
-  { nav: 'My Proxies (Caregivers)', marker: /Caregivers can message your care team/,             title: 'My caregivers' },
-  { nav: 'Messages',                marker: 'Message your doctors and care team.',               title: 'Messages' },
-  { nav: 'Notifications',           marker: /^(New message|Urgent message|No notifications)/,    title: 'Notifications' },
-  { nav: 'Profile & Settings',      marker: 'Your personal and health information',              title: 'Profile & Settings' },
+  { key: 'join-consultation',    nav: 'Join Consultation',       marker: 'Track and manage all your healthcare appointments', title: 'My Appointments' },
+  { key: 'consultation-history', nav: 'Consultation History',    marker: 'Your complete clinical record',                     title: 'Consultation History' },
+  { key: 'prescriptions',        nav: 'Prescriptions',           marker: 'Your medication history',                           title: 'Prescriptions' },
+  { key: 'health-tracking',      nav: 'Vitals & Symptoms',       marker: 'Record your readings and symptoms, and see how they change over time.', title: 'Vitals & Symptoms' },
+  { key: 'care-plans',           nav: 'Care Plans',              marker: 'The goals and next steps your care team has set out with you', title: 'Care Plans' },
+  { key: 'health-alerts',        nav: 'Health Alerts',           marker: 'Reminders from automated screening and results your doctor has confirmed', title: 'Health alerts' },
+  { key: 'medical-records',      nav: 'Medical Records',         marker: 'Your complete health record',                       title: 'Medical Records' },
+  { key: 'lab-results',          nav: 'Lab Results',             marker: 'Your laboratory test history',                      title: 'Lab Results' },
+  { key: 'imaging-results',      nav: 'Imaging Results',         marker: 'Your radiology and imaging history',                title: 'Imaging Results' },
+  { key: 'documents',            nav: 'Documents',               marker: 'Files in your health record: reports, letters, consent forms and insurance papers.', title: 'Documents' },
+  { key: 'referrals',            nav: 'Referrals',               marker: 'Referrals your doctors have made to specialists, and how each one is progressing.', title: 'Referrals' },
+  { key: 'care-team',            nav: 'My Care Team',            marker: /The doctors and other providers looking after you/, title: 'My Care Team' },
+  { key: 'my-proxies',           nav: 'My Proxies (Caregivers)', marker: /Caregivers can message your care team/,             title: 'My caregivers' },
+  { key: 'messages',             nav: 'Messages',                marker: 'Message your doctors and care team.',               title: 'Messages' },
+  { key: 'notifications',        nav: 'Notifications',           marker: NOTIFICATIONS_MARKER,                                title: 'Notifications' },
+  { key: 'billing',              nav: 'Billing & Payments',      marker: 'Your invoices, payments, insurance claims and saved payment methods', title: 'Billing & Payments' },
+  { key: 'profile-settings',     nav: 'Profile & Settings',      marker: 'Your personal and health information',              title: 'Profile & Settings' },
+  { key: 'settings',             nav: 'Settings',                marker: SETTINGS_MARKER,                                     title: 'Settings' },
+  { key: 'help-support',         nav: 'Help & Support',          marker: HELP_MARKER,                                         title: 'Help & Support' },
 ];
-export const PATIENT_COMING_SOON = ['Referrals'];
+/** Kept for the specs that import it: no patient section is "coming soon" any more. */
+export const PATIENT_COMING_SOON: string[] = [];
 
 export const DOCTOR_SECTIONS: Section[] = [
-  { nav: 'Dashboard',       marker: "Here's your practice at a glance.",                  title: "Today's Schedule" },
-  { nav: 'Schedule',        marker: 'Manage your appointments and consultations',         title: 'My Schedule' },
-  { nav: 'Consultations',   marker: 'Your full consultation history and active sessions', title: 'Consultations' },
-  { nav: 'Appointments',    marker: 'Complete appointment history for your patients',     title: 'Appointments' },
-  { nav: 'Patients',        marker: 'Patients who have had appointments with you',        title: 'My Patients' },
-  { nav: 'Medical Records', marker: 'All records for patients associated with you',       title: 'Medical Records' },
-  { nav: 'Prescriptions',   marker: 'Medication prescriptions for all your patients',     title: 'Prescriptions' },
-  { nav: 'Labs & Results',  marker: 'Laboratory test results for all your patients',      title: 'Labs & Results' },
-  { nav: 'Messages',        marker: 'Conversations with your patients and their caregivers.', title: 'Messages' },
-  { nav: 'Notifications',   marker: /^(New message|Urgent message|No notifications)/,    title: 'Notifications' },
-  { nav: 'Profile',         marker: 'Professional Details',                               title: 'Professional Details' },
+  { key: 'dashboard',       nav: 'Dashboard',       marker: "Here's your practice at a glance.",                  title: "Today's Schedule" },
+  { key: 'schedule',        nav: 'Schedule',        marker: 'Manage your appointments and consultations',         title: 'My Schedule' },
+  { key: 'availability',    nav: 'Availability',    marker: 'Set the hours patients can book you in and block time when you are away', title: 'Availability' },
+  { key: 'consultations',   nav: 'Consultations',   marker: 'Your full consultation history and active sessions', title: 'Consultations' },
+  { key: 'appointments',    nav: 'Appointments',    marker: 'Complete appointment history for your patients',     title: 'Appointments' },
+  { key: 'patients',        nav: 'Patients',        marker: 'Patients on your care team, or with an appointment or consultation with you', title: 'My Patients' },
+  { key: 'medical-records', nav: 'Medical Records', marker: 'All records for patients associated with you',       title: 'Medical Records' },
+  { key: 'documents',       nav: 'Documents',       marker: "Files in a patient's record: reports, letters, consent forms and insurance papers.", title: 'Documents' },
+  { key: 'prescriptions',   nav: 'Prescriptions',   marker: 'Issue prescriptions and manage the ones you have written', title: 'Prescriptions' },
+  { key: 'labs',            nav: 'Labs & Results',  marker: 'Laboratory test results for all your patients',      title: 'Labs & Results' },
+  { key: 'imaging',         nav: 'Imaging',         marker: 'Imaging results for all your patients',              title: 'Imaging' },
+  { key: 'care-plans',      nav: 'Care Plans',      marker: 'Goals, interventions and review dates for the patients in your care', title: 'Care Plans' },
+  { key: 'referrals',       nav: 'Referrals',       marker: 'Refer patients to specialists and respond to referrals addressed to you.', title: 'Referrals' },
+  // The subtitle becomes the unacknowledged count once it has loaded.
+  { key: 'ai-alerts',       nav: 'Clinical Alerts', marker: /^(Alerts raised by automated screening of results, readings and medication|\d+ unacknowledged alerts? for your patients)$/, title: 'Clinical Alerts' },
+  { key: 'billing',         nav: 'Billing',         marker: 'Invoices for your consultations and the fees new invoices are priced from.', title: 'Billing' },
+  { key: 'messages',        nav: 'Messages',        marker: 'Conversations with your patients and their caregivers.', title: 'Messages' },
+  { key: 'notifications',   nav: 'Notifications',   marker: NOTIFICATIONS_MARKER,                                 title: 'Notifications' },
+  { key: 'profile',         nav: 'Profile',         marker: 'Your professional profile and contact details',     title: 'Profile' },
+  { key: 'settings',        nav: 'Settings',        marker: SETTINGS_MARKER,                                      title: 'Settings' },
+  { key: 'help-support',    nav: 'Help & Support',  marker: HELP_MARKER,                                          title: 'Help & Support' },
 ];
-export const DOCTOR_COMING_SOON = ['Documents', 'Referrals', 'Settings', 'Help & Support'];
+/** Kept for the specs that import it: no doctor section is "coming soon" any more. */
+export const DOCTOR_COMING_SOON: string[] = [];
 
 export const PROXY_SECTIONS: Section[] = [
-  { nav: 'Dashboard',             marker: 'Loved One Overview',                                   title: 'Loved One Overview' },
-  { nav: 'Appointments',          marker: 'Appointments for your linked patients',                title: 'Appointments' },
-  { nav: 'Medications',           marker: 'Prescriptions for your linked patients',               title: 'Medications' },
-  { nav: 'Messages',              marker: "Message your loved ones' care teams.",                 title: 'Messages' },
-  { nav: 'Notifications',         marker: /^(New message|Urgent message|No notifications)/,    title: 'Notifications' },
-  { nav: 'Documents & Results',   marker: 'Lab results for your linked patients',                 title: 'Documents & Results' },
-  { nav: 'Health Summary',        marker: 'Health overview for your linked patients',             title: 'Health Summary' },
-  { nav: 'Profile & Settings',    marker: 'Patients you have been authorised to manage as proxy', title: 'Linked Patients' },
-  { nav: 'Notification Settings', marker: 'Choose how you receive notifications',                 title: 'Notification Settings' },
+  { key: 'dashboard',             nav: 'Dashboard',             marker: 'Loved One Overview',                                   title: 'Loved One Overview' },
+  { key: 'appointments',          nav: 'Appointments',          marker: 'Appointments for your linked patients',                title: 'Appointments' },
+  { key: 'medications',           nav: 'Medications',           marker: 'Prescriptions for your linked patients',               title: 'Medications' },
+  { key: 'care-plans',            nav: 'Care Plans',            marker: 'Care plans for the people you care for',               title: 'Care Plans' },
+  { key: 'messages',              nav: 'Messages',              marker: "Message your loved ones' care teams.",                 title: 'Messages' },
+  { key: 'notifications',         nav: 'Notifications',         marker: NOTIFICATIONS_MARKER,                                   title: 'Notifications' },
+  { key: 'documents-results',     nav: 'Documents & Results',   marker: 'Lab results, imaging, medical records and consultations your loved ones share with you', title: 'Documents & Results' },
+  { key: 'health-summary',        nav: 'Health Summary',        marker: 'Health overview for your linked patients',             title: 'Health Summary' },
+  { key: 'health-alerts',         nav: 'Health Alerts',         marker: 'Reminders from automated screening and results a doctor has confirmed, for the people you care for', title: 'Health alerts' },
+  { key: 'billing',               nav: 'Billing & Payments',    marker: 'Invoices, payments and insurance claims of the people you care for', title: 'Billing & Payments' },
+  { key: 'profile-settings',      nav: 'Profile & Settings',    marker: 'Patients you have been authorised to manage as proxy', title: 'Linked Patients' },
+  { key: 'notification-settings', nav: 'Notification Settings', marker: 'Choose how you receive notifications',                 title: 'Notification Settings' },
+  { key: 'help-support',          nav: 'Help & Support',        marker: HELP_MARKER,                                            title: 'Help & Support' },
 ];
-export const PROXY_COMING_SOON = ['Care Plans'];
+/** Kept for the specs that import it: no caregiver section is "coming soon" any more. */
+export const PROXY_COMING_SOON: string[] = [];
 
-/** The left-sidebar button for a section (its name may carry an unread suffix). */
-export function navButton(page: Page, label: string): Locator {
-  return page.getByRole('button', { name: new RegExp(`^${escapeRe(label)}(, \\d+ unread)?$`) }).first();
+/** Administrator sections in sidebar order (the dev-only Outbox is ADMIN_DEV_SECTIONS). */
+export const ADMIN_SECTIONS: Section[] = [
+  { key: 'dashboard',        nav: 'Dashboard',              marker: 'What is waiting for an administrator, and every administration tool.', title: 'Administration' },
+  { key: 'users',            nav: 'Users',                  marker: 'Every CareNexus account. Search, review an account, or deactivate and reactivate it.', title: 'Users' },
+  { key: 'clinician-queue',  nav: 'Clinician verification', marker: /^Check each clinician's licence before they can sign in\./, title: 'Clinician verification' },
+  { key: 'account-requests', nav: 'Account requests',       marker: /^Data exports, account closures and deletion requests\./, title: 'Account requests' },
+  { key: 'corrections',      nav: 'Correction requests',    marker: /^Requests from patients and caregivers to correct a clinical record\./, title: 'Correction requests' },
+  { key: 'billing',          nav: 'Billing',                marker: "Invoices, payments, insurance claims and the clinic's default fees", title: 'Billing' },
+  { key: 'messages',         nav: 'Messages',               marker: 'Conversations people opened from Help & Support.',     title: 'Support messages' },
+  { key: 'notifications',    nav: 'Notifications',          marker: NOTIFICATIONS_MARKER,                                   title: 'Notifications' },
+  { key: 'help-support',     nav: 'Help & Support',         marker: HELP_MARKER,                                            title: 'Help & Support' },
+  { key: 'audit-log',        nav: 'Audit log',              marker: /^Who did what, and when\./,                            title: 'Audit log' },
+  { key: 'legal',            nav: 'Legal documents',        marker: /^The Terms of Service and the Privacy Policy people accept\./, title: 'Legal documents' },
+  { key: 'facilities',       nav: 'Facilities',             marker: /^Locations that can be chosen for in-person appointments and care teams\./, title: 'Facilities' },
+  { key: 'system-settings',  nav: 'System settings',        marker: /^Values the clinic can change without a new deployment\./, title: 'System settings' },
+  { key: 'account',          nav: 'Account security',       marker: /^Your password, sign-in email, two-factor authentication/, title: 'Account security' },
+];
+/** Listed in the sidebar only where the development outbox endpoint answers (local, docker and test profiles). */
+export const ADMIN_DEV_SECTIONS: Section[] = [
+  { key: 'outbox', nav: 'Outbox', marker: /^Development installations only\./, title: 'Outbox' },
+];
+/** Sections opened by URL only (nav: false in the registries), with the label their main landmark carries. */
+export const HIDDEN_SECTIONS: Record<LoginRole, Section[]> = {
+  patient: [],
+  doctor:  [],
+  proxy: [
+    { key: 'add-dependent',   nav: 'Add a Loved One', marker: 'Who are you adding?',                                        title: 'Add Loved One' },
+    // Needs `patient=<PAT id>` of a loved one.
+    { key: 'patient-profile', nav: 'Patient Profile', marker: /^What you can see and do for /,                              title: 'Patient Profile' },
+    { key: 'access-requests', nav: 'Access Requests', marker: 'Requests you sent to patients who already have their own account', title: 'Access Requests' },
+  ],
+  admin: [
+    // `id=<system id>` opens one account; the subtitle is that id. `title` is the heading without an id or for an
+    // unknown id: an account that resolves is titled with its holder's name, so a spec that opens one passes it.
+    { key: 'user-detail', nav: 'User details', marker: /^(No account selected|Account not found|[A-Z]{3}-\d+)$/, title: 'Account' },
+  ],
+};
+
+/** Every sidebar section of a role. */
+export const SECTIONS_BY_ROLE: Record<LoginRole, Section[]> = {
+  patient: PATIENT_SECTIONS,
+  doctor:  DOCTOR_SECTIONS,
+  proxy:   PROXY_SECTIONS,
+  admin:   ADMIN_SECTIONS,
+};
+
+/**
+ * The navigation button for a section (its name may carry an unread suffix). Pass `within` to look only inside
+ * one container, such as the phone drawer: the main content can hold a same-named button (the administrator's
+ * home has a "Messages" tool tile) that comes first in the page and lies under the open drawer.
+ */
+export function navButton(page: Page, label: string, within?: Locator): Locator {
+  return (within ?? page).getByRole('button', { name: new RegExp(`^${escapeRe(label)}(, \\d+ unread)?$`) }).first();
+}
+
+/**
+ * Opens a section by its URL (`?section=<key>` plus params) instead of the sidebar, then waits for its main
+ * landmark, its marker text and the end of its loading state. The section needs a `key`.
+ */
+export async function visitByUrl(page: Page, role: LoginRole, s: Section, params: SectionParamsInput = {}): Promise<void> {
+  expect(s.key, `section "${s.nav}" has a registry key`).toBeTruthy();
+  await page.goto(sectionUrl(role, s.key, params));
+  await page.waitForURL(u => urlShowsSection(u, s.key === 'join-consultation' ? 'my-appointments' : s.key), { timeout: 30_000 });
+  await expect(sectionMain(page, s.nav === 'Join Consultation' ? 'My Appointments' : s.nav), `section "${s.nav}" main landmark`).toBeVisible();
+  await expect(marker(page, s), `section "${s.nav}" renders`).toBeVisible();
+  await expect(page.getByText(/^Loading\b.*(…|\.\.\.)$/)).toHaveCount(0, { timeout: 20_000 });
 }
 
 export function marker(page: Page, s: Section): Locator {

@@ -12,7 +12,9 @@ spring:
   # PostgreSQL Test Container (auto-configured via ServiceConnection)
   datasource:
     hikari:
-      maximum-pool-size: 5
+      # Several tests run requests on parallel threads, and audit / idempotency / job code briefly holds a second
+      # connection (REQUIRES_NEW).
+      maximum-pool-size: 12
       minimum-idle: 1
 
   jpa:
@@ -34,8 +36,31 @@ spring:
     baseline-version: 0
 
 carenexus:
+  environment: development
+  web:
+    base-url: http://localhost:8081
   scheduling:
     time-zone: Africa/Harare
+  # No @Scheduled job runs in tests: tests call sweepOnce() / runOnce() themselves, with a fixed Clock where needed.
+  jobs:
+    enabled: false
+  # All test requests come from 127.0.0.1 and share one application context, so per-IP limits would make unrelated
+  # test classes fail each other. Tests that prove a limit switch it on for themselves (RateLimitProperties is a
+  # mutable bean: setEnabled(true) in the test, false again afterwards) and use their own keys.
+  rate-limit:
+    enabled: false
+  # Fixture users sign in without email verification or MFA; tests of those rules set the property for themselves.
+  auth:
+    require-verified-email: false
+    mfa-required-roles: ""
+    # TEST ONLY value (same dev-only key as the local profile).
+    mfa-encryption-key: Y2FyZW5leHVzLWRldi1vbmx5LW1mYS1rZXktMzJieXQ=
+  billing:
+    provider: local
+    claims-provider: manual
+    local:
+      # TEST ONLY value.
+      webhook-secret: test-only-billing-webhook-secret-NOT-FOR-PRODUCTION
   calls:
     # Tests drive the job worker and the sweeper explicitly (CallJobService.runOnce / CallExpirySweeper.sweepOnce).
     worker-enabled: false
@@ -43,7 +68,32 @@ carenexus:
   messaging:
     # Tests run CaregiverAccessExpirySweeper.sweepOnce explicitly.
     access-expiry-sweep-interval-ms: 3600000
+  # Every provider seam uses its local implementation, whatever the environment of the machine running the tests says.
+  allow-local-providers: false
+  livekit:
+    # The calls tests replace the provider with FakeCallProviderConfig; no LiveKit server is contacted.
+    enabled: false
+  delivery:
+    email:
+      provider: local
+    sms:
+      provider: local
+    push:
+      provider: local
+  storage:
+    provider: local
+    scanner: local
+  ai:
+    provider: rules
+    interaction-provider: rules
+  health:
+    wearables:
+      provider: disabled
+  terminology:
+    provider: bundled
 
+# Only health in the shared test context. ObservabilityIntegrationTest turns on the production exposure
+# (health, info, prometheus) and the Prometheus registry for itself.
 management:
   endpoints:
     web:

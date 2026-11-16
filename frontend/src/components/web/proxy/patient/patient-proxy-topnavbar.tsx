@@ -1,10 +1,11 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { useCurrentUser } from '@/hooks/use-current-user';
+import { decorative, webOnly } from '@/components/web/ui/a11y';
+import { Icon } from '@/components/web/ui/icon';
 import { logout } from '@/lib/auth/auth.service';
+import { MENU_FOCUS_KEY, bellProps, useNavFocusRestore, useShellUser } from '../../layout/shell-support';
 import { NotificationBell } from '../../notifications/notification-bell';
 
 const WHITE  = '#FFFFFF';
@@ -14,7 +15,87 @@ const BORDER = '#E5E7EB';
 const RED    = '#B91C1C';
 // Below this width the subtitle and the name block are hidden so the greeting keeps its room.
 const NARROW_MAX = 640;
-const HIDDEN = { 'aria-hidden': true } as object;
+const BELL_THEME = { accent: '#7C3AED', accentBg: '#F5F3FF' };
+// The top bar is the page's banner landmark (the section beside it is the main landmark).
+const BANNER = { role: 'banner' } as object;
+const MENU_ID = 'proxy-account-menu';
+
+type Focusable = { focus?: () => void; contains?: (node: unknown) => boolean } | null;
+
+/**
+ * Keyboard and pointer behaviour of the account menu on the web (WAI-ARIA menu button): opening moves focus to
+ * the first item, Arrow Up/Down, Home and End move between items, Escape closes the menu and returns focus to
+ * the button, Tab closes it and moves on, and a click outside closes it.
+ */
+function useAccountMenuKeys(open: boolean, close: (refocus: boolean) => void) {
+  const triggerRef = useRef<unknown>(null);
+  const blockRef   = useRef<unknown>(null);
+  const itemRefs   = useRef<unknown[]>([]);
+  const closeRef   = useRef(close);
+  closeRef.current = close;
+
+  useEffect(() => {
+    if (!open || Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const items = () => itemRefs.current.filter(Boolean) as HTMLElement[];
+    items()[0]?.focus?.();
+
+    const onKey = (e: KeyboardEvent) => {
+      const list = items();
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      switch (e.key) {
+        case 'Escape':
+          e.preventDefault();
+          closeRef.current(true);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          list[(at + 1 + list.length) % list.length]?.focus();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          list[(at - 1 + list.length) % list.length]?.focus();
+          break;
+        case 'Home':
+          e.preventDefault();
+          list[0]?.focus();
+          break;
+        case 'End':
+          e.preventDefault();
+          list[list.length - 1]?.focus();
+          break;
+        case ' ':
+        case 'Spacebar':
+          // react-native-web activates only buttons with Space; a menu item takes it too.
+          if (at >= 0) {
+            e.preventDefault();
+            list[at].click();
+          }
+          break;
+        case 'Tab':
+          closeRef.current(false);
+          break;
+      }
+    };
+    const onPointer = (e: MouseEvent) => {
+      const block = blockRef.current as Focusable;
+      if (block?.contains && !block.contains(e.target)) closeRef.current(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointer);
+    };
+  }, [open]);
+
+  const focusTrigger = useCallback(() => {
+    if (Platform.OS !== 'web') return;
+    setTimeout(() => (triggerRef.current as Focusable)?.focus?.(), 0);
+  }, []);
+
+  const itemRef = (index: number) => (el: unknown) => { itemRefs.current[index] = el; };
+  return { triggerRef, blockRef, itemRef, focusTrigger };
+}
 
 const LOGIN_ROUTE = Platform.OS === 'web'
   ? '/auth/login/web/login-web'
@@ -36,19 +117,27 @@ function greeting() {
   return 'Good evening';
 }
 
-export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }: {
+export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress, onNotificationLink }: {
   onNavigate?:   (key: string) => void;
   /** Phones: opens the navigation drawer. */
   onMenuPress?:  () => void;
   /** Open the messages section on a thread (from a notification). */
   onOpenThread?: (threadId: number) => void;
+  /** Follows the in-app link of any other notification (`followActionUrl`); false when there is nothing to open. */
+  onNotificationLink?: (actionUrl: string | null | undefined) => boolean;
 } = {}) {
-  const { user }              = useCurrentUser();
+  const { user }              = useShellUser();
   const router                = useRouter();
   const { width }             = useWindowDimensions();
   const narrow                = width < NARROW_MAX;
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  // After a navigation started in the phone drawer, the menu button of the new copy takes focus back.
+  const menuRef = useNavFocusRestore(MENU_FOCUS_KEY);
+  const accountMenu = useAccountMenuKeys(menuOpen, refocus => {
+    setMenuOpen(false);
+    if (refocus) accountMenu.focusTrigger();
+  });
 
   const firstName = user?.first_name ?? '';
   const lastName  = user?.last_name  ?? '';
@@ -69,16 +158,17 @@ export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }:
   }
 
   return (
-    <View style={[styles.navbar, narrow && styles.navbarNarrow]}>
+    <View style={[styles.navbar, narrow && styles.navbarNarrow]} {...BANNER}>
       {!!onMenuPress && (
         <TouchableOpacity
+          ref={menuRef as never}
           onPress={onMenuPress}
           style={styles.menuBtn}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
-          <Ionicons name="menu-outline" size={26} color={TEXT} />
+          <Icon name="menu-outline" size={26} color={TEXT} />
         </TouchableOpacity>
       )}
       {/* Left: greeting */}
@@ -90,12 +180,13 @@ export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }:
       {/* Right: profile menu */}
       <View style={[styles.right, narrow && styles.rightNarrow]}>
         {onOpenThread && (
-          <NotificationBell theme={{ accent: '#7C3AED', accentBg: '#F5F3FF' }} onOpenThread={onOpenThread} />
+          <NotificationBell {...bellProps({ theme: BELL_THEME, onOpenThread, onNavigate: onNotificationLink })} />
         )}
 
         {/* Profile + dropdown */}
-        <View style={styles.profileBlock}>
+        <View style={styles.profileBlock} ref={accountMenu.blockRef as never}>
           <TouchableOpacity
+            ref={accountMenu.triggerRef as never}
             style={styles.profileRow}
             activeOpacity={0.8}
             onPress={() => setMenuOpen(o => !o)}
@@ -103,15 +194,15 @@ export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }:
             // Named by the visible name and role (WCAG 2.5.3); the initials are decorative.
             // On phones the text is hidden, so the same words become the label.
             accessibilityLabel={narrow ? `${fullName || '—'} Proxy / Caregiver` : undefined}
-            accessibilityState={{ expanded: menuOpen }}
             aria-expanded={menuOpen}
+            {...webOnly({ 'aria-haspopup': 'menu', 'aria-controls': menuOpen ? MENU_ID : undefined })}
           >
             {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} {...decorative} />
             ) : (
-              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]} importantForAccessibility="no-hide-descendants" {...HIDDEN}>
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: ac }]} {...decorative}>
                 {/* On phones the button is labelled by name, so it shows no other visible words (WCAG 2.5.3). */}
-                {narrow ? <Ionicons name="person" size={18} color={WHITE} /> : <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>}
+                {narrow ? <Icon name="person" size={18} color={WHITE} /> : <Text style={styles.avatarInitials}>{initials(firstName, lastName)}</Text>}
               </View>
             )}
             {!narrow && (
@@ -120,32 +211,34 @@ export function PatientProxyTopNavbar({ onNavigate, onOpenThread, onMenuPress }:
                 <Text style={styles.profileRole}>Proxy / Caregiver</Text>
               </View>
             )}
-            <Ionicons name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} {...HIDDEN} />
+            <Icon name={menuOpen ? 'chevron-up' : 'chevron-down'} size={16} color={GRAY} />
           </TouchableOpacity>
 
-          {/* Dropdown menu */}
+          {/* Dropdown menu: the menuitems sit in a named menu (axe: aria-required-parent). */}
           {menuOpen && (
-            <View style={styles.dropdown}>
+            <View style={styles.dropdown} role="menu" aria-label="Account" {...webOnly({ id: MENU_ID })}>
               {onNavigate && (
                 <TouchableOpacity
+                  ref={accountMenu.itemRef(0) as never}
                   style={styles.dropdownItem}
                   activeOpacity={0.7}
                   onPress={() => { setMenuOpen(false); onNavigate('profile-settings'); }}
                   accessibilityRole="menuitem"
                 >
-                  <Ionicons name="settings-outline" size={16} color={TEXT} importantForAccessibility="no" />
+                  <Icon name="settings-outline" size={16} color={TEXT} />
                   <Text style={styles.dropdownItemText}>Profile & Settings</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
+                ref={accountMenu.itemRef(1) as never}
                 style={styles.dropdownItem}
                 activeOpacity={0.7}
                 onPress={handleLogout}
                 disabled={loggingOut}
                 accessibilityRole="menuitem"
-                accessibilityState={{ disabled: loggingOut }}
+                aria-disabled={loggingOut}
               >
-                <Ionicons name="log-out-outline" size={16} color={RED} importantForAccessibility="no" />
+                <Icon name="log-out-outline" size={16} color={RED} />
                 <Text style={styles.dropdownLogoutText}>
                   {loggingOut ? 'Signing out…' : 'Log Out'}
                 </Text>

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { C, CallButton, Notice } from './call-ui';
+import { ariaLevel } from '@/components/web/ui/a11y';
 
 // Camera/microphone check shown before joining. Web only (uses navigator.mediaDevices).
 
@@ -285,7 +286,7 @@ export function CallDeviceCheck(props: {
   if (!started) {
     return (
       <View style={styles.wrap}>
-        <Text style={styles.heading} accessibilityRole="header">Camera and microphone</Text>
+        <Text style={styles.heading} accessibilityRole="header" {...ariaLevel(2)}>Camera and microphone</Text>
         <Text style={styles.body}>Check that your camera and microphone work before the call opens.</Text>
         <CallButton
           label="Check camera and microphone"
@@ -304,7 +305,7 @@ export function CallDeviceCheck(props: {
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.heading} accessibilityRole="header">Camera and microphone</Text>
+      <Text style={styles.heading} accessibilityRole="header" {...ariaLevel(2)}>Camera and microphone</Text>
 
       <View style={styles.preview} accessibilityRole="image" accessibilityLabel={showPreview ? 'Your camera preview' : 'Camera preview is off'}>
         {showPreview ? (
@@ -317,7 +318,7 @@ export function CallDeviceCheck(props: {
           />
         ) : (
           <View style={styles.previewOff}>
-            <Ionicons name="videocam-off-outline" size={28} color="#CBD5E1" />
+            <Ionicons aria-hidden name="videocam-off-outline" size={28} color="#CBD5E1" />
             <Text style={styles.previewOffText}>
               {released ? 'Camera handed to the call' : camOn ? STATE_TEXT[camState] : 'Camera off'}
             </Text>
@@ -326,8 +327,8 @@ export function CallDeviceCheck(props: {
       </View>
 
       <View style={styles.row}>
-        <View style={styles.meterWrap} accessibilityLabel={`Microphone level ${Math.round(level * 100)} percent`}>
-          <Ionicons name={micOn && micState === 'ok' ? 'mic-outline' : 'mic-off-outline'} size={16} color={C.muted} />
+        <View style={styles.meterWrap} role="img" accessibilityLabel={`Microphone level ${Math.round(level * 100)} percent`}>
+          <Ionicons aria-hidden name={micOn && micState === 'ok' ? 'mic-outline' : 'mic-off-outline'} size={16} color={C.muted} />
           <View style={styles.meterTrack}>
             <View style={[styles.meterFill, { width: `${Math.round((micOn ? level : 0) * 100)}%` }]} />
           </View>
@@ -442,7 +443,7 @@ export function CallDeviceCheck(props: {
           accessibilityLabel="Check again: camera and microphone"
           style={styles.linkBtn}
         >
-          <Ionicons name="refresh-outline" size={14} color={C.indigo} />
+          <Ionicons aria-hidden name="refresh-outline" size={14} color={C.indigo} />
           <Text style={styles.linkText}>Check again</Text>
         </TouchableOpacity>
       )}
@@ -455,7 +456,7 @@ function StatusLine(props: { icon: React.ComponentProps<typeof Ionicons>['name']
   const text = props.offText ?? STATE_TEXT[props.state];
   return (
     <View style={styles.statusLine}>
-      <Ionicons name={props.icon} size={15} color={C.muted} />
+      <Ionicons aria-hidden name={props.icon} size={15} color={C.muted} />
       <Text style={styles.statusLabel}>{props.label}</Text>
       <Text style={[styles.statusValue, { color: good ? C.green : props.state === 'idle' || props.state === 'pending' ? C.faint : C.amber }]}>
         {text}
@@ -478,7 +479,7 @@ function ToggleChip(props: {
       accessibilityLabel={props.on ? props.onLabel : props.offLabel}
       style={[styles.chip, props.on ? styles.chipOn : styles.chipOff, props.disabled && { opacity: 0.5 }]}
     >
-      <Ionicons name={props.icon} size={15} color={props.on ? C.indigo : C.muted} />
+      <Ionicons aria-hidden name={props.icon} size={15} color={props.on ? C.indigo : C.muted} />
       <Text style={[styles.chipText, { color: props.on ? C.indigo : C.muted }]}>{props.on ? props.onLabel : props.offLabel}</Text>
     </TouchableOpacity>
   );

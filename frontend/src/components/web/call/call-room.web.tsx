@@ -25,9 +25,12 @@ import type { CallStatusResponse, CallTokenResponse } from '@/lib/calls/types';
 import { CallAdmissionPanel } from './call-admission-panel';
 import { DeviceSelect, type DeviceChoices } from './call-device-check.web';
 import { ARM_DELAY_MS, C, useArmed } from './call-ui';
+import { ariaLevel, ariaPressed, decorative } from '@/components/web/ui/a11y';
 
 // The live call: LiveKit room, participant tiles, controls, reconnect and token refresh.
 // No chat, no screen share, no recording (the token denies data publishing and screen share).
+
+const AUDIO_BLOCKED_TEXT = 'Your browser paused the call audio. Select here to hear others.';
 
 const REFRESH_MARGIN_MS = 60_000;     // refresh the stored token a minute before it expires
 const MIN_REFRESH_MS    = 20_000;
@@ -252,7 +255,7 @@ export function CallRoom(props: {
       <View style={styles.root}>
         <View style={styles.header}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+            <Text style={styles.title} numberOfLines={1} accessibilityRole="header" {...ariaLevel(1)}>
               {isDoctor ? `Call with ${status.patientName ?? 'patient'}` : `Call with ${status.doctorName ?? 'your doctor'}`}
             </Text>
             <Text style={styles.sub}>Leaving does not end the appointment.</Text>
@@ -266,7 +269,7 @@ export function CallRoom(props: {
 
         {phase === 'reconnecting' && (
           <View style={styles.banner} accessibilityRole="alert">
-            <Ionicons name="cloud-offline-outline" size={16} color="#FDE68A" />
+            <Ionicons aria-hidden name="cloud-offline-outline" size={16} color="#FDE68A" />
             <Text style={styles.bannerText}>Reconnecting... Your connection dropped. Stay on this page.</Text>
           </View>
         )}
@@ -275,15 +278,16 @@ export function CallRoom(props: {
             style={styles.banner}
             onPress={() => room.startAudio().then(() => setAudioBlocked(!room.canPlaybackAudio)).catch(() => {})}
             accessibilityRole="button"
-            accessibilityLabel="Turn on call audio"
+            // The name starts with the visible sentence; the action follows it.
+            accessibilityLabel={`${AUDIO_BLOCKED_TEXT} Turn on call audio.`}
           >
-            <Ionicons name="volume-high-outline" size={16} color="#FDE68A" />
-            <Text style={styles.bannerText}>Your browser paused the call audio. Select here to hear others.</Text>
+            <Ionicons aria-hidden name="volume-high-outline" size={16} color="#FDE68A" />
+            <Text style={styles.bannerText}>{AUDIO_BLOCKED_TEXT}</Text>
           </TouchableOpacity>
         )}
         {deviceError && (
           <View style={styles.banner} accessibilityRole="alert">
-            <Ionicons name="alert-circle-outline" size={16} color="#FDE68A" />
+            <Ionicons aria-hidden name="alert-circle-outline" size={16} color="#FDE68A" />
             <Text style={styles.bannerText}>{deviceError}</Text>
           </View>
         )}
@@ -326,6 +330,7 @@ export function CallRoom(props: {
             icon="settings-outline"
             label="Devices"
             active={showDevices}
+            toggle
             onPress={() => setShowDevices(v => !v)}
           />
           {isDoctor && (
@@ -333,6 +338,7 @@ export function CallRoom(props: {
               icon="people-outline"
               label={waitingCount > 0 ? `People (${waitingCount} waiting)` : 'People'}
               active={showPeople}
+              toggle
               highlight={waitingCount > 0}
               onPress={() => setShowPeople(v => !v)}
             />
@@ -402,7 +408,9 @@ function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }
   return (
     <View
       style={[styles.tile, speaking && styles.tileSpeaking]}
-      accessibilityLabel={`${shownLabel}${micMuted ? ', muted' : ''}${hasVideo ? '' : ', camera off'}, ${qualityText}`}
+      // A named group: the tile's state (muted, camera off, connection) is read with the name, not only shown in colour.
+      role="group"
+      accessibilityLabel={`${shownLabel}${micMuted ? ', muted' : ''}${hasVideo ? '' : ', camera off'}${speaking ? ', speaking' : ''}, ${qualityText}`}
     >
       {hasVideo && trackRef.publication ? (
         <VideoTrack
@@ -411,15 +419,19 @@ function ParticipantTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }
         />
       ) : (
         <View style={styles.avatarWrap}>
-          <View style={styles.avatar}>
+          <View style={styles.avatar} {...decorative}>
             <Text style={styles.avatarText}>{initials(label)}</Text>
           </View>
         </View>
       )}
       <View style={styles.labelBar}>
-        <Ionicons name={micMuted ? 'mic-off' : 'mic'} size={13} color={micMuted ? '#FCA5A5' : '#F8FAFC'} />
+        <Ionicons aria-hidden name={micMuted ? 'mic-off' : 'mic'} size={13} color={micMuted ? '#FCA5A5' : '#F8FAFC'} />
         <Text style={styles.labelText} numberOfLines={2}>{shownLabel}</Text>
-        <View style={[styles.qualityDot, { backgroundColor: qualityColor }]} />
+        <View style={[styles.qualityDot, { backgroundColor: qualityColor }]} {...decorative} />
+        {/* A weak connection is also said in words, not only by the dot's colour. */}
+        {quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost
+          ? <Text style={styles.qualityText}>{quality === ConnectionQuality.Poor ? 'Poor' : 'Lost'}</Text>
+          : null}
       </View>
     </View>
   );
@@ -438,6 +450,8 @@ function ControlButton(props: {
   solid?: boolean;
   highlight?: boolean;
   disabled?: boolean;
+  /** Shows or hides a panel: exposed as a toggle button (aria-pressed) with `active` as its state. */
+  toggle?: boolean;
 }) {
   const neutralBg = props.solid ? '#DC2626' : props.danger ? '#7F1D1D' : props.active ? '#334155' : '#475569';
   return (
@@ -446,7 +460,8 @@ function ControlButton(props: {
       disabled={props.disabled}
       accessibilityRole="button"
       accessibilityLabel={props.label}
-      accessibilityState={{ disabled: !!props.disabled, selected: !!props.active }}
+      accessibilityState={{ disabled: !!props.disabled }}
+      {...(props.toggle ? ariaPressed(!!props.active) : null)}
       style={[
         styles.ctrl,
         { backgroundColor: neutralBg },
@@ -454,7 +469,7 @@ function ControlButton(props: {
         props.disabled && { opacity: 0.5 },
       ]}
     >
-      <Ionicons name={props.icon} size={18} color="#F8FAFC" />
+      <Ionicons aria-hidden name={props.icon} size={18} color="#F8FAFC" />
       <Text style={styles.ctrlText}>{props.label}</Text>
     </TouchableOpacity>
   );
@@ -483,6 +498,7 @@ const styles = StyleSheet.create({
   labelBar:    { position: 'absolute', left: 8, right: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(15,23,42,0.75)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   labelText:   { color: '#F8FAFC', fontSize: 12, fontWeight: '600', flex: 1 },
   qualityDot:  { width: 8, height: 8, borderRadius: 4 },
+  qualityText: { color: '#FDE68A', fontSize: 11, fontWeight: '700' },
   side:        { paddingBottom: 8 },
   sideWide:    { width: 360 },
   deviceBar:   { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, paddingTop: 8 },

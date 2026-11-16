@@ -1,34 +1,49 @@
-import { Ionicons } from '@expo/vector-icons';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { appointmentCallJoin, isUpcomingAppointment, useAppointments, type Appointment } from '@/hooks/use-appointments';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { decorative, Icon, type IoniconsName } from '@/components/web/ui';
 import { ariaLevel } from './a11y';
 import { CallTimePending } from './call-time-pending';
+import { clinicNowLocal, formatClinicDate, formatClinicTime, toClinicLocal } from '@/lib/time/clinic';
 
 const TEAL      = '#0F766E';
 const TEAL_BG   = '#E8F5F4';
 const GRAY      = '#6B7280';
+// Secondary text on the tinted card backgrounds: GRAY measures only 4.33:1 on the teal tint and 4.39:1 on GRAY_LIGHT.
+const MUTED     = '#4B5563';
 const GRAY_LIGHT = '#F3F4F6';
 const BORDER    = '#E5E7EB';
 const WHITE     = '#FFFFFF';
 const RED       = '#B91C1C';
-const ORANGE    = '#F97316';
+// orange-700: 5.18:1 under white text and 4.88:1 as text on its tint (orange-500 measured 2.8:1).
+const ORANGE    = '#C2410C';
 const AMBER     = '#B45309';
 const GREEN     = '#047857';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+/** Minutes since the epoch of a clinic wall-clock "YYYY-MM-DDTHH:mm:ss", read as UTC so no device zone applies. */
+function wallClockMinutes(local: string): number {
+  return Date.parse(`${local.slice(0, 19)}Z`) / 60000;
+}
 
-// Urgency thresholds in milliseconds
-const HOUR  = 60 * 60 * 1000;
-const DAY   = 24 * HOUR;
+/** Whole clinic calendar days from `fromDate` to `toDate` ("YYYY-MM-DD"). */
+function daysBetween(fromDate: string, toDate: string): number {
+  return Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000);
+}
 
+// `scheduled_at` is clinic wall-clock time (no offset): it is compared with the clinic's clock, never the device's,
+// and the day labels follow the clinic calendar rather than a rolling 24 hours.
 function urgencyScheme(appt: Appointment): { color: string; bg: string; label: string } {
-  const diff = new Date(appt.scheduled_at).getTime() - Date.now();
-  if (diff <= HOUR)       return { color: RED,    bg: '#FEF2F2', label: 'Starting soon!' };
-  if (diff <= DAY)        return { color: ORANGE, bg: '#FFF7ED', label: 'Tomorrow'       };
-  if (diff <= 3 * DAY)    return { color: AMBER,  bg: '#FFFBEB', label: 'In a few days'  };
-  if (diff <= 7 * DAY)    return { color: TEAL,   bg: TEAL_BG,  label: 'This week'       };
-  return                         { color: GREEN,  bg: '#F0FDF4', label: 'Upcoming'        };
+  const at = toClinicLocal(appt.scheduled_at);
+  if (!at) return { color: GREEN, bg: '#F0FDF4', label: 'Upcoming' };
+  const now = clinicNowLocal();
+  const minutes = wallClockMinutes(at) - wallClockMinutes(now);
+  const days = daysBetween(now.slice(0, 10), at.slice(0, 10));
+  if (minutes <= 60)   return { color: RED,    bg: '#FEF2F2', label: 'Starting soon!' };
+  if (days <= 0)       return { color: ORANGE, bg: '#FFF7ED', label: 'Today'          };
+  if (days === 1)      return { color: ORANGE, bg: '#FFF7ED', label: 'Tomorrow'       };
+  if (days <= 3)       return { color: AMBER,  bg: '#FFFBEB', label: 'In a few days'  };
+  if (days <= 7)       return { color: TEAL,   bg: TEAL_BG,  label: 'This week'       };
+  return                      { color: GREEN,  bg: '#F0FDF4', label: 'Upcoming'        };
 }
 
 const TYPE_ICON: Record<string, IoniconsName> = {
@@ -41,13 +56,6 @@ const TYPE_LABEL: Record<string, string> = {
   VIDEO:     'Video Consultation',
   PHONE:     'Phone Call',
 };
-
-function formatApptDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-function formatApptTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
-}
 
 // ── Upcoming Appointment ────────────────────────────────────────────
 
@@ -75,40 +83,40 @@ function UpcomingAppointment({ onNavigate, onMessageDoctor }: {
 
       {loading ? (
         <View style={[styles.apptInner, { backgroundColor: TEAL_BG, alignItems: 'center', paddingVertical: 24 }]}>
-          <Text style={{ color: GRAY, fontSize: 13 }}>Loading…</Text>
+          <Text style={{ color: MUTED, fontSize: 13 }} role="status">Loading…</Text>
         </View>
       ) : error ? (
         <View style={[styles.apptInner, { backgroundColor: '#FEF2F2', alignItems: 'center', gap: 8, paddingVertical: 20 }]}>
-          <Ionicons name="alert-circle-outline" size={28} color={RED} />
-          <Text style={{ color: RED, fontSize: 13, textAlign: 'center' }}>{error}</Text>
+          <Icon name="alert-circle-outline" size={28} color={RED} />
+          <Text style={{ color: RED, fontSize: 13, textAlign: 'center' }} role="alert">{error}</Text>
           <TouchableOpacity onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Retry loading appointments">
             <Text style={{ color: RED, fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' }}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : !next ? (
         <View style={[styles.apptInner, { backgroundColor: GRAY_LIGHT, alignItems: 'center', gap: 8, paddingVertical: 24 }]}>
-          <Ionicons name="calendar-outline" size={32} color={BORDER} />
-          <Text style={{ color: GRAY, fontSize: 13, textAlign: 'center' }}>No upcoming appointments</Text>
+          <Icon name="calendar-outline" size={32} color={BORDER} />
+          <Text style={{ color: MUTED, fontSize: 13, textAlign: 'center' }}>No upcoming appointments</Text>
           <TouchableOpacity onPress={() => onNavigate?.('book-appointment')} activeOpacity={0.7} accessibilityRole="button">
-            <Text style={{ color: TEAL, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>Book an appointment →</Text>
+            <Text style={{ color: TEAL, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>Book an appointment <Text {...decorative}>→</Text></Text>
           </TouchableOpacity>
         </View>
       ) : (
         <View style={[styles.apptInner, { backgroundColor: scheme.bg, borderColor: scheme.color + '40', borderWidth: 1 }]}>
           {/* Urgency badge */}
           <View style={[styles.urgencyBadge, { backgroundColor: scheme.color }]}>
-            <Ionicons name="time-outline" size={11} color={WHITE} />
+            <Icon name="time-outline" size={11} color={WHITE} />
             <Text style={styles.urgencyText}>{scheme.label}</Text>
           </View>
 
           {/* Date & time */}
           <View style={styles.apptTopRow}>
-            <View style={[styles.apptIconBg, { backgroundColor: WHITE, borderColor: scheme.color + '30', borderWidth: 1 }]}>
-              <Ionicons name="calendar-outline" size={24} color={scheme.color} />
+            <View style={[styles.apptIconBg, { backgroundColor: WHITE, borderColor: scheme.color + '30', borderWidth: 1 }]} {...decorative}>
+              <Icon name="calendar-outline" size={24} color={scheme.color} />
             </View>
             <View>
-              <Text style={styles.apptDate}>{formatApptDate(next.scheduled_at)}</Text>
-              <Text style={[styles.apptTime, { color: scheme.color }]}>{formatApptTime(next.scheduled_at)}</Text>
+              <Text style={styles.apptDate}>{formatClinicDate(next.scheduled_at)}</Text>
+              <Text style={[styles.apptTime, { color: scheme.color }]}>{formatClinicTime(next.scheduled_at)}</Text>
             </View>
           </View>
 
@@ -119,16 +127,16 @@ function UpcomingAppointment({ onNavigate, onMessageDoctor }: {
           </Text>
 
           <View style={styles.apptMeta}>
-            <Ionicons name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={15} color={GRAY} />
+            <Icon name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={15} color={MUTED} />
             <Text style={styles.apptMetaText}>{TYPE_LABEL[next.type] ?? next.type}</Text>
           </View>
           <View style={styles.apptMeta}>
-            <Ionicons name="time-outline" size={15} color={GRAY} />
+            <Icon name="time-outline" size={15} color={MUTED} />
             <Text style={styles.apptMetaText}>{next.duration_minutes} minutes</Text>
           </View>
           {next.facility_name && (
             <View style={styles.apptMeta}>
-              <Ionicons name="location-outline" size={15} color={GRAY} />
+              <Icon name="location-outline" size={15} color={MUTED} />
               <Text style={styles.apptMetaText}>{next.facility_name}</Text>
             </View>
           )}
@@ -153,7 +161,7 @@ function UpcomingAppointment({ onNavigate, onMessageDoctor }: {
               activeOpacity={0.85}
               accessibilityRole="button"
             >
-              <Ionicons name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={16} color={WHITE} />
+              <Icon name={TYPE_ICON[next.type] ?? 'calendar-outline'} size={16} color={WHITE} />
               <Text style={styles.joinBtnText}>View Details</Text>
             </TouchableOpacity>
           )}
@@ -174,7 +182,7 @@ function UpcomingAppointment({ onNavigate, onMessageDoctor }: {
               accessibilityRole="button"
               accessibilityLabel={`Message ${next.doctor_name}`}
             >
-              <Ionicons name="chatbubble-ellipses-outline" size={15} color={GRAY} importantForAccessibility="no" />
+              <Icon name="chatbubble-ellipses-outline" size={15} color={GRAY} />
               {/* The doctor's name is already on the card; the accessible name carries it. */}
               <Text style={styles.messageBtnText} numberOfLines={1}>Message</Text>
             </TouchableOpacity>
@@ -210,9 +218,9 @@ function QuickAccess({ onNavigate }: { onNavigate?: (key: string) => void }) {
             accessibilityRole="button"
             accessibilityLabel={item.label}
           >
-            <Ionicons name={item.icon} size={18} color={GRAY} />
+            <Icon name={item.icon} size={18} color={GRAY} />
             <Text style={styles.quickLabel}>{item.label}</Text>
-            <Ionicons name="chevron-forward" size={16} color={GRAY} />
+            <Icon name="chevron-forward" size={16} color={GRAY} />
           </TouchableOpacity>
           {i < quickItems.length - 1 && <View style={styles.rowDivider} />}
         </View>
@@ -229,7 +237,8 @@ export function PatientRightSidebar({ onNavigate, onMessageDoctor }: {
   onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
 }) {
   return (
-    <View style={styles.sidebar}>
+    // A complementary landmark beside the section, so screen-reader users can skip it or jump to it.
+    <View style={styles.sidebar} role="complementary" aria-label="Upcoming appointment and quick access">
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
@@ -318,7 +327,7 @@ const styles = StyleSheet.create({
   },
   apptDate: {
     fontSize: 12,
-    color: GRAY,
+    color: MUTED,
   },
   apptTime: {
     fontSize: 22,
@@ -332,7 +341,7 @@ const styles = StyleSheet.create({
   },
   apptSub: {
     fontSize: 13,
-    color: GRAY,
+    color: MUTED,
     marginBottom: 4,
   },
   apptMeta: {
@@ -342,7 +351,7 @@ const styles = StyleSheet.create({
   },
   apptMetaText: {
     fontSize: 13,
-    color: GRAY,
+    color: MUTED,
   },
   joinBtn: {
     flexDirection: 'row',

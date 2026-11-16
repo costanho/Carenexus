@@ -50,7 +50,7 @@ Ranked by how many people they affect and how badly.
    | `#4F6EF7` | `#4338CA` |
 
 2. **Doctor and caregiver web at phone width kept a 68 px icon rail.** It took a sixth of the screen and pushed headers and Refresh buttons off the right edge, while the patient app already used a menu drawer.
-   - Below 768 px all three roles now use the same pattern: a menu button in the top bar opens the full sidebar as a drawer, with a backdrop, Close menu and Escape.
+   - Below 768 px all roles now use the same pattern: a menu button in the top bar opens the full sidebar as a drawer, with a backdrop, Close menu and Escape. Since the section-registry shell work the patient sidebar is also rendered through `NavDrawer` (it previously had its own overlay without a focus trap), and the administrator shell uses it too.
    - Code: `components/web/layout/nav-drawer.tsx`.
 3. **Web page headers and stat cards broke at phone width.**
    - **Headers:** the title block didn't shrink, so the subtitle and the Refresh button ran past the edge. Header rows now wrap, and the title block shrinks.

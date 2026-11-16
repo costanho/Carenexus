@@ -17,6 +17,22 @@ import java.time.LocalDateTime;
 @Builder
 public class LabResult {
 
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_REQUIRES_REVIEW = "REQUIRES_REVIEW";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+    public static final String STATUS_CRITICAL = "CRITICAL";
+    public static final String STATUS_CANCELLED = "CANCELLED";
+
+    /** Every stored status (the lab_results CHECK). */
+    public static final java.util.List<String> STATUSES = java.util.List.of(
+            STATUS_PENDING, STATUS_REQUIRES_REVIEW, STATUS_COMPLETED, STATUS_CRITICAL, STATUS_CANCELLED);
+    /** Statuses a client may set through create, PUT or PATCH (CANCELLED only through DELETE). */
+    public static final java.util.List<String> WRITABLE_STATUSES = java.util.List.of(
+            STATUS_PENDING, STATUS_REQUIRES_REVIEW, STATUS_COMPLETED, STATUS_CRITICAL);
+    /** The lab_results.test_type CHECK. */
+    public static final java.util.List<String> TEST_TYPES = java.util.List.of(
+            "BLOOD", "URINE", "STOOL", "CULTURE", "BIOPSY", "GENETIC", "SWAB", "OTHER");
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "result_id")
@@ -47,7 +63,7 @@ public class LabResult {
     private String referenceRange;
 
     /**
-     * JSONB column. Must hold valid JSON text (object, array, string, number...); Hibernate binds it as json.
+     * JSONB column. The API only stores the JSON text of an object; Hibernate binds it as json.
      */
     @Column(name = "result_data", columnDefinition = "JSONB")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -70,6 +86,14 @@ public class LabResult {
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
+    @Column(name = "review_notes", length = 2000)
+    private String reviewNotes;
+
+    /** Attached document (documents.document_id) of the same patient; null when none. */
+    @Column(name = "document_id")
+    private Integer documentId;
+
+    /** Legacy free-text URL: no longer written by the API and never returned (attachments use documentId). */
     @Column(name = "file_url", length = 500)
     private String fileUrl;
 
@@ -78,7 +102,9 @@ public class LabResult {
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
         if (testDate == null) {
             testDate = LocalDate.now();
         }

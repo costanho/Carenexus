@@ -1,6 +1,8 @@
 package com.carenexus.api.communications.service;
 
 import com.carenexus.api.auth.model.User;
+import com.carenexus.api.common.exception.BadRequestException;
+import com.carenexus.api.common.service.AuditService;
 import com.carenexus.api.common.service.AuthorizationService;
 import com.carenexus.api.communications.dto.response.RecipientResponse;
 import com.carenexus.api.communications.dto.response.RecipientsResponse;
@@ -14,17 +16,25 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Who the caller can message about a patient (GET /api/communications/recipients).
+ * Who the caller can message about a patient (GET /api/communications/recipients). Not paginated: an array with a
+ * documented hard cap of {@value #MAX_RECIPIENTS} entries (the patient, related doctors, then caregivers with an
+ * approved MESSAGING grant, in that order). Administrators are never listed and never call it (403). Audited as
+ * READ MESSAGE_RECIPIENT for the patient.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RecipientService {
 
+    /** Hard cap of the recipients array. */
+    public static final int MAX_RECIPIENTS = 200;
+    static final String RESOURCE = "MESSAGE_RECIPIENT";
+
     private final CommunicationsAccessService accessService;
+    private final AuditService auditService;
 
     public RecipientsResponse getRecipients(String patientSystemIdParam) {
-        Caller caller = accessService.requireCaller();
+        Caller caller = accessService.requireMessagingCaller();
         String patientSystemId = resolvePatient(caller, patientSystemIdParam);
         accessService.requireCanActFor(patientSystemId);
 
@@ -37,6 +47,9 @@ public class RecipientService {
 
         List<RecipientResponse> recipients = new ArrayList<>();
         for (User user : eligible.values()) {
+            if (recipients.size() >= MAX_RECIPIENTS) {
+                break;
+            }
             if (user.getSystemId().equals(caller.systemId())) {
                 continue;
             }
@@ -55,11 +68,14 @@ public class RecipientService {
                     .canAddToExistingCareTeam(caller.canManageMembers())
                     .build());
         }
-        return RecipientsResponse.builder()
+        RecipientsResponse response = RecipientsResponse.builder()
                 .patientSystemId(patientSystemId)
                 .patientName(patientName)
                 .recipients(recipients)
                 .build();
+        // One READ row for the patient whose circle was listed (also when the list is empty)
+        auditService.logListRead(RESOURCE, List.of(response), RecipientsResponse::getPatientSystemId);
+        return response;
     }
 
     /** PRIVATE = one DOCTOR and the patient, or one DOCTOR and one of the patient's caregivers. */
@@ -78,7 +94,7 @@ public class RecipientService {
             if (caller.is(AuthorizationService.PATIENT)) {
                 return caller.systemId();
             }
-            throw new RuntimeException("Patient ID is required");
+            throw new BadRequestException(ThreadService.PATIENT_REQUIRED);
         }
         return patientSystemId;
     }

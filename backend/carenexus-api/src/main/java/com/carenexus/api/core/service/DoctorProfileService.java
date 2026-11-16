@@ -2,76 +2,349 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.common.dto.PageParams;
+import com.carenexus.api.common.dto.PageResponse;
+import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.exception.BadRequestException;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.exception.ResourceNotFoundException;
+import com.carenexus.api.common.service.AuditService;
+import com.carenexus.api.common.service.AuthorizationService;
 import com.carenexus.api.core.dto.request.UpdateDoctorProfileRequest;
 import com.carenexus.api.core.dto.response.DoctorProfileResponse;
-import com.carenexus.api.core.model.Appointment;
-import com.carenexus.api.core.model.Consultation;
 import com.carenexus.api.core.model.Doctor;
-import com.carenexus.api.core.model.MedicalRecord;
-import com.carenexus.api.core.repository.*;
+import com.carenexus.api.core.repository.DoctorDirectoryRepository;
+import com.carenexus.api.core.repository.DoctorDirectoryRepository.DirectoryRow;
+import com.carenexus.api.core.repository.DoctorPatientQueryRepository;
+import com.carenexus.api.core.repository.DoctorRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.Set;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
- * Doctor profiles.
+ * Doctor profiles and the doctor directory.
  *
- * Visibility: the full profile (email, phone, licence number, practice statistics) is for the doctor and admins.
- * Directory methods (list/search/public) return {@link #toPublicProfile} views and only include "listable"
- * doctors: users.is_active AND doctors.is_active. Self-registered doctors start with both flags false
- * (pending verification) until an admin calls {@link #activateDoctor}.
+ * Views of {@link DoctorProfileResponse}:
+ * - full (the doctor, an administrator): every field; counters come from COUNT queries;
+ * - public (directory, active list, public profile of a listed doctor): id, account id, names, specialization, bio
+ *   and isActive = true;
+ * - name-only (public profile of a doctor who is not listed): id, names and isActive = false.
  *
- * The class default is read-only, so every write method MUST carry its own @Transactional; otherwise the
- * changes are silently never flushed.
+ * "Listed" (directory, bookable) = users.is_active AND users.role = 'DOCTOR' AND doctors.is_active AND
+ * doctors.verification_status = 'APPROVED' ({@link DoctorDirectoryRepository}).
+ *
+ * The sign-in email is never changed here (email-change flow only); a doctor cannot change their licence number or
+ * activation. Profile updates are audited as account events PROFILE_UPDATE / DOCTOR_PROFILE.
+ *
+ * The class default is read-only, so every write method carries its own @Transactional.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class DoctorProfileService {
 
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$");
+    public static final String RESOURCE = "DOCTOR_PROFILE";
+
+    /** Rows of the deprecated active-doctors array and of the deprecated pending list. */
+    public static final int LEGACY_LIST_CAP = 200;
+
+    static final String EMAIL_REFUSED = "Email cannot be changed here. Use Change email in your security settings";
+    static final String LICENCE_ADMIN_ONLY = "License number changes must be made by an administrator";
 
     private final DoctorRepository doctorRepository;
     private final UserRepository userRepository;
-    private final AppointmentRepository appointmentRepository;
-    private final ConsultationRepository consultationRepository;
-    private final PrescriptionRepository prescriptionRepository;
-    private final MedicalRecordRepository medicalRecordRepository;
-    private final PatientRepository patientRepository;
+    private final DoctorDirectoryRepository directoryRepository;
+    private final DoctorPatientQueryRepository patientQueryRepository;
+    private final AuthorizationService authorizationService;
+    private final AuditService auditService;
+    private final Clock clock;
 
+    // ==================== OWN AND ADMIN READS (full view) ====================
+
+    /** The calling doctor's own profile (DOCTOR only). */
+    public DoctorProfileResponse getMyProfile() {
+        authorizationService.requireRole(AuthorizationService.DOCTOR);
+        return fullProfile(authorizationService.currentSystemId());
+    }
+
+    /**
+     * Full profile of a doctor; the caller must be that doctor or an administrator.
+     * 404 "User not found" / "Doctor profile not found" when a row is missing.
+     */
     public DoctorProfileResponse getDoctorProfile(String systemId) {
+        authorizationService.requireDoctorSelf(systemId);
+        return fullProfile(systemId);
+    }
+
+    /**
+     * Full profile of a doctor by system id (that doctor or an administrator); 404 "Doctor not found".
+     */
+    public DoctorProfileResponse getDoctorProfileById(String doctorSystemId) {
+        authorizationService.requireDoctorSelf(doctorSystemId);
+        if (doctorRepository.findBySystemId(doctorSystemId).isEmpty()) {
+            throw new ResourceNotFoundException("Doctor not found");
+        }
+        return fullProfile(doctorSystemId);
+    }
+
+    // ==================== UPDATES ====================
+
+    /** The calling doctor updates their own profile (no email, licence or activation change). */
+    @Transactional
+    public DoctorProfileResponse updateMyProfile(UpdateDoctorProfileRequest request) {
+        authorizationService.requireRole(AuthorizationService.DOCTOR);
+        return applyUpdate(authorizationService.currentSystemId(), request, false);
+    }
+
+    /**
+     * Partial update of a doctor profile. {@code asAdmin = true}: the caller must be an administrator and may change
+     * the licence number; otherwise the caller must be that doctor and the licence number cannot change.
+     * The email is never changed here and activation is never changed here.
+     */
+    @Transactional
+    public DoctorProfileResponse updateDoctorProfile(String systemId, UpdateDoctorProfileRequest request, boolean asAdmin) {
+        if (asAdmin) {
+            authorizationService.requireAdmin();
+        } else {
+            authorizationService.requireRole(AuthorizationService.DOCTOR);
+            if (!authorizationService.currentSystemId().equals(systemId)) {
+                throw new AuthorizationException("You can only access your own doctor data");
+            }
+        }
+        return applyUpdate(systemId, request, asAdmin);
+    }
+
+    private DoctorProfileResponse applyUpdate(String systemId, UpdateDoctorProfileRequest request, boolean asAdmin) {
+        User user = userRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
+        if (request == null) {
+            return fullProfile(user, doctor);
+        }
+
+        // Refusals first, so a request that fails changes nothing.
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            throw new BadRequestException(EMAIL_REFUSED);
+        }
+        String licenseNo = request.getLicenseNo();
+        boolean licenceChanges = licenseNo != null && !licenseNo.isBlank()
+                && (doctor.getLicenseNo() == null || !licenseNo.trim().equalsIgnoreCase(doctor.getLicenseNo()));
+        if (licenceChanges) {
+            if (!asAdmin) {
+                throw new BadRequestException(LICENCE_ADMIN_ONLY);
+            }
+            if (doctorRepository.existsByLicenseNoIgnoreCaseAndSystemIdNot(licenseNo.trim(), systemId)) {
+                throw new ConflictException("License number is already registered to another doctor");
+            }
+        }
+        String phone = blankToNull(request.getPhone());
+        if (phone != null && !phone.equals(user.getPhone())) {
+            userRepository.findByPhone(phone)
+                    .filter(other -> !other.getSystemId().equals(systemId))
+                    .ifPresent(other -> {
+                        throw new ConflictException("Phone number already registered");
+                    });
+        }
+
+        String firstName = blankToNull(request.getFirstName());
+        if (firstName != null) {
+            user.setFirstName(firstName);
+        }
+        String lastName = blankToNull(request.getLastName());
+        if (lastName != null) {
+            user.setLastName(lastName);
+        }
+        if (phone != null) {
+            user.setPhone(phone);
+        }
+        String specialization = blankToNull(request.getSpecialization());
+        if (specialization != null) {
+            doctor.setSpecialization(specialization);
+        }
+        if (request.getBio() != null) {
+            String bio = request.getBio().trim();
+            doctor.setBio(bio.isEmpty() ? null : bio);
+        }
+        if (licenceChanges) {
+            doctor.setLicenseNo(licenseNo.trim());
+        }
+        // request.isActive is ignored on purpose: activation is an administrator decision (be-admin-users).
+        user.setUpdatedAt(LocalDateTime.now(clock));
+
+        userRepository.save(user);
+        doctorRepository.save(doctor);
+        auditService.logAccountEvent(authorizationService.currentSystemId(), "PROFILE_UPDATE", RESOURCE, systemId,
+                "SUCCESS");
+        return fullProfile(user, doctor);
+    }
+
+    // ==================== DIRECTORY (any signed-in user, public view) ====================
+
+    /**
+     * One page of listed doctors, ordered by last name, first name, system id.
+     *
+     * @param query          case-insensitive "contains" on first name, last name, "first last" or specialization
+     * @param specialization case-insensitive "contains" on specialization
+     */
+    public PageResponse<DoctorProfileResponse> getDirectory(String query, String specialization, int page, int size) {
+        authorizationService.currentSystemId();
+        Pageable pageable = PageParams.of(page, size, null);
+        String q = blankToNull(query);
+        String spec = blankToNull(specialization);
+        long total = directoryRepository.countListed(q, spec);
+        List<DoctorProfileResponse> content = total == 0 ? List.of()
+                : directoryRepository.findListed(q, spec, pageable.getPageSize(), pageable.getOffset()).stream()
+                .map(DoctorProfileService::toPublicProfile)
+                .toList();
+        int totalPages = (int) ((total + pageable.getPageSize() - 1) / pageable.getPageSize());
+        return PageResponse.<DoctorProfileResponse>builder()
+                .content(content)
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .totalElements(total)
+                .totalPages(totalPages)
+                .build();
+    }
+
+    /**
+     * Deprecated array form of the directory: the first {@link #LEGACY_LIST_CAP} listed doctors in directory order.
+     */
+    public List<DoctorProfileResponse> getAllActiveDoctorsProfiles() {
+        authorizationService.currentSystemId();
+        return directoryRepository.findListed(null, null, LEGACY_LIST_CAP, 0).stream()
+                .map(DoctorProfileService::toPublicProfile)
+                .toList();
+    }
+
+    /**
+     * Public profile: the public view for a listed doctor; the name-only view (isActive false) for an existing doctor
+     * who is not listed, so past patients still see the real name. 404 "Doctor not found" when there is no clinician
+     * or account row.
+     */
+    public DoctorProfileResponse getPublicDoctorProfile(String doctorSystemId) {
+        authorizationService.currentSystemId();
+        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
+        User user = userRepository.findBySystemId(doctorSystemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
+        if (directoryRepository.isListed(doctorSystemId)) {
+            return toPublicProfile(new DirectoryRow(doctor.getSystemId(), user.getUserId(), user.getFirstName(),
+                    user.getLastName(), doctor.getSpecialization(), doctor.getBio()));
+        }
+        return DoctorProfileResponse.builder()
+                .doctorSystemId(doctor.getSystemId())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .isActive(false)
+                .build();
+    }
+
+    // ==================== LEGACY ADMIN METHODS (deprecated; be-admin-users owns verification) ====================
+
+    /**
+     * Doctors awaiting verification (verification_status PENDING), oldest first, at most {@link #LEGACY_LIST_CAP}.
+     *
+     * @deprecated administrators use the clinician queue of the admin API.
+     */
+    @Deprecated
+    public List<DoctorProfileResponse> getPendingDoctors() {
+        authorizationService.requireAdmin();
+        return doctorRepository.findByVerificationStatusOrderByCreatedAtAscDoctorIdAsc(Doctor.VERIFICATION_PENDING,
+                        PageRequest.of(0, LEGACY_LIST_CAP)).stream()
+                .map(doctor -> userRepository.findBySystemId(doctor.getSystemId())
+                        .map(user -> fullProfile(user, doctor))
+                        .orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Flips activation. Administrators only.
+     *
+     * @deprecated use the admin user and clinician verification endpoints.
+     */
+    @Deprecated
+    @Transactional
+    public DoctorProfileResponse toggleDoctorStatus(String systemId) {
+        authorizationService.requireAdmin();
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
+        return Boolean.TRUE.equals(doctor.getIsActive()) ? deactivateDoctor(systemId) : activateDoctor(systemId);
+    }
+
+    /**
+     * Approves a doctor: doctors.is_active and users.is_active true, verification_status APPROVED, stamped with the
+     * administrator and the time. Administrators only.
+     *
+     * @deprecated use the admin clinician verification endpoints (they also check the licence).
+     */
+    @Deprecated
+    @Transactional
+    public DoctorProfileResponse activateDoctor(String systemId) {
+        authorizationService.requireAdmin();
+        return setDoctorActive(systemId, true);
+    }
+
+    /**
+     * Suspends a doctor: both active flags false, verification_status SUSPENDED, stamped with the administrator and
+     * the time. The caller should also revoke the doctor's sessions; the JWT filter already rejects inactive users.
+     * Administrators only.
+     *
+     * @deprecated use the admin user deactivation endpoint.
+     */
+    @Deprecated
+    @Transactional
+    public DoctorProfileResponse deactivateDoctor(String systemId) {
+        authorizationService.requireAdmin();
+        return setDoctorActive(systemId, false);
+    }
+
+    private DoctorProfileResponse setDoctorActive(String systemId, boolean active) {
+        Doctor doctor = doctorRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
         User user = userRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
+        LocalDateTime now = LocalDateTime.now(clock);
+        doctor.setIsActive(active);
+        doctor.setVerificationStatus(active ? Doctor.VERIFICATION_APPROVED : Doctor.VERIFICATION_SUSPENDED);
+        doctor.setVerifiedBySystemId(authorizationService.currentSystemId());
+        doctor.setVerifiedAt(now);
+        if (active) {
+            doctor.setRejectionReason(null);
+        }
+        user.setIsActive(active);
+        user.setUpdatedAt(now);
+
+        userRepository.save(user);
+        doctorRepository.save(doctor);
+        auditService.logAccountEvent(authorizationService.currentSystemId(),
+                active ? "DOCTOR_VERIFY" : "USER_DEACTIVATE", RESOURCE, systemId, "SUCCESS");
+        return fullProfile(user, doctor);
+    }
+
+    // ==================== VIEWS ====================
+
+    private DoctorProfileResponse fullProfile(String systemId) {
+        User user = userRepository.findBySystemId(systemId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         Doctor doctor = doctorRepository.findBySystemId(systemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
+        return fullProfile(user, doctor);
+    }
 
-        List<Appointment> appointments = appointmentRepository.findByDoctorSystemId(systemId);
-        List<Consultation> consultations = consultationRepository.findByDoctorSystemId(systemId);
-
-        Set<String> uniquePatients = appointments.stream()
-                .map(Appointment::getPatientSystemId)
-                .collect(Collectors.toSet());
-
-        long completedConsultations = consultations.stream()
-                .filter(c -> "COMPLETED".equals(c.getStatus()))
-                .count();
-
-        List<MedicalRecord> medicalRecords = medicalRecordRepository.findByDoctorSystemIdAndIsDeletedFalse(systemId);
-
-        int totalPrescriptions = prescriptionRepository.findByDoctorSystemId(systemId).size();
-
+    /** Full view; every counter is a COUNT query. */
+    private DoctorProfileResponse fullProfile(User user, Doctor doctor) {
+        String id = doctor.getSystemId();
         return DoctorProfileResponse.builder()
-                .doctorSystemId(doctor.getSystemId())
+                .doctorSystemId(id)
                 .userId(user.getUserId())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
@@ -79,286 +352,43 @@ public class DoctorProfileService {
                 .phone(user.getPhone())
                 .specialization(doctor.getSpecialization())
                 .licenseNo(doctor.getLicenseNo())
+                .licensingBody(doctor.getLicensingBody())
+                .licenseCountry(doctor.getLicenseCountry())
+                .verificationStatus(doctor.getVerificationStatus())
                 .bio(doctor.getBio())
                 .isActive(doctor.getIsActive())
                 .role(user.getRole())
-                .totalPatients(uniquePatients.size())
-                .totalAppointments(appointments.size())
-                .totalConsultations(consultations.size())
-                .completedConsultations((int) completedConsultations)
-                .totalPrescriptions(totalPrescriptions)
-                .totalMedicalRecords(medicalRecords.size())
+                .totalPatients(toInt(patientQueryRepository.countRelatedPatients(id,
+                        DoctorPatientQueryRepository.Filter.NONE)))
+                .totalAppointments(toInt(doctorRepository.countAppointmentsOfDoctor(id)))
+                .totalConsultations(toInt(doctorRepository.countConsultationsOfDoctor(id)))
+                .completedConsultations(toInt(doctorRepository.countCompletedConsultationsOfDoctor(id)))
+                .totalPrescriptions(toInt(doctorRepository.countPrescriptionsOfDoctor(id)))
+                .totalMedicalRecords(toInt(doctorRepository.countMedicalRecordsOfDoctor(id)))
                 .doctorCreatedAt(doctor.getCreatedAt())
                 .userCreatedAt(user.getCreatedAt())
                 .userUpdatedAt(user.getUpdatedAt())
                 .build();
     }
 
-    /**
-     * Update a doctor profile. Activation state is never changed here (use the admin status endpoints).
-     * The licence number is part of clinician verification, so only an admin ({@code asAdmin}) may change it.
-     */
-    @Transactional
-    public DoctorProfileResponse updateDoctorProfile(String systemId, UpdateDoctorProfileRequest request, boolean asAdmin) {
-        User user = userRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-
-        if (request.getFirstName() != null && !request.getFirstName().isBlank()) {
-            user.setFirstName(requireMaxLength(request.getFirstName().trim(), 100, "First name"));
-        }
-        if (request.getLastName() != null && !request.getLastName().isBlank()) {
-            user.setLastName(requireMaxLength(request.getLastName().trim(), 100, "Last name"));
-        }
-        if (request.getEmail() != null && !request.getEmail().isBlank()) {
-            String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
-            if (email.length() > 150 || !EMAIL_PATTERN.matcher(email).matches()) {
-                throw new RuntimeException("Please enter a valid email address");
-            }
-            if (!email.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmailIgnoreCase(email)) {
-                throw new ConflictException("Email already registered");
-            }
-            user.setEmail(email);
-        }
-        if (request.getPhone() != null && !request.getPhone().isBlank()) {
-            String phone = requireMaxLength(request.getPhone().trim(), 20, "Phone number");
-            userRepository.findByPhone(phone)
-                    .filter(other -> !other.getSystemId().equals(systemId))
-                    .ifPresent(other -> {
-                        throw new ConflictException("Phone number already registered");
-                    });
-            user.setPhone(phone);
-        }
-
-        if (request.getSpecialization() != null && !request.getSpecialization().isBlank()) {
-            doctor.setSpecialization(requireMaxLength(request.getSpecialization().trim(), 150, "Specialization"));
-        }
-        if (request.getLicenseNo() != null && !request.getLicenseNo().isBlank()
-                && !request.getLicenseNo().trim().equals(doctor.getLicenseNo())) {
-            if (!asAdmin) {
-                throw new RuntimeException("License number changes must be made by an administrator");
-            }
-            String licenseNo = requireMaxLength(request.getLicenseNo().trim(), 50, "License number");
-            doctorRepository.findByLicenseNo(licenseNo)
-                    .filter(other -> !other.getSystemId().equals(systemId))
-                    .ifPresent(other -> {
-                        throw new ConflictException("License number is already registered to another doctor");
-                    });
-            doctor.setLicenseNo(licenseNo);
-        }
-        if (request.getBio() != null) {
-            doctor.setBio(request.getBio());
-        }
-        // request.isActive is ignored on purpose: activation is the admin verification path
-
-        userRepository.save(user);
-        doctorRepository.save(doctor);
-
-        return getDoctorProfile(systemId);
-    }
-
-    /**
-     * Full profile of a doctor by system ID (caller must be that doctor or an admin).
-     */
-    public DoctorProfileResponse getDoctorProfileById(String doctorSystemId) {
-        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
-
-        return getDoctorProfile(doctor.getSystemId());
-    }
-
-    /**
-     * Public directory view of one doctor. Pending or deactivated doctors are reported as not found.
-     */
-    public DoctorProfileResponse getPublicDoctorProfile(String doctorSystemId) {
-        Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
-        User user = userRepository.findBySystemId(doctorSystemId)
-                .filter(u -> isListable(doctor, u))
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
-        return toPublicProfile(doctor, user);
-    }
-
-    /**
-     * Doctors that are verified/active and whose account is active.
-     */
-    public List<Doctor> getAllActiveDoctors() {
-        return doctorRepository.findAll().stream()
-                .filter(doctor -> userRepository.findBySystemId(doctor.getSystemId())
-                        .map(user -> isListable(doctor, user))
-                        .orElse(false))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Public directory (used by patients for booking).
-     */
-    public List<DoctorProfileResponse> getAllActiveDoctorsProfiles() {
-        return toPublicProfiles(getAllActiveDoctors());
-    }
-
-    public List<DoctorProfileResponse> searchDoctorsBySpecialization(String specialization) {
-        String term = specialization == null ? "" : specialization.toLowerCase(Locale.ROOT);
-        return toPublicProfiles(getAllActiveDoctors().stream()
-                .filter(doctor -> doctor.getSpecialization() != null &&
-                        doctor.getSpecialization().toLowerCase(Locale.ROOT).contains(term))
-                .collect(Collectors.toList()));
-    }
-
-    public List<DoctorProfileResponse> searchDoctorsByName(String searchTerm) {
-        String lowerSearchTerm = searchTerm == null ? "" : searchTerm.toLowerCase(Locale.ROOT);
-        return getAllActiveDoctors().stream()
-                .map(doctor -> userRepository.findBySystemId(doctor.getSystemId())
-                        .filter(user -> (user.getFirstName() + " " + user.getLastName()).toLowerCase(Locale.ROOT).contains(lowerSearchTerm))
-                        .map(user -> toPublicProfile(doctor, user))
-                        .orElse(null))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Public filter: listable doctors, optionally by specialization.
-     */
-    public List<DoctorProfileResponse> getActiveDoctorsBySpecialization(String specialization) {
-        if (specialization == null || specialization.isBlank()) {
-            return getAllActiveDoctorsProfiles();
-        }
-        return searchDoctorsBySpecialization(specialization);
-    }
-
-    /**
-     * Admin filter over ALL doctors (including pending / deactivated), full profiles.
-     */
-    public List<DoctorProfileResponse> getDoctorsBySpecializationAndActive(String specialization, Boolean isActive) {
-        return doctorRepository.findAll().stream()
-                .filter(doctor -> (isActive == null || isActive.equals(doctor.getIsActive())) &&
-                        (specialization == null || (doctor.getSpecialization() != null &&
-                                doctor.getSpecialization().toLowerCase(Locale.ROOT).contains(specialization.toLowerCase(Locale.ROOT)))))
-                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Doctors awaiting verification: users.is_active = false AND doctors.is_active = false.
-     */
-    public List<DoctorProfileResponse> getPendingDoctors() {
-        return doctorRepository.findAll().stream()
-                .filter(doctor -> !Boolean.TRUE.equals(doctor.getIsActive()))
-                .filter(doctor -> userRepository.findBySystemId(doctor.getSystemId())
-                        .map(user -> !Boolean.TRUE.equals(user.getIsActive()))
-                        .orElse(false))
-                .map(doctor -> getDoctorProfile(doctor.getSystemId()))
-                .collect(Collectors.toList());
-    }
-
-    @Transactional
-    public DoctorProfileResponse updateDoctorSpecialization(String systemId, String specialization) {
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-
-        if (specialization == null || specialization.isBlank()) {
-            throw new RuntimeException("Specialization is required");
-        }
-        doctor.setSpecialization(requireMaxLength(specialization.trim(), 150, "Specialization"));
-        doctorRepository.save(doctor);
-
-        return getDoctorProfile(systemId);
-    }
-
-    @Transactional
-    public DoctorProfileResponse updateDoctorBio(String systemId, String bio) {
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-
-        doctor.setBio(bio);
-        doctorRepository.save(doctor);
-
-        return getDoctorProfile(systemId);
-    }
-
-    /**
-     * Admin only: flips activation (both doctors.is_active and users.is_active).
-     */
-    @Transactional
-    public DoctorProfileResponse toggleDoctorStatus(String systemId) {
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-
-        return Boolean.TRUE.equals(doctor.getIsActive()) ? deactivateDoctor(systemId) : activateDoctor(systemId);
-    }
-
-    /**
-     * Admin only: verifies / re-activates a doctor (sets doctors.is_active and users.is_active to true).
-     * This is the approval path for self-registered doctors.
-     */
-    @Transactional
-    public DoctorProfileResponse activateDoctor(String systemId) {
-        return setDoctorActive(systemId, true);
-    }
-
-    /**
-     * Admin only: deactivates a doctor (both flags false). The caller should also revoke the doctor's
-     * refresh tokens (AuthService.logout); the JWT filter already rejects inactive users on every request.
-     */
-    @Transactional
-    public DoctorProfileResponse deactivateDoctor(String systemId) {
-        return setDoctorActive(systemId, false);
-    }
-
-    private DoctorProfileResponse setDoctorActive(String systemId, boolean active) {
-        Doctor doctor = doctorRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor profile not found"));
-
-        User user = userRepository.findBySystemId(systemId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        doctor.setIsActive(active);
-        user.setIsActive(active);
-
-        userRepository.save(user);
-        doctorRepository.save(doctor);
-
-        return getDoctorProfile(systemId);
-    }
-
-    // ==================== HELPERS ====================
-
-    private static boolean isListable(Doctor doctor, User user) {
-        return Boolean.TRUE.equals(doctor.getIsActive())
-                && Boolean.TRUE.equals(user.getIsActive())
-                && "DOCTOR".equals(user.getRole());
-    }
-
-    private List<DoctorProfileResponse> toPublicProfiles(List<Doctor> doctors) {
-        return doctors.stream()
-                .map(doctor -> userRepository.findBySystemId(doctor.getSystemId())
-                        .map(user -> toPublicProfile(doctor, user))
-                        .orElse(null))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Directory view: no email, phone, licence number, practice statistics or timestamps.
-     */
-    private DoctorProfileResponse toPublicProfile(Doctor doctor, User user) {
+    /** Public view: no email, phone, licence, verification data, counters or timestamps. */
+    private static DoctorProfileResponse toPublicProfile(DirectoryRow row) {
         return DoctorProfileResponse.builder()
-                .doctorSystemId(doctor.getSystemId())
-                .userId(user.getUserId())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .specialization(doctor.getSpecialization())
-                .bio(doctor.getBio())
-                .isActive(doctor.getIsActive())
+                .doctorSystemId(row.doctorSystemId())
+                .userId(row.userId())
+                .firstName(row.firstName())
+                .lastName(row.lastName())
+                .specialization(row.specialization())
+                .bio(row.bio())
+                .isActive(true)
                 .build();
     }
 
-    private static String requireMaxLength(String value, int max, String label) {
-        if (value.length() > max) {
-            throw new RuntimeException(label + " must be at most " + max + " characters");
-        }
-        return value;
+    private static int toInt(long value) {
+        return (int) Math.min(value, Integer.MAX_VALUE);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

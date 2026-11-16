@@ -7,35 +7,50 @@ import { caregiverMessagingState } from '@/hooks/use-caregiver-messaging';
 import { useDoctorPatients } from '@/hooks/use-doctor-patients';
 import { useMessageRecipients } from '@/hooks/use-message-recipients';
 import { usePageActive } from '@/hooks/use-page-active';
-import { createThread, newClientId, sendMessage } from '@/lib/communications/api';
-import { clearDraft, loadDraft, newConversationDraftKey, saveDraft, threadDraftKey } from '@/lib/communications/drafts';
+import { createThread, isNetworkError, newClientId, sendMessage } from '@/lib/communications/api';
+import { clearDraft, loadDraft, newConversationDraftKey, saveDraft } from '@/lib/communications/drafts';
 import { roleLabel } from '@/lib/communications/format';
+import { addFailedMessage, memoryOutboxKey, outboxSession, threadOutboxKey } from '@/lib/communications/outbox';
 import { onMessagingReset } from '@/lib/communications/session';
 import {
   MAX_MESSAGE_LENGTH, MAX_SUBJECT_LENGTH, OFFLINE_SEND_TEXT, URGENT_HELPER_TEXT,
   type ConversationType, type MessagingMode, type Thread,
 } from '@/lib/communications/types';
+import { SUPPORT_ADMIN_ROLE } from '@/lib/support/types';
 import { showMessage } from '@/lib/ui/dialogs';
+import { ariaLevel } from '@/components/web/ui/a11y';
 import { BORDER, Banner, ErrorBlock, GRAY, LIGHT, Loading, RED, TEXT, WHITE, useTheme } from './ui';
+
+/** Outline of text inputs: 4.83:1 on white (WCAG 1.4.11 asks 3:1 for the edge of a control). */
+const INPUT_BORDER = '#6B7280';
 
 interface Props {
   mode:       MessagingMode;
   mySystemId: string | null;
   onCancel:   () => void;
   onCreated:  (thread: Thread) => void;
+  /** 2 beside the conversation list (wide), 1 when this pane is the whole page (narrow). Default 2. */
+  headingLevel?: 1 | 2;
 }
 
-const TYPE_SUB: Record<ConversationType, string> = {
+/**
+ * The conversation types a person can start here. A support conversation is never one of them: it is opened
+ * from Help & Support (Contact support), has no patient and no chosen recipients.
+ */
+type StartableType = Exclude<ConversationType, 'SUPPORT'>;
+const STARTABLE_TYPES: StartableType[] = ['PRIVATE', 'CARE_TEAM'];
+
+const TYPE_SUB: Record<StartableType, string> = {
   PRIVATE:   'Between a doctor and the patient or one caregiver',
   CARE_TEAM: 'The patient, their doctors and approved caregivers',
 };
 
 /** Start a private or care-team conversation about one patient. */
-export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props) {
+export function NewConversation({ mode, mySystemId, onCancel, onCreated, headingLevel = 2 }: Props) {
   const { accent, accentBg } = useTheme();
   const { online } = usePageActive();
   const [patientId, setPatientId] = useState<string | null>(null);
-  const [type,      setType]      = useState<ConversationType>('PRIVATE');
+  const [type,      setType]      = useState<StartableType>('PRIVATE');
   const [selected,  setSelected]  = useState<string[]>([]);
   const [subject,   setSubject]   = useState('');
   const [body,      setBody]      = useState('');
@@ -93,7 +108,11 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
   useEffect(() => { clientThreadId.current = newClientId(); }, [effectivePatient, type, selectionKey]);
   useEffect(() => { clientMessageId.current = newClientId(); }, [effectivePatient, type, selectionKey, body, urgent]);
 
-  const list = recipients.data?.recipients ?? [];
+  // Administrators answer support conversations only; they are never a recipient (the server does not list them).
+  const list = useMemo(
+    () => (recipients.data?.recipients ?? []).filter(r => (r.role as string) !== SUPPORT_ADMIN_ROLE),
+    [recipients.data],
+  );
   const options = useMemo(
     () => list.filter(r => (type === 'PRIVATE' ? r.canStartPrivate : r.canAddToCareTeam)),
     [list, type],
@@ -147,12 +166,24 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
       return;
     }
     if (trimmedBody) {
+      const first = { clientMessageId: clientMessageId.current, body: trimmedBody, urgent };
+      const started = outboxSession();
       try {
-        await sendMessage(thread.threadId, { clientMessageId: clientMessageId.current, body: trimmedBody, urgent });
+        await sendMessage(thread.threadId, first);
       } catch (e) {
-        // Keep the text as the thread's draft so nothing is lost.
-        if (mySystemId) saveDraft(threadDraftKey(mySystemId, thread.threadId), trimmedBody);
-        showMessage('Message not sent', `${apiErrorMessage(e, 'Your conversation was started, but the message was not sent.')} Your text is kept in the message box.`);
+        // Signed out while the request was running: the unsent text must not be written back.
+        if (outboxSession() === started) {
+          // Keep it in the thread's outbox as a failed send, with the same id and urgent flag: the
+          // thread view offers Retry and Discard, and a retry cannot store the message twice.
+          const reason = isNetworkError(e)
+            ? OFFLINE_SEND_TEXT
+            : apiErrorMessage(e, 'Your conversation was started, but the message was not sent.');
+          addFailedMessage(
+            mySystemId ? threadOutboxKey(mySystemId, thread.threadId) : memoryOutboxKey(thread.threadId),
+            { ...first, error: reason },
+          );
+          showMessage('Message not sent', `${reason} Your message is kept in the conversation, where you can retry or discard it.`);
+        }
       }
     }
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -166,9 +197,9 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
     <View style={styles.wrap}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.iconBtn} onPress={onCancel} accessibilityRole="button" accessibilityLabel="Cancel new conversation">
-          <Ionicons name="close" size={20} color={TEXT} importantForAccessibility="no" />
+          <Ionicons aria-hidden name="close" size={20} color={TEXT} importantForAccessibility="no" />
         </TouchableOpacity>
-        <Text style={styles.title} accessibilityRole="header">New conversation</Text>
+        <Text style={styles.title} accessibilityRole="header" {...ariaLevel(headingLevel)}>New conversation</Text>
       </View>
       {!online && <Banner tone="warning" icon="cloud-offline-outline" text="You're offline. Reconnect to start a conversation." />}
 
@@ -184,8 +215,8 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
           <>
             {/* Type */}
             <Text style={styles.label}>Conversation type</Text>
-            <View style={styles.typeRow} accessibilityRole="radiogroup">
-              {(['PRIVATE', 'CARE_TEAM'] as ConversationType[]).map(t => {
+            <View style={styles.typeRow} accessibilityRole="radiogroup" accessibilityLabel="Conversation type">
+              {STARTABLE_TYPES.map(t => {
                 const on = type === t;
                 const available = t === 'PRIVATE' ? privateAvailable : careTeamAvailable;
                 return (
@@ -197,12 +228,11 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
                     accessibilityRole="radio"
                     accessibilityState={{ checked: on, disabled: !available }}
                     aria-checked={on}
-                    // Same words as the visible title and description (WCAG 2.5.3, label in name).
-                    accessibilityLabel={t === 'PRIVATE'
-                      ? `Private conversation, ${TYPE_SUB.PRIVATE.toLowerCase()}`
-                      : `Care team conversation, ${TYPE_SUB.CARE_TEAM.toLowerCase()}`}
+                    // The visible title, then the visible description (WCAG 2.5.3, label in name); the group
+                    // is named "Conversation type".
+                    accessibilityLabel={`${t === 'PRIVATE' ? 'Private' : 'Care team'}, ${TYPE_SUB[t]}`}
                   >
-                    <Ionicons name={t === 'PRIVATE' ? 'person-outline' : 'people-outline'} size={16} color={on ? accent : GRAY} importantForAccessibility="no" />
+                    <Ionicons aria-hidden name={t === 'PRIVATE' ? 'person-outline' : 'people-outline'} size={16} color={on ? accent : GRAY} importantForAccessibility="no" />
                     <View style={styles.flex}>
                       <Text style={[styles.typeTitle, on && { color: accent }]}>{t === 'PRIVATE' ? 'Private' : 'Care team'}</Text>
                       <Text style={styles.typeSub}>{TYPE_SUB[t]}</Text>
@@ -223,7 +253,10 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
                   : 'No one can be added for this conversation type.'}
               </Text>
             ) : (
-              <View accessibilityRole={type === 'PRIVATE' ? 'radiogroup' : 'list'}>
+              <View
+                accessibilityRole={type === 'PRIVATE' ? 'radiogroup' : 'list'}
+                accessibilityLabel={type === 'PRIVATE' ? 'Send to' : 'Add people'}
+              >
                 {options.map(r => {
                   const on = selected.includes(r.systemId);
                   return (
@@ -234,9 +267,10 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
                       accessibilityRole={type === 'PRIVATE' ? 'radio' : 'checkbox'}
                       accessibilityState={{ checked: on }}
                       aria-checked={on}
-                      accessibilityLabel={r.label}
+                      // The visible name, then the visible role.
+                      accessibilityLabel={`${r.label}, ${roleLabel(r.role)}`}
                     >
-                      <Ionicons
+                      <Ionicons aria-hidden
                         name={type === 'PRIVATE' ? (on ? 'radio-button-on' : 'radio-button-off') : (on ? 'checkbox' : 'square-outline')}
                         size={18} color={on ? accent : LIGHT} importantForAccessibility="no"
                       />
@@ -282,9 +316,9 @@ export function NewConversation({ mode, mySystemId, onCancel, onCreated }: Props
               <Switch
                 value={urgent}
                 onValueChange={setUrgent}
-                trackColor={{ false: BORDER, true: '#FCA5A5' }}
+                trackColor={{ false: INPUT_BORDER, true: '#FCA5A5' }}
                 thumbColor={urgent ? RED : WHITE}
-                accessibilityLabel="Mark first message as urgent"
+                accessibilityLabel="Mark as urgent, first message"
                 accessibilityHint={URGENT_HELPER_TEXT}
               />
               <Text style={[styles.urgentLabel, urgent && { color: RED }]}>Mark as urgent</Text>
@@ -339,7 +373,7 @@ function CaregiverPatientPicker({ value, onChange }: { value: string | null; onC
       ) : active.length === 0 ? (
         <Text style={styles.note}>You are not linked to anyone yet.</Text>
       ) : (
-        <View accessibilityRole="radiogroup">
+        <View accessibilityRole="radiogroup" accessibilityLabel="Who is this about?">
           {active.map(d => {
             const name = d.patientName ?? 'Your loved one';
             const on = value === d.patientSystemId;
@@ -358,7 +392,7 @@ function CaregiverPatientPicker({ value, onChange }: { value: string | null; onC
                 aria-checked={on}
                 accessibilityLabel={reason ? `${name}. ${reason}` : name}
               >
-                <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
+                <Ionicons aria-hidden name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
                 <View style={styles.flex}>
                   <Text style={styles.pickName} numberOfLines={1}>{name}</Text>
                   {reason && <Text style={styles.pickRole}>{reason}</Text>}
@@ -402,7 +436,7 @@ function DoctorPatientPicker({ value, onChange }: { value: string | null; onChan
             accessibilityLabel="Search patients"
             accessibilityRole="search"
           />
-          <View accessibilityRole="radiogroup">
+          <View accessibilityRole="radiogroup" accessibilityLabel="Patient">
             {shown.map(p => {
               const on = value === p.patient_system_id;
               return (
@@ -415,7 +449,7 @@ function DoctorPatientPicker({ value, onChange }: { value: string | null; onChan
                   aria-checked={on}
                   accessibilityLabel={p.full_name}
                 >
-                  <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
+                  <Ionicons aria-hidden name={on ? 'radio-button-on' : 'radio-button-off'} size={18} color={on ? accent : LIGHT} importantForAccessibility="no" />
                   <Text style={[styles.pickName, styles.flex]} numberOfLines={1}>{p.full_name}</Text>
                 </TouchableOpacity>
               );
@@ -448,7 +482,7 @@ const styles = StyleSheet.create({
   pickRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: 'transparent', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 8 },
   pickName: { fontSize: 13, color: TEXT, fontWeight: '500' },
   pickRole: { fontSize: 11, color: GRAY },
-  input:    { borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: TEXT },
+  input:    { borderWidth: 1, borderColor: INPUT_BORDER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: TEXT },
   textarea: { minHeight: 90, textAlignVertical: 'top' },
   urgentRow:{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   urgentLabel: { fontSize: 12, color: GRAY, fontWeight: '600' },

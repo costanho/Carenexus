@@ -2,6 +2,11 @@ package com.carenexus.api.communications;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.exception.BadRequestException;
+import com.carenexus.api.common.dto.PageResponse;
+import com.carenexus.api.communications.dto.request.ArchiveThreadRequest;
+import com.carenexus.api.communications.dto.response.ThreadResponse;
+import com.carenexus.api.communications.model.Message;
 import com.carenexus.api.common.exception.ConflictException;
 import com.carenexus.api.common.service.AuditService;
 import com.carenexus.api.communications.dto.request.AddThreadMembersRequest;
@@ -25,6 +30,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -75,9 +83,15 @@ public class ThreadServiceTest {
         when(threadRepository.save(any(MessageThread.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
+    private Caller stubCaller(Caller caller) {
+        when(accessService.requireCaller()).thenReturn(caller);
+        when(accessService.requireMessagingCaller()).thenReturn(caller);
+        return caller;
+    }
+
     private Caller callerIs(String systemId, String role, MessageThread thread, ThreadMember member) {
         Caller caller = new Caller(systemId, role);
-        when(accessService.requireCaller()).thenReturn(caller);
+        stubCaller(caller);
         when(accessService.requireThreadAccess(caller, thread.getThreadId())).thenReturn(new ThreadAccess(thread, member));
         return caller;
     }
@@ -201,7 +215,7 @@ public class ThreadServiceTest {
     @Test
     public void createPrivate_existingPairReturned_insteadOfDuplicate() {
         Caller caller = new Caller(PATIENT, "PATIENT");
-        when(accessService.requireCaller()).thenReturn(caller);
+        stubCaller(caller);
         MessageThread existing = MessageThread.builder().threadId(7).patientSystemId(PATIENT).conversationType("PRIVATE")
                 .threadType("PATIENT_DOCTOR").createdAt(LocalDateTime.now()).build();
         when(threadRepository.findPrivateThreadsBetween(PATIENT, PATIENT, DOCTOR)).thenReturn(List.of(existing));
@@ -217,7 +231,7 @@ public class ThreadServiceTest {
 
     @Test
     public void createPrivate_patientAndCaregiver_isNotAnAllowedShape() {
-        when(accessService.requireCaller()).thenReturn(new Caller(PATIENT, "PATIENT"));
+        stubCaller(new Caller(PATIENT, "PATIENT"));
 
         RuntimeException ex = assertThrows(RuntimeException.class, () -> threadService.createThread(CreateThreadRequest.builder()
                 .patientSystemId(PATIENT).type("PRIVATE").memberSystemIds(List.of(CAREGIVER)).build()));
@@ -226,7 +240,7 @@ public class ThreadServiceTest {
 
     @Test
     public void createCareTeam_addsPatientAutomatically_withZeroBoundary() {
-        when(accessService.requireCaller()).thenReturn(new Caller(CAREGIVER, "CAREGIVER"));
+        stubCaller(new Caller(CAREGIVER, "CAREGIVER"));
         when(threadRepository.save(any(MessageThread.class))).thenAnswer(inv -> {
             MessageThread t = inv.getArgument(0);
             t.setThreadId(55);
@@ -251,7 +265,7 @@ public class ThreadServiceTest {
 
     @Test
     public void createCareTeam_withoutDoctor_is400() {
-        when(accessService.requireCaller()).thenReturn(new Caller(PATIENT, "PATIENT"));
+        stubCaller(new Caller(PATIENT, "PATIENT"));
 
         RuntimeException ex = assertThrows(RuntimeException.class, () -> threadService.createThread(CreateThreadRequest.builder()
                 .type("CARE_TEAM").memberSystemIds(List.of(CAREGIVER)).build()));
@@ -278,6 +292,145 @@ public class ThreadServiceTest {
             assertFalse(m.isActive());
         }
         verify(notificationRepository).markThreadsRead(eq(CAREGIVER), eq(List.of(41, 42)), any(LocalDateTime.class));
+    }
+
+    // ==================== HARDENING ====================
+
+    @Test
+    public void createThread_supportType_is400WithTypedException() {
+        stubCaller(new Caller(PATIENT, "PATIENT"));
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> threadService.createThread(
+                CreateThreadRequest.builder().type("SUPPORT").build()));
+        assertEquals("Conversation type must be PRIVATE or CARE_TEAM", ex.getMessage());
+    }
+
+    @Test
+    public void createThread_doctorWithoutPatient_is400() {
+        stubCaller(new Caller(DOCTOR, "DOCTOR"));
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> threadService.createThread(
+                CreateThreadRequest.builder().type("CARE_TEAM").build()));
+        assertEquals("Patient ID is required", ex.getMessage());
+    }
+
+    @Test
+    public void listThreads_withoutFilter_includesSupportAndAuditsOneRowPerPatient() {
+        Caller caller = stubCaller(new Caller(PATIENT, "PATIENT"));
+        when(accessService.actablePatients(caller)).thenReturn(Set.of(PATIENT));
+        MessageThread support = supportThread(57, PATIENT);
+        when(threadRepository.findForMemberWithSupport(eq(PATIENT), anyCollection(), eq(true), eq(false), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(support, careTeam), inv.getArgument(4), 2));
+
+        PageResponse<ThreadResponse> page = threadService.listThreads(null, false, -3, 500);
+
+        assertEquals(2, page.getContent().size());
+        verify(threadRepository).findForMemberWithSupport(eq(PATIENT), eq(Set.of(PATIENT)), eq(true), eq(false),
+                eq(PageRequest.of(0, 50)));
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ArgumentCaptor<Collection<MessageThread>> rows = ArgumentCaptor.forClass((Class) Collection.class);
+        verify(auditService).logListRead(eq("MESSAGE_THREAD"), rows.capture(), any());
+        assertEquals(2, rows.getValue().size());
+    }
+
+    @Test
+    public void listThreads_withPatientFilter_leavesSupportOut() {
+        Caller caller = stubCaller(new Caller(DOCTOR, "DOCTOR"));
+        when(accessService.actablePatients(caller)).thenReturn(Set.of(PATIENT));
+        when(threadRepository.findForMemberWithSupport(anyString(), anyCollection(), anyBoolean(), anyBoolean(), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(), inv.getArgument(4), 0));
+
+        threadService.listThreads(PATIENT, false, 0, 20);
+
+        verify(threadRepository).findForMemberWithSupport(eq(DOCTOR), eq(Set.of(PATIENT)), eq(false), eq(false), any(Pageable.class));
+    }
+
+    @Test
+    public void listThreads_caregiverWithoutGrants_stillSeesOwnSupportThreads() {
+        Caller caller = stubCaller(new Caller(CAREGIVER, "CAREGIVER"));
+        when(accessService.actablePatients(caller)).thenReturn(Set.of());
+        when(threadRepository.findForMemberWithSupport(anyString(), anyCollection(), anyBoolean(), anyBoolean(), any(Pageable.class)))
+                .thenAnswer(inv -> new PageImpl<>(List.of(), inv.getArgument(4), 0));
+
+        threadService.listThreads(null, false, 0, 20);
+
+        verify(threadRepository).findForMemberWithSupport(eq(CAREGIVER), eq(List.of(MessageThreadRepository.NO_PATIENT)),
+                eq(true), eq(false), any(Pageable.class));
+    }
+
+    @Test
+    public void supportThread_memberChangesAre409_forOpenerAndAdministrator() {
+        MessageThread support = supportThread(57, CAREGIVER);
+        callerIs(CAREGIVER, "CAREGIVER", support, member(CAREGIVER, "CAREGIVER"));
+        ConflictException add = assertThrows(ConflictException.class, () -> threadService.addMembers(57,
+                AddThreadMembersRequest.builder().systemIds(List.of(DOCTOR)).build()));
+        assertEquals("Members of a support conversation cannot be changed", add.getMessage());
+        ConflictException leave = assertThrows(ConflictException.class, () -> threadService.removeMember(57, CAREGIVER));
+        assertEquals("Members of a support conversation cannot be changed", leave.getMessage());
+
+        stubCaller(new Caller("ADM-00001", "ADMIN"));
+        when(accessService.requireThread(57)).thenReturn(support);
+        assertThrows(ConflictException.class, () -> threadService.removeMember(57, CAREGIVER));
+        ConflictException archive = assertThrows(ConflictException.class, () -> threadService.setArchived(57,
+                ArchiveThreadRequest.builder().archived(true).build()));
+        assertEquals("Support conversations are closed, not archived", archive.getMessage());
+        verify(memberRepository, never()).save(any());
+    }
+
+    @Test
+    public void supportThread_openerMayArchive() {
+        MessageThread support = supportThread(57, CAREGIVER);
+        ThreadMember opener = member(CAREGIVER, "CAREGIVER");
+        callerIs(CAREGIVER, "CAREGIVER", support, opener);
+
+        threadService.setArchived(57, ArchiveThreadRequest.builder().archived(true).build());
+
+        assertNotNull(opener.getArchivedAt());
+        verify(memberRepository).save(opener);
+    }
+
+    @Test
+    public void supportThread_responseHasNoPatient_supportLabels_andClosedState() {
+        MessageThread support = supportThread(57, CAREGIVER);
+        support.setClosedAt(LocalDateTime.now());
+        Caller caller = new Caller(CAREGIVER, "CAREGIVER");
+        Map<String, User> users = new HashMap<>(eligible);
+        users.put("ADM-00001", user("ADM-00001", "ADMIN"));
+        when(accessService.usersById(anyCollection())).thenReturn(users);
+        ThreadMember admin = member("ADM-00001", "ADMIN");
+        admin.setThreadId(57);
+        ThreadMember opener = member(CAREGIVER, "CAREGIVER");
+        opener.setThreadId(57);
+        when(memberRepository.findActiveByThreadIds(anyCollection())).thenReturn(List.of(opener, admin));
+        Message last = Message.builder().messageId(931).threadId(57).senderSystemId("ADM-00001").body("Thanks")
+                .isUrgent(true).isDeleted(false).sentAt(LocalDateTime.now()).build();
+        when(messageRepository.findLastVisible(anyString(), anyCollection())).thenReturn(List.of(last));
+        when(messageRepository.findUnreadStats(anyString(), anyCollection()))
+                .thenReturn(List.<Object[]>of(new Object[]{57, 1L, 1L}));
+
+        ThreadResponse response = threadService.toResponse(caller, support);
+
+        assertEquals("SUPPORT", response.getType());
+        assertNull(response.getPatientSystemId());
+        assertNull(response.getPatientName());
+        assertEquals("F" + CAREGIVER + " L (Caregiver)", response.getMembers().get(0).getLabel());
+        assertEquals("FADM-00001 L (Support)", response.getMembers().get(1).getLabel());
+        assertEquals("FADM-00001 L (Support)", response.getLastMessage().getSenderLabel());
+        assertFalse(response.getHasUrgentUnread());
+        assertFalse(response.getCanManageMembers());
+        assertTrue(response.getClosed());
+        assertNotNull(response.getClosedAt());
+    }
+
+    @Test
+    public void clinicalThread_isNeverClosed() {
+        ThreadResponse response = threadService.toResponse(new Caller(PATIENT, "PATIENT"), careTeam);
+        assertFalse(response.getClosed());
+        assertNull(response.getClosedAt());
+    }
+
+    private static MessageThread supportThread(int id, String opener) {
+        return MessageThread.builder().threadId(id).patientSystemId(null).conversationType(MessageThread.SUPPORT)
+                .threadType(MessageThread.THREAD_TYPE_PATIENT_SUPPORT).createdBySystemId(opener)
+                .createdAt(LocalDateTime.now()).build();
     }
 
     // ==================== helpers ====================

@@ -16,7 +16,7 @@ import com.carenexus.api.core.repository.CaregiverRepository;
 import com.carenexus.api.core.repository.DoctorRepository;
 import com.carenexus.api.core.repository.PatientRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -81,6 +81,9 @@ public class BaseIntegrationTest {
 
     /**
      * Create and save a user plus its profile row (patients / doctors / caregivers), flushed immediately.
+     * The user is active with a verified email; a DOCTOR is an APPROVED clinician.
+     * The system id is inserted as given: SystemIdGenerator skips ids that already exist, so accounts created
+     * through the API in the same test never collide with fixture ids.
      * The schema comes from the real Flyway migrations, so foreign keys to users(system_id) and to the
      * profile tables are enforced. userId is only used to build unique test values; the database assigns
      * the real user_id (read it from the returned user).
@@ -100,18 +103,40 @@ public class BaseIntegrationTest {
         user.setIsActive(true);
         user.setCreatedAt(java.time.LocalDateTime.now());
         user.setUpdatedAt(java.time.LocalDateTime.now());
+        // Fixture users are ready to use: email confirmed, no forced password change.
+        user.setEmailVerifiedAt(java.time.LocalDateTime.now());
         User saved = userRepository.saveAndFlush(user);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         switch (role) {
             case "PATIENT" -> patientRepository.saveAndFlush(Patient.builder()
                     .systemId(systemId).healthStatus("STABLE").createdAt(now).build());
             case "DOCTOR" -> doctorRepository.saveAndFlush(Doctor.builder()
-                    .systemId(systemId).specialization("General Practice").isActive(true).createdAt(now).build());
+                    .systemId(systemId).specialization("General Practice").isActive(true)
+                    // Fixture doctors are verified clinicians (directory, referrals, care team, sign-in).
+                    .verificationStatus(Doctor.VERIFICATION_APPROVED).verifiedAt(now)
+                    .createdAt(now).build());
             case "CAREGIVER" -> caregiverRepository.saveAndFlush(Caregiver.builder()
                     .systemId(systemId).createdAt(now).build());
             default -> { }
         }
         return saved;
+    }
+
+    /**
+     * Makes {@code user} the authenticated caller of the current thread, for tests that call services directly
+     * (the JWT filter does this for HTTP requests). Call {@link #clearAuthentication()} when the test set it on a
+     * thread that outlives the test.
+     */
+    protected void authenticateAs(User user) {
+        var principal = new com.carenexus.api.auth.config.CustomUserDetails(
+                user.getUserId(), user.getSystemId(), user.getEmail(), user.getRole());
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        principal, null, principal.getAuthorities()));
+    }
+
+    protected void clearAuthentication() {
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     /**

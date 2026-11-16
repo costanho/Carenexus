@@ -166,6 +166,50 @@ public class CallSessionServiceTest {
     }
 
     @Test
+    public void outcome_endsReadySessionThatNeverStarted_removesParticipants_andEnqueuesDeleteRoom() {
+        Appointment appointment = appointment("VIDEO", "COMPLETED", LocalDateTime.now().minusMinutes(10), 30);
+        CallSession session = liveSession();
+        session.setStatus(CallSession.READY);
+        session.setStartedAt(null);
+        CallParticipant requested = participant(6L, CallParticipant.REQUESTED);
+        when(appointmentRepository.findById(1)).thenReturn(Optional.of(appointment));
+        when(callSessionRepository.findForUpdateByAppointmentId(1)).thenReturn(Optional.of(session));
+        when(callParticipantRepository.findByCallSessionIdAndStatusIn(eq(10L), any()))
+                .thenReturn(List.of(requested));
+
+        service.syncWithAppointment(1, Kind.ENDED);
+
+        assertEquals(CallSession.ENDED, session.getStatus());
+        assertEquals(CallSession.END_APPOINTMENT_ENDED, session.getEndReason());
+        assertNotNull(session.getEndedAt());
+        assertEquals(CallParticipant.REMOVED, requested.getStatus());
+        assertEquals(CallParticipant.REASON_CALL_ENDED, requested.getRemovalReason());
+        verify(callJobService).cancelPendingCreateRoom(10L);
+        verify(callJobService).enqueueDeleteRoom(session, "cn_old");
+        verify(appointmentRepository, never()).save(any());
+    }
+
+    @Test
+    public void outcome_leavesLiveAndFinalSessionsUntouched() {
+        Appointment appointment = appointment("VIDEO", "NO_SHOW", LocalDateTime.now().minusMinutes(10), 30);
+        CallSession live = liveSession();
+        when(appointmentRepository.findById(1)).thenReturn(Optional.of(appointment));
+        when(callSessionRepository.findForUpdateByAppointmentId(1)).thenReturn(Optional.of(live));
+
+        service.syncWithAppointment(1, Kind.ENDED);
+        assertEquals(CallSession.LIVE, live.getStatus());
+
+        CallSession cancelled = liveSession();
+        cancelled.setStatus(CallSession.CANCELLED);
+        when(callSessionRepository.findForUpdateByAppointmentId(1)).thenReturn(Optional.of(cancelled));
+        service.syncWithAppointment(1, Kind.ENDED);
+        assertEquals(CallSession.CANCELLED, cancelled.getStatus());
+
+        verify(callJobService, never()).enqueueDeleteRoom(any(), any());
+        verify(callJobService, never()).cancelPendingCreateRoom(any());
+    }
+
+    @Test
     public void reschedule_removesParticipants_newRoom_preparing() {
         Appointment appointment = appointment("VIDEO", "RESCHEDULED", LocalDateTime.now().plusDays(3), 30);
         CallSession session = liveSession();

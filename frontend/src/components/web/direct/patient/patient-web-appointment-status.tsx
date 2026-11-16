@@ -1,265 +1,262 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import {
-  apiErrorMessage, appointmentCallJoin, cancelAppointment, isFutureSlot, isUpcomingAppointment,
-  rescheduleAppointment, useAppointments, type Appointment,
-} from '@/hooks/use-appointments';
-import { useEffect, useState } from 'react';
-import { confirmAction, showMessage } from '@/lib/ui/dialogs';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ReschedulePanel } from '@/components/web/appointments/reschedule-panel';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
+import {
+  ariaLevel, Banner, Button, Card, colors, decorative, EmptyView, ErrorView, fontSize, Icon, type IoniconsName,
+  LoadingView, radius, Screen, space, STATUS_TONES, StatusBadge, type StatusTone, type TabItem, Tabs, useUiTheme,
+  webOnly,
+} from '@/components/web/ui';
+import {
+  apiErrorMessage, appointmentCallJoin, applyAppointmentUpdate, cancelAppointment, isAppointmentAwaitingOutcome,
+  isUpcomingAppointment, toAppointment, useAppointmentCounts, useAppointments, type Appointment, type AppointmentFilter,
+} from '@/hooks/use-appointments';
 import { doctorInitial } from '@/hooks/use-doctors';
+import { useResource } from '@/hooks/use-resource';
+import { getAppointment } from '@/lib/appointments/api';
+import { APPOINTMENT_TYPE_LABEL } from '@/lib/appointments/rules';
+import type { AppointmentDto } from '@/lib/appointments/types';
+import { parseAppointmentId } from '@/lib/calls/join';
+import type { SectionProps } from '@/lib/nav/sections';
+import { formatClinicDate, formatClinicTime } from '@/lib/time/clinic';
+import { confirmAction, showMessage } from '@/lib/ui/dialogs';
 import { CallTimePending } from './call-time-pending';
-import { CalendarPicker, TimePicker } from './patient-web-appointment';
 
-const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
-const GREEN  = '#047857';
-const AMBER  = '#B45309';
-const RED    = '#B91C1C';
-const PURPLE = '#6D28D9';
-const SLATE  = '#374151';
-const WHITE  = '#FFFFFF';
-const TEXT   = '#111827';
-const GRAY   = '#6B7280';
-const BORDER = '#E5E7EB';
-const BG     = '#F9FAFB';
-const CARD   = '#FFFFFF';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type FilterKey = 'ALL' | 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | 'RESCHEDULED';
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName }> = {
-  SCHEDULED:   { label: 'Upcoming',    color: TEAL,   bg: '#E6F4F1', icon: 'time-outline'          },
-  COMPLETED:   { label: 'Completed',   color: GREEN,  bg: '#ECFDF5', icon: 'checkmark-circle-outline'},
-  CANCELLED:   { label: 'Cancelled',   color: RED,    bg: '#FEF2F2', icon: 'close-circle-outline'   },
-  NO_SHOW:     { label: 'No Show',     color: AMBER,  bg: '#FFFBEB', icon: 'alert-circle-outline'   },
-  RESCHEDULED: { label: 'Rescheduled', color: PURPLE, bg: '#F5F3FF', icon: 'refresh-outline'        },
+const TYPE_ICON: Record<Appointment['type'], IoniconsName> = {
+  IN_PERSON: 'business-outline',
+  VIDEO:     'videocam-outline',
+  PHONE:     'call-outline',
 };
 
-const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IoniconsName }> = {
-  IN_PERSON: { label: 'In Person',  color: TEAL,   bg: '#E6F4F1', icon: 'business-outline'  },
-  VIDEO:     { label: 'Video Call', color: INDIGO, bg: '#EEF2FF', icon: 'videocam-outline'   },
-  PHONE:     { label: 'Phone Call', color: GREEN,  bg: '#F0FDF4', icon: 'call-outline'       },
-};
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'ALL',         label: 'All'         },
-  { key: 'SCHEDULED',   label: 'Upcoming'    },
-  { key: 'COMPLETED',   label: 'Completed'   },
-  { key: 'RESCHEDULED', label: 'Rescheduled' },
-  { key: 'CANCELLED',   label: 'Cancelled'   },
-  { key: 'NO_SHOW',     label: 'No Show'     },
+const FILTERS: TabItem<AppointmentFilter>[] = [
+  { key: 'ALL',              label: 'All' },
+  { key: 'UPCOMING',         label: 'Upcoming' },
+  { key: 'AWAITING_OUTCOME', label: 'Awaiting outcome' },
+  { key: 'COMPLETED',        label: 'Completed' },
+  { key: 'RESCHEDULED',      label: 'Rescheduled' },
+  { key: 'CANCELLED',        label: 'Cancelled' },
+  { key: 'NO_SHOW',          label: 'No Show' },
 ];
 
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-}
+const EMPTY_TITLE: Record<AppointmentFilter, string> = {
+  ALL:              'No appointments yet',
+  UPCOMING:         'No upcoming appointments',
+  AWAITING_OUTCOME: 'No appointments are awaiting an outcome',
+  COMPLETED:        'No completed appointments',
+  RESCHEDULED:      'No rescheduled appointments',
+  CANCELLED:        'No cancelled appointments',
+  NO_SHOW:          'No missed appointments',
+};
 
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-
-function StatCard({ value, label, color, icon }: { value: number; label: string; color: string; icon: IoniconsName }) {
-  return (
-    <View style={[styles.statCard, { borderLeftColor: color }]}>
-      <View style={[styles.statIconBg, { backgroundColor: color + '18' }]}>
-        <Ionicons name={icon} size={18} color={color} />
-      </View>
-      <View>
-        <Text style={[styles.statValue, { color }]}>{value}</Text>
-        <Text style={styles.statLabel}>{label}</Text>
-      </View>
-    </View>
-  );
-}
-
-function ReschedulePanel({ appt, onDone, onClose }: { appt: Appointment; onDone: () => void; onClose: () => void }) {
-  const [date, setDate]     = useState('');
-  const [time, setTime]     = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-  const slotInPast = !!date && !!time && !isFutureSlot(date, time);
-
-  async function handleSave() {
-    setError('');
-    if (!date || !time) { setError('Please choose a new date and time.'); return; }
-    if (!isFutureSlot(date, time)) { setError('Please choose a date and time in the future.'); return; }
-    setSaving(true);
-    try {
-      await rescheduleAppointment(appt.appointment_id, date, time);
-      onDone();
-    } catch (e: any) {
-      setError(apiErrorMessage(e, 'Failed to reschedule appointment. Please try again.'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <View style={styles.reschedulePanel}>
-      <Text style={styles.rescheduleTitle}>Choose a new date and time</Text>
-      <View style={styles.reschedulePickers}>
-        <View style={styles.reschedulePickerCol}>
-          <CalendarPicker value={date} onChange={setDate} />
-        </View>
-        <View style={styles.reschedulePickerCol}>
-          <TimePicker value={time} onChange={setTime} />
-        </View>
-      </View>
-      {(!!error || slotInPast) && (
-        <View style={styles.inlineError}>
-          <Ionicons name="alert-circle-outline" size={14} color={RED} />
-          <Text style={styles.inlineErrorText}>{error || 'This time has already passed. Please choose a later time.'}</Text>
-        </View>
-      )}
-      <View style={styles.rescheduleActions}>
-        <TouchableOpacity
-          style={styles.rescheduleCancelBtn}
-          onPress={onClose}
-          disabled={saving}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-        >
-          <Text style={styles.rescheduleCancelText}>Keep current time</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.rescheduleSaveBtn, saving && { opacity: 0.6 }]}
-          onPress={handleSave}
-          disabled={saving}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: saving }}
-        >
-          <Text style={styles.rescheduleSaveText}>{saving ? 'Saving…' : 'Confirm new time'}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
+/** Cards revealed at a time; more are loaded from the server when the loaded ones run out. */
+const PAGE = 10;
 
 const RESCHEDULED_NOTICE = 'Your appointment has been moved to the new time.';
 
-function AppointmentCard({ appt, notice, onRescheduled, onMessageDoctor }: {
+function isFilter(value: string | undefined): value is AppointmentFilter {
+  return !!value && FILTERS.some(f => f.key === value);
+}
+
+/**
+ * The status shown on a card. An appointment the doctor has not closed although its end has passed is
+ * "Awaiting outcome", never "Scheduled" or "Upcoming": the visit is over and only its result is missing.
+ */
+function displayStatus(a: Appointment): { label: string; tone: StatusTone; icon?: IoniconsName } {
+  if (isAppointmentAwaitingOutcome(a)) return { label: 'Awaiting outcome', tone: 'warning', icon: 'hourglass-outline' };
+  switch (a.status) {
+    case 'RESCHEDULED': return { label: 'Rescheduled', tone: 'info', icon: 'refresh-outline' };
+    case 'COMPLETED':   return { label: 'Completed', tone: 'success' };
+    case 'CANCELLED':   return { label: 'Cancelled', tone: 'neutral', icon: 'close-circle-outline' };
+    case 'NO_SHOW':     return { label: 'No Show', tone: 'danger', icon: 'alert-circle-outline' };
+    default:            return isUpcomingAppointment(a) ? { label: 'Upcoming', tone: 'info' } : { label: 'In progress', tone: 'info' };
+  }
+}
+
+/** Upcoming appointments first, soonest first; everything else after them, most recent first. */
+function upcomingFirst(a: Appointment, b: Appointment): number {
+  const aUpcoming = isUpcomingAppointment(a);
+  const bUpcoming = isUpcomingAppointment(b);
+  if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+  const byTime = a.scheduled_at.localeCompare(b.scheduled_at);
+  return aUpcoming ? byTime : -byTime;
+}
+
+function StatCard({ value, label, icon, tone }: { value: number | null; label: string; icon: IoniconsName; tone: StatusTone }) {
+  const c = STATUS_TONES[tone];
+  return (
+    <Card style={styles.statCard}>
+      <View style={[styles.statIcon, { backgroundColor: c.bg }]}>
+        <Icon name={icon} size={18} color={c.fg} />
+      </View>
+      {/* The value and label stay exposed as plain text (a name on a generic group is skipped by NVDA and JAWS in
+          browse mode). The "–" shown when the count is unknown is hidden and replaced by words. */}
+      <View>
+        {value === null ? (
+          <>
+            <Text style={styles.statValue} {...decorative}>–</Text>
+            <Text style={styles.srOnly}>Not available</Text>
+          </>
+        ) : (
+          <Text style={styles.statValue}>{value}</Text>
+        )}
+        <Text style={styles.statLabel}>{label}</Text>
+      </View>
+    </Card>
+  );
+}
+
+function MetaItem({ icon, text }: { icon: IoniconsName; text: string }) {
+  return (
+    <View style={styles.metaItem}>
+      <Icon name={icon} size={13} color={colors.textMuted} />
+      <Text style={styles.metaText}>{text}</Text>
+    </View>
+  );
+}
+
+function AppointmentCard({
+  appt, notice, closedNotice, pinned, onMutationStart, onRescheduled, onClosedMeanwhile, onDismissClosed, onChanged, onMessageDoctor,
+}: {
   appt: Appointment;
-  /** Confirmation for this card, owned by the list so it survives the refresh after a change. */
+  /** Confirmation for this card, owned by the list so it survives the card being re-rendered after a change. */
   notice: string;
-  /** Shows (id) or clears (null) the reschedule confirmation. */
-  onRescheduled: (appointmentId: number | null) => void;
+  /** Why a move was refused because the appointment was closed meanwhile; '' for none. Owned by the list. */
+  closedNotice: string;
+  /** The appointment a link opened; drawn with the accent border. */
+  pinned?: boolean;
+  /** A cancel or reschedule is starting: an older confirmation no longer describes the list. */
+  onMutationStart: () => void;
+  /** The appointment was moved; `changed` is false when the server kept the same time. */
+  onRescheduled: (appointmentId: number, changed: boolean) => void;
+  /** A move was refused because the appointment was completed, cancelled or started meanwhile. */
+  onClosedMeanwhile: (appointmentId: number, reason: string) => void;
+  onDismissClosed: () => void;
+  /** A cancel or reschedule went through. */
+  onChanged: () => void;
   onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
 }) {
-  const [expanded, setExpanded]       = useState(false);
-  const [cancelling, setCancelling]   = useState(false);
+  const { accent, accentBg } = useUiTheme();
+  const [expanded, setExpanded]         = useState(false);
+  const [cancelling, setCancelling]     = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
-  const status = STATUS_CONFIG[appt.status] ?? STATUS_CONFIG.SCHEDULED;
-  const type   = TYPE_CONFIG[appt.type]     ?? TYPE_CONFIG.IN_PERSON;
-  // Only appointments that are still ahead of us can be changed.
+  const status = displayStatus(appt);
+  const typeLabel = APPOINTMENT_TYPE_LABEL[appt.type] ?? appt.type;
+  const date = formatClinicDate(appt.scheduled_at, 'Date not set');
+  const time = formatClinicTime(appt.scheduled_at, '');
+  // Only appointments that are still ahead of us can be changed; one awaiting its outcome offers nothing.
   const canChange = isUpcomingAppointment(appt);
+  const awaitingOutcome = isAppointmentAwaitingOutcome(appt);
+  const join = appointmentCallJoin(appt);
 
   async function handleCancel() {
     const ok = await confirmAction(
       'Cancel appointment',
-      `Cancel your appointment with ${appt.doctor_name} on ${formatDate(appt.scheduled_at)} at ${formatTime(appt.scheduled_at)}?`,
+      `Cancel your appointment with ${appt.doctor_name} on ${date}${time ? ` at ${time}` : ''}?`,
       'Cancel appointment',
       true,
     );
     if (!ok) return;
+    onMutationStart();
     setCancelling(true);
     try {
-      // Refreshes the shared appointment list, so every panel shows the cancellation.
+      // The cancellation is applied to the shared appointment lists, so every panel shows it.
       await cancelAppointment(appt.appointment_id);
-    } catch (e: any) {
+      onChanged();
+    } catch (e) {
       showMessage('Could not cancel appointment', apiErrorMessage(e, 'Failed to cancel appointment. Please try again.'));
     } finally {
       setCancelling(false);
     }
   }
 
-  function handleRescheduled() {
+  function handleStale(latest: AppointmentDto, reason: string | null) {
+    // The list shows the appointment as the server now has it (a new status or time made elsewhere).
+    applyAppointmentUpdate(latest);
+    if (reason === null) return;
     setRescheduling(false);
-    onRescheduled(appt.appointment_id);
+    onClosedMeanwhile(latest.appointmentId, reason);
+    onChanged();
+  }
+
+  function handleRescheduled(updated: AppointmentDto, changed: boolean) {
+    setRescheduling(false);
+    applyAppointmentUpdate(updated);
+    onRescheduled(updated.appointmentId, changed);
+    onChanged();
   }
 
   return (
-    <View style={styles.card}>
-      {/* Top row */}
+    <Card style={[styles.card, pinned && { borderColor: accent, borderWidth: 2 }]}>
       <View style={styles.cardHeader}>
-        <View style={[styles.typeIconBg, { backgroundColor: type.bg }]}>
-          <Ionicons name={type.icon} size={20} color={type.color} />
+        <View style={[styles.typeIcon, { backgroundColor: accentBg }]}>
+          <Icon name={TYPE_ICON[appt.type] ?? 'calendar-outline'} size={20} color={accent} />
         </View>
-
         <View style={styles.cardHeaderText}>
-          <Text style={styles.doctorName}>{appt.doctor_name}</Text>
-          {appt.doctor_specialization && (
-            <Text style={styles.doctorSpec}>{appt.doctor_specialization}</Text>
-          )}
+          <Text style={styles.doctorName} accessibilityRole="header" {...ariaLevel(2)}>{appt.doctor_name}</Text>
+          {/* The accent border marks the appointment a link opened; screen readers get it in words, right after the
+              card's heading so a user who reaches the card by heading navigation hears it next. */}
+          {pinned ? <Text style={styles.srOnly}>Opened from your link.</Text> : null}
+          {appt.doctor_specialization ? <Text style={styles.doctorSpec}>{appt.doctor_specialization}</Text> : null}
         </View>
-
-        {appt.doctor_avatar_url ? (
-          <Image source={{ uri: appt.doctor_avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarFallback]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text style={styles.avatarInitial}>{doctorInitial(appt.doctor_name)}</Text>
-          </View>
-        )}
+        <View style={[styles.avatar, { backgroundColor: accentBg }]} {...decorative}>
+          <Text style={[styles.avatarInitial, { color: accent }]}>{doctorInitial(appt.doctor_name)}</Text>
+        </View>
       </View>
 
-      {/* Meta row */}
       <View style={styles.metaRow}>
-        <View style={styles.metaItem}>
-          <Ionicons name="calendar-outline" size={13} color={GRAY} />
-          <Text style={styles.metaText}>{formatDate(appt.scheduled_at)}</Text>
-        </View>
-        <View style={styles.metaDot} />
-        <View style={styles.metaItem}>
-          <Ionicons name="time-outline" size={13} color={GRAY} />
-          <Text style={styles.metaText}>{formatTime(appt.scheduled_at)}</Text>
-        </View>
-        <View style={styles.metaDot} />
-        <View style={styles.metaItem}>
-          <Ionicons name="hourglass-outline" size={13} color={GRAY} />
-          <Text style={styles.metaText}>{appt.duration_minutes} min</Text>
-        </View>
-        {appt.facility_name && (
-          <>
-            <View style={styles.metaDot} />
-            <View style={styles.metaItem}>
-              <Ionicons name="location-outline" size={13} color={GRAY} />
-              <Text style={styles.metaText} numberOfLines={1}>{appt.facility_name}</Text>
-            </View>
-          </>
-        )}
+        <MetaItem icon="calendar-outline" text={date} />
+        {time ? <MetaItem icon="time-outline" text={time} /> : null}
+        <MetaItem icon="hourglass-outline" text={`${appt.duration_minutes} min`} />
       </View>
 
-      {/* Badges */}
       <View style={styles.badgeRow}>
-        <View style={[styles.badge, { backgroundColor: status.bg }]}>
-          <Ionicons name={status.icon} size={12} color={status.color} />
-          <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
-        </View>
-        <View style={[styles.badge, { backgroundColor: type.bg }]}>
-          <Ionicons name={type.icon} size={12} color={type.color} />
-          <Text style={[styles.badgeText, { color: type.color }]}>{type.label}</Text>
-        </View>
+        <StatusBadge label={status.label} tone={status.tone} icon={status.icon} />
+        <StatusBadge label={typeLabel} tone="neutral" icon={TYPE_ICON[appt.type] ?? null} />
       </View>
 
-      {/* Reason */}
-      {appt.reason_for_visit && (
-        <View style={styles.reasonBox}>
-          <Ionicons name="document-text-outline" size={13} color={GRAY} />
-          <Text style={styles.reasonText} numberOfLines={expanded ? undefined : 2}>
-            {appt.reason_for_visit}
-          </Text>
+      {appt.facility_name ? (
+        <View style={styles.detailRow}>
+          <Icon name="location-outline" size={15} color={colors.textMuted} style={styles.detailIcon} />
+          <View style={styles.detailText}>
+            <Text style={styles.detailTitle}>{appt.facility_name}</Text>
+            {appt.facility_address ? <Text style={styles.detailSub}>{appt.facility_address}</Text> : null}
+          </View>
         </View>
-      )}
+      ) : null}
+
+      {appt.type === 'PHONE' && appt.contact_phone ? (
+        <View style={styles.detailRow}>
+          <Icon name="call-outline" size={15} color={colors.textMuted} style={styles.detailIcon} />
+          <View style={styles.detailText}>
+            <Text style={styles.detailTitle}>{appt.contact_phone}</Text>
+            <Text style={styles.detailSub}>
+              {canChange ? 'The doctor will call you on this number.' : 'Contact number for this appointment.'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {awaitingOutcome ? (
+        <Text style={styles.outcomeNote}>
+          This appointment has ended. Your doctor has not recorded its outcome yet, so it can no longer be rescheduled or cancelled.
+        </Text>
+      ) : null}
+
+      {appt.reason_for_visit ? (
+        <View style={styles.reasonBox}>
+          <Icon name="document-text-outline" size={13} color={colors.textMuted} style={styles.detailIcon} />
+          <Text style={styles.reasonText} numberOfLines={expanded ? undefined : 2}>{appt.reason_for_visit}</Text>
+        </View>
+      ) : null}
 
       {/* Video call: a time still awaiting the clinic's confirmation is a note, not a button. */}
       {appt.call_status === 'NEEDS_TIME_CONFIRMATION' ? (
-        appointmentCallJoin(appt) && canChange ? <CallTimePending style={{ marginBottom: 8 }} /> : null
+        join && canChange ? <CallTimePending /> : null
       ) : (
         <CallJoinButton
-          info={appointmentCallJoin(appt)}
+          info={join}
           withName={appt.doctor_name}
           style={styles.videoBtn}
           textStyle={styles.videoBtnText}
@@ -268,316 +265,341 @@ function AppointmentCard({ appt, notice, onRescheduled, onMessageDoctor }: {
         />
       )}
 
-      {/* Expanded: notes */}
-      {expanded && (
-        <View style={styles.expandedSection}>
-          {appt.notes && (
-            <View style={styles.notesBox}>
-              <Text style={styles.notesLabel}>Notes</Text>
-              <Text style={styles.notesText}>{appt.notes}</Text>
-            </View>
-          )}
+      {expanded ? (
+        <View style={styles.notesBox}>
+          <Text style={styles.notesLabel}>Notes</Text>
+          <Text style={styles.notesText}>{appt.notes?.trim() ? appt.notes : 'No notes were added to this appointment.'}</Text>
         </View>
-      )}
-
-      {!!notice && (
-        <View style={styles.noticeBox} accessibilityLiveRegion="polite" aria-live="polite">
-          <Ionicons name="checkmark-circle-outline" size={14} color={GREEN} />
-          <Text style={styles.noticeText}>{notice}</Text>
-        </View>
-      )}
-
-      {/* Reschedule / cancel — only for appointments that have not happened yet */}
-      {canChange && rescheduling && (
-        <ReschedulePanel appt={appt} onDone={handleRescheduled} onClose={() => setRescheduling(false)} />
-      )}
-      {canChange && !rescheduling && (
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.rescheduleBtn, cancelling && { opacity: 0.6 }]}
-            onPress={() => { if (notice) onRescheduled(null); setRescheduling(true); }}
-            disabled={cancelling}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-          >
-            <Ionicons name="calendar-outline" size={15} color={TEAL} />
-            <Text style={styles.rescheduleBtnText}>Reschedule</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
-            onPress={handleCancel}
-            disabled={cancelling}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: cancelling }}
-          >
-            <Ionicons name="close-circle-outline" size={15} color={RED} />
-            <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling…' : 'Cancel appointment'}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {onMessageDoctor && appt.doctor_system_id ? (
-        <TouchableOpacity
-          style={styles.messageBtn}
-          onPress={() => onMessageDoctor(appt.doctor_system_id!, appt.doctor_name)}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={`Message ${appt.doctor_name}`}
-        >
-          <Ionicons name="chatbubble-ellipses-outline" size={15} color={SLATE} importantForAccessibility="no" />
-          {/* The doctor's name is already on the card; the accessible name carries it. */}
-          <Text style={styles.messageBtnText}>Message</Text>
-        </TouchableOpacity>
       ) : null}
 
-      {/* Expand toggle */}
-      <TouchableOpacity
+      {notice ? <Banner tone="success" text={notice} /> : null}
+      {closedNotice ? <Banner tone="warning" text={closedNotice} onDismiss={onDismissClosed} /> : null}
+
+      {/* Reschedule / cancel: only for appointments that have not started yet */}
+      {canChange && rescheduling ? (
+        <ReschedulePanel
+          appointment={{
+            appointmentId:   appt.appointment_id,
+            doctorSystemId:  appt.doctor_system_id ?? '',
+            scheduledAt:     appt.scheduled_at,
+            durationMinutes: appt.duration_minutes,
+          }}
+          onDone={handleRescheduled}
+          onClose={() => setRescheduling(false)}
+          onStale={handleStale}
+        />
+      ) : null}
+      {canChange && !rescheduling ? (
+        <View style={styles.actionRow}>
+          <Button
+            label="Reschedule"
+            accessibilityLabel={`Reschedule appointment with ${appt.doctor_name}`}
+            icon="calendar-outline"
+            variant="secondary"
+            onPress={() => { onMutationStart(); setRescheduling(true); }}
+            disabled={cancelling}
+            style={styles.actionButton}
+          />
+          <Button
+            label="Cancel appointment"
+            accessibilityLabel={`Cancel appointment with ${appt.doctor_name}`}
+            icon="close-circle-outline"
+            variant="danger"
+            onPress={handleCancel}
+            loading={cancelling}
+            style={styles.actionButton}
+          />
+        </View>
+      ) : null}
+
+      {onMessageDoctor && appt.doctor_system_id ? (
+        <Button
+          label="Message"
+          // The doctor's name is already on the card; the accessible name carries it.
+          accessibilityLabel={`Message ${appt.doctor_name}`}
+          icon="chatbubble-ellipses-outline"
+          variant="secondary"
+          onPress={() => onMessageDoctor(appt.doctor_system_id!, appt.doctor_name)}
+          fullWidth
+        />
+      ) : null}
+
+      <Pressable
         style={styles.expandToggle}
         onPress={() => setExpanded(e => !e)}
-        activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
+        {...webOnly({ 'aria-expanded': expanded })}
       >
-        <Text style={styles.expandToggleText}>{expanded ? 'Show less' : 'Show details'}</Text>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={TEAL} />
-      </TouchableOpacity>
-    </View>
+        <Text style={[styles.expandToggleText, { color: accent }]}>{expanded ? 'Show less' : 'Show details'}</Text>
+        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={accent} />
+      </Pressable>
+    </Card>
   );
 }
 
-const PAGE_SIZE = 5;
-
-export function PatientWebAppointmentStatus({ onMessageDoctor }: {
+type Props = Partial<Pick<SectionProps, 'navigate' | 'params' | 'theme'>> & {
   /** Opens a private conversation with the appointment's doctor in Messages. */
   onMessageDoctor?: (doctorSystemId: string, doctorName: string) => void;
-} = {}) {
-  const { appointments, loading, error, refetch } = useAppointments();
-  const [filter, setFilter] = useState<FilterKey>('ALL');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  // Kept here, not in the card, so it survives the list refresh and a card leaving the filter.
+};
+
+/**
+ * Patient > My Appointments. Each tab is a server-side filter read page by page. `?id=<appointmentId>` (the
+ * link in an appointment notification) shows that appointment first; `?tab=` opens a filter.
+ */
+export function PatientWebAppointmentStatus({ onMessageDoctor, navigate, params, theme }: Props = {}) {
+  const [filter, setFilter] = useState<AppointmentFilter>(isFilter(params?.tab) ? params.tab : 'ALL');
+  // This is the screen where a change made elsewhere (by the doctor) must show, so it reloads on opening.
+  const { appointments, loading, error, refetch, refreshing, hasMore, loadMore, loadingMore, total } =
+    useAppointments({ filter, maxAgeMs: 1_000 });
+  const { counts, refetch: refetchCounts } = useAppointmentCounts();
+  const [visibleCount, setVisibleCount] = useState(PAGE);
+  // Kept here, not in the card, so it survives the card being re-rendered and a card leaving the filter.
   const [rescheduledId, setRescheduledId] = useState<number | null>(null);
+  /** A move refused because the appointment was closed meanwhile, with the server's reason. */
+  const [closed, setClosed] = useState<{ id: number; text: string } | null>(null);
+  /** The refresh error the person dismissed; a later failure shows again. */
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
 
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter]);
+  useEffect(() => {
+    if (!error) setDismissedError(null);
+  }, [error]);
 
-  const now = Date.now();
-  const sorted   = [...(filter === 'ALL' ? appointments : appointments.filter(a => a.status === filter))]
-    .sort((a, b) => {
-      const ta = new Date(a.scheduled_at).getTime();
-      const tb = new Date(b.scheduled_at).getTime();
-      const aFuture = ta >= now;
-      const bFuture = tb >= now;
-      if (aFuture && bFuture) return ta - tb;   // both upcoming: soonest first
-      if (!aFuture && !bFuture) return tb - ta;  // both past: most recent first
-      return aFuture ? -1 : 1;                   // upcoming before past
-    });
-  const filtered  = sorted;
-  const visible   = sorted.slice(0, visibleCount);
-  const hasMore   = visibleCount < sorted.length;
-  const remaining = sorted.length - visibleCount;
-  const noticeOnCard = rescheduledId != null && visible.some(a => a.appointment_id === rescheduledId);
+  // ── The appointment a link opened ─────────────────────────────────────────
 
-  const total      = appointments.length;
-  const upcoming   = appointments.filter(isUpcomingAppointment).length;
-  const completed  = appointments.filter(a => a.status === 'COMPLETED').length;
-  const cancelled  = appointments.filter(a => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
+  const focusId = parseAppointmentId(params?.id);
+  const [focusOpen, setFocusOpen] = useState(true);
+  useEffect(() => { setFocusOpen(true); }, [focusId]);
+  const focus = useResource(
+    () => getAppointment(focusId ?? 0),
+    [focusId],
+    { enabled: focusId !== null, errorMessage: 'The appointment you opened could not be loaded.' },
+  );
+
+  const sorted = useMemo(
+    () => (filter === 'ALL' ? [...appointments].sort(upcomingFirst) : appointments),
+    [appointments, filter],
+  );
+  const pinned = useMemo(() => {
+    if (focusId === null || !focusOpen) return null;
+    return sorted.find(a => a.appointment_id === focusId) ?? (focus.data ? toAppointment(focus.data) : null);
+  }, [focusId, focusOpen, sorted, focus.data]);
+
+  const rest = pinned ? sorted.filter(a => a.appointment_id !== pinned.appointment_id) : sorted;
+  const visible = rest.slice(0, visibleCount);
+  const canShowMore = visibleCount < rest.length || hasMore;
+  // The opened appointment is shown above the list, so it is not counted in it.
+  const listTotal = Math.max(0, total - (pinned && sorted.some(a => a.appointment_id === pinned.appointment_id) ? 1 : 0));
+  const remaining = Math.max(0, listTotal - visible.length);
+  const noticeOnCard = rescheduledId !== null
+    && (pinned?.appointment_id === rescheduledId || visible.some(a => a.appointment_id === rescheduledId));
+  const closedOnCard = closed !== null
+    && (pinned?.appointment_id === closed.id || visible.some(a => a.appointment_id === closed.id));
+
+  function changeFilter(next: AppointmentFilter) {
+    setFilter(next);
+    setVisibleCount(PAGE);
+    // The confirmation and the opened appointment belong to the list the person just left.
+    setRescheduledId(null);
+    setClosed(null);
+    setFocusOpen(false);
+    setDismissedError(null);
+  }
+
+  function refresh() {
+    setRescheduledId(null);
+    setClosed(null);
+    setDismissedError(null);
+    refetch();
+    refetchCounts();
+    if (focusId !== null) focus.refetch();
+  }
+
+  function showMore() {
+    const next = visibleCount + PAGE;
+    setVisibleCount(next);
+    if (next > rest.length && hasMore) loadMore();
+  }
+
+  function handleRescheduled(appointmentId: number, changed: boolean) {
+    // Confirming the time the appointment already had changes nothing, so nothing is announced.
+    setRescheduledId(changed ? appointmentId : null);
+  }
+
+  function handleChanged() {
+    // The opened appointment is loaded on its own, so it is read again after a change.
+    if (focusId !== null) focus.refetch();
+  }
+
+  const cardProps = {
+    onMutationStart:   () => { setRescheduledId(null); setClosed(null); },
+    onRescheduled:     handleRescheduled,
+    onClosedMeanwhile: (id: number, text: string) => setClosed({ id, text }),
+    onDismissClosed:   () => setClosed(null),
+    onChanged:       handleChanged,
+    onMessageDoctor,
+  };
+  const showErrorBanner = !!error && appointments.length > 0 && error !== dismissedError;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      {/* Page header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.pageHeaderText}>
-          <Text style={styles.pageTitle} accessibilityRole="header">My Appointments</Text>
-          <Text style={styles.pageSub}>Track and manage all your healthcare appointments</Text>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh appointments">
-          <Ionicons name="refresh-outline" size={16} color={TEAL} />
-          <Text style={styles.refreshBtnText}>Refresh</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stat cards */}
-      <View style={styles.statsRow}>
-        <StatCard value={total}     label="Total"     color={INDIGO} icon="calendar-outline"           />
-        <StatCard value={upcoming}  label="Upcoming"  color={TEAL}   icon="time-outline"               />
-        <StatCard value={completed} label="Completed" color={GREEN}  icon="checkmark-circle-outline"   />
-        <StatCard value={cancelled} label="Cancelled" color={RED}    icon="close-circle-outline"       />
-      </View>
-
-      {/* Filter tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        {/* The tabs need a tablist parent (ARIA). */}
-        <View style={styles.filterRow} accessibilityRole="tablist" accessibilityLabel="Filter appointments">
-        {FILTERS.map(f => {
-          const on = filter === f.key;
-          return (
-            <TouchableOpacity
-              key={f.key}
-              style={[styles.filterTab, on && styles.filterTabActive]}
-              onPress={() => setFilter(f.key)}
-              activeOpacity={0.7}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: on }}
-              aria-selected={on}
-            >
-              <Text style={[styles.filterTabText, on && styles.filterTabTextActive]}>{f.label}</Text>
-              {on && f.key !== 'ALL' && (
-                <View style={styles.filterCount}>
-                  <Text style={styles.filterCountText}>
-                    {appointments.filter(a => a.status === f.key).length}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-        </View>
-      </ScrollView>
-
-      {/* Reschedule confirmation when the moved card is not on screen (filtered out or paged away) */}
-      {rescheduledId != null && !noticeOnCard && !loading && (
-        <View style={[styles.noticeBox, { marginBottom: 16 }]} accessibilityLiveRegion="polite" aria-live="polite">
-          <Ionicons name="checkmark-circle-outline" size={14} color={GREEN} />
-          <Text style={styles.noticeText}>{RESCHEDULED_NOTICE}</Text>
-        </View>
+    <Screen
+      title="My Appointments"
+      subtitle="Track and manage all your healthcare appointments"
+      theme={theme}
+      role="patient"
+      actions={(
+        <Button
+          label="Refresh"
+          accessibilityLabel="Refresh appointments"
+          icon="refresh-outline"
+          variant="secondary"
+          onPress={refresh}
+          loading={refreshing}
+        />
       )}
+    >
+      <View style={styles.column}>
+        <View style={styles.statsRow}>
+          <StatCard value={counts?.total ?? null}     label="Total"     icon="calendar-outline"         tone="info" />
+          <StatCard value={counts?.upcoming ?? null}  label="Upcoming"  icon="time-outline"             tone="info" />
+          <StatCard value={counts?.completed ?? null} label="Completed" icon="checkmark-circle-outline" tone="success" />
+          <StatCard value={counts?.cancelled ?? null} label="Cancelled" icon="close-circle-outline"     tone="neutral" />
+        </View>
 
-      {/* Content */}
-      {loading ? (
-        <View style={styles.centerState}>
-          <Ionicons name="hourglass-outline" size={40} color={BORDER} />
-          <Text style={styles.centerStateText}>Loading appointments…</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.centerState}>
-          <Ionicons name="alert-circle-outline" size={40} color={RED} />
-          <Text style={[styles.centerStateText, { color: RED }]}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8}>
-            <Text style={styles.retryBtnText}>Try Again</Text>
-          </TouchableOpacity>
-        </View>
-      ) : filtered.length === 0 ? (
-        <View style={styles.centerState}>
-          <Ionicons name="calendar-outline" size={48} color={BORDER} />
-          <Text style={styles.centerStateText}>
-            {filter === 'ALL' ? 'No appointments found.' : `No ${FILTERS.find(f => f.key === filter)?.label.toLowerCase()} appointments.`}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.cardList}>
-          {visible.map(appt => (
+        <Tabs tabs={FILTERS} active={filter} onChange={changeFilter} label="Filter appointments" />
+
+        {/* A refresh that failed after the list was loaded: the rows stay and the failure is said, not hidden. */}
+        {showErrorBanner ? (
+          <Banner
+            tone="danger"
+            text={`${error} The list below may be out of date.`}
+            action={{ label: 'Retry', onPress: refresh }}
+            onDismiss={() => setDismissedError(error)}
+          />
+        ) : null}
+
+        {/* Reschedule confirmation when the moved card is not on screen (filtered out or not revealed yet) */}
+        {rescheduledId !== null && !noticeOnCard && !loading ? (
+          <Banner tone="success" text={RESCHEDULED_NOTICE} onDismiss={() => setRescheduledId(null)} />
+        ) : null}
+
+        {/* A refused move whose card left this list once its new status was applied */}
+        {closed !== null && !closedOnCard && !loading ? (
+          <Banner tone="warning" text={closed.text} onDismiss={() => setClosed(null)} />
+        ) : null}
+
+        {focusId !== null && focusOpen && focus.error && !pinned ? (
+          <Banner tone="warning" text={focus.error} onDismiss={() => setFocusOpen(false)} />
+        ) : null}
+
+        {pinned ? (
+          <View style={styles.cardList}>
             <AppointmentCard
-              key={appt.appointment_id}
-              appt={appt}
-              notice={appt.appointment_id === rescheduledId ? RESCHEDULED_NOTICE : ''}
-              onRescheduled={setRescheduledId}
-              onMessageDoctor={onMessageDoctor}
+              appt={pinned}
+              pinned
+              notice={pinned.appointment_id === rescheduledId ? RESCHEDULED_NOTICE : ''}
+              closedNotice={closed?.id === pinned.appointment_id ? closed.text : ''}
+              {...cardProps}
             />
-          ))}
-          {hasMore && (
-            <TouchableOpacity
-              style={styles.showMoreBtn}
-              onPress={() => setVisibleCount(c => c + PAGE_SIZE)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="chevron-down-circle-outline" size={18} color={TEAL} />
-              <Text style={styles.showMoreText}>Show {remaining} more appointment{remaining !== 1 ? 's' : ''}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-    </ScrollView>
+          </View>
+        ) : null}
+
+        {loading ? (
+          <LoadingView label="Loading appointments…" />
+        ) : error && appointments.length === 0 ? (
+          <ErrorView message={error} onRetry={refresh} />
+        ) : rest.length === 0 ? (
+          pinned ? null : (
+            <EmptyView
+              icon="calendar-outline"
+              title={EMPTY_TITLE[filter]}
+              sub={filter === 'ALL' ? 'When you book a visit it appears here.' : undefined}
+              action={filter === 'ALL' && navigate
+                ? { label: 'Book an appointment', icon: 'add-circle-outline', onPress: () => navigate('book-appointment') }
+                : undefined}
+            />
+          )
+        ) : (
+          <View style={styles.cardList}>
+            {visible.map(appt => (
+              <AppointmentCard
+                key={appt.appointment_id}
+                appt={appt}
+                notice={appt.appointment_id === rescheduledId ? RESCHEDULED_NOTICE : ''}
+                closedNotice={closed?.id === appt.appointment_id ? closed.text : ''}
+                {...cardProps}
+              />
+            ))}
+            {canShowMore ? (
+              <Button
+                label={remaining > 0 ? `Show ${Math.min(PAGE, remaining)} more appointment${Math.min(PAGE, remaining) !== 1 ? 's' : ''}` : 'Show more appointments'}
+                icon="chevron-down-circle-outline"
+                variant="secondary"
+                onPress={showMore}
+                loading={loadingMore}
+                fullWidth
+              />
+            ) : null}
+            <Text style={styles.countLine} role="status">
+              Showing {visible.length} of {Math.max(listTotal, visible.length)} {listTotal === 1 ? 'appointment' : 'appointments'}
+            </Text>
+          </View>
+        )}
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen:        { flex: 1, backgroundColor: BG },
-  scrollContent: { padding: 32, maxWidth: 760, alignSelf: 'center', width: '100%', paddingBottom: 48 },
+  column: { width: '100%', maxWidth: 860, minWidth: 0, gap: space.lg },
 
-  pageHeader:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
-  pageHeaderText: { flexShrink: 1, minWidth: 0 },
-  pageTitle:      { fontSize: 22, fontWeight: '800', color: TEXT },
-  pageSub:        { fontSize: 13, color: GRAY, marginTop: 3 },
-  refreshBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  refreshBtnText: { fontSize: 13, fontWeight: '600', color: TEAL },
+  statsRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
+  statCard:  { flexGrow: 1, flexShrink: 1, flexBasis: 150, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.md },
+  statIcon:  { width: 36, height: 36, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  statValue: { fontSize: fontSize.title, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '500' },
 
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24, flexWrap: 'wrap' },
-  statCard: { flexGrow: 1, flexBasis: 150, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: CARD, borderRadius: 14, padding: 16, borderLeftWidth: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 } as any,
-  statIconBg:  { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statValue:   { fontSize: 22, fontWeight: '800' },
-  statLabel:   { fontSize: 11, color: GRAY, fontWeight: '500', marginTop: 1 },
+  cardList:  { gap: space.md },
+  countLine: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center' },
 
-  filterScroll: { marginBottom: 20 },
-  filterRow:    { flexDirection: 'row', gap: 8, paddingBottom: 4 },
-  filterTab:    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: BORDER, backgroundColor: CARD },
-  filterTabActive: { borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  filterTabText:   { fontSize: 13, fontWeight: '500', color: GRAY },
-  filterTabTextActive: { color: TEAL, fontWeight: '700' },
-  filterCount:     { backgroundColor: TEAL, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 },
-  filterCountText: { fontSize: 10, fontWeight: '700', color: WHITE },
+  card:           { gap: space.md },
+  // Visually hidden, still read by screen readers.
+  srOnly:         { position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0 },
+  cardHeader:     { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  typeIcon:       { width: 40, height: 40, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  cardHeaderText: { flex: 1, minWidth: 0 },
+  doctorName:     { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  doctorSpec:     { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  avatar:         { width: 40, height: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avatarInitial:  { fontSize: fontSize.lg, fontWeight: '700' },
 
-  cardList: { gap: 14 },
-  showMoreBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  showMoreText: { fontSize: 14, fontWeight: '700', color: TEAL },
+  metaRow:  { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: space.md, rowGap: space.xs },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  metaText: { fontSize: fontSize.sm, color: colors.textMuted },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
 
-  card: { backgroundColor: CARD, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: BORDER, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 } as any,
+  detailRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  detailIcon:  { marginTop: 2, flexShrink: 0 },
+  detailText:  { flex: 1, minWidth: 0 },
+  detailTitle: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text },
+  detailSub:   { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 17 },
+  outcomeNote: { fontSize: fontSize.sm, color: STATUS_TONES.warning.fg, lineHeight: 19 },
 
-  cardHeader:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  typeIconBg:     { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  cardHeaderText: { flex: 1 },
-  doctorName:     { fontSize: 15, fontWeight: '700', color: TEXT },
-  doctorSpec:     { fontSize: 12, color: GRAY, marginTop: 2 },
-  avatar:         { width: 40, height: 40, borderRadius: 20 },
-  avatarFallback: { backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center' },
-  avatarInitial:  { fontSize: 16, fontWeight: '700', color: TEAL },
+  reasonBox:  { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, backgroundColor: colors.bg, borderRadius: radius.md, padding: space.md },
+  reasonText: { flex: 1, minWidth: 0, fontSize: fontSize.sm, color: colors.text, lineHeight: 19 },
 
-  metaRow:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
-  metaItem:  { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText:  { fontSize: 12, color: GRAY },
-  metaDot:   { width: 3, height: 3, borderRadius: 2, backgroundColor: BORDER },
+  notesBox:   { backgroundColor: STATUS_TONES.warning.bg, borderRadius: radius.md, padding: space.md, gap: space.xs },
+  notesLabel: { fontSize: fontSize.xs, fontWeight: '700', color: STATUS_TONES.warning.fg, textTransform: 'uppercase', letterSpacing: 0.5 },
+  notesText:  { fontSize: fontSize.sm, color: colors.text, lineHeight: 19 },
 
-  badgeRow:  { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  badge:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  videoBtn:     { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: '#EEF2FF', borderRadius: radius.md, padding: space.md, borderWidth: 1, borderColor: '#C7D2FE' },
+  videoBtnText: { flex: 1, fontSize: fontSize.sm, fontWeight: '600', color: INDIGO },
 
-  reasonBox:  { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: BG, borderRadius: 10, padding: 12, marginBottom: 8 },
-  reasonText: { flex: 1, fontSize: 13, color: TEXT, lineHeight: 18 },
+  actionRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  actionButton: { flexGrow: 1, flexBasis: 160, alignSelf: 'auto' },
 
-  expandedSection: { gap: 10, marginBottom: 8 },
-  notesBox:        { backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12 },
-  notesLabel:      { fontSize: 11, fontWeight: '700', color: AMBER, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  notesText:       { fontSize: 13, color: TEXT, lineHeight: 18 },
-  videoBtn:        { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#EEF2FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#C7D2FE' },
-  videoBtnText:    { flex: 1, fontSize: 13, fontWeight: '600', color: INDIGO },
-
-  actionRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  rescheduleBtn:    { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
-  rescheduleBtnText:{ fontSize: 13, fontWeight: '600', color: TEAL },
-  cancelBtn:        { flex: 1, minWidth: 160, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: RED, backgroundColor: '#FEF2F2' },
-  cancelBtnText:    { fontSize: 13, fontWeight: '600', color: RED },
-
-  reschedulePanel:      { borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 14, gap: 12, marginBottom: 8, backgroundColor: BG },
-  rescheduleTitle:      { fontSize: 14, fontWeight: '700', color: TEXT },
-  reschedulePickers:    { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  reschedulePickerCol:  { flex: 1, minWidth: 260, backgroundColor: CARD, borderRadius: 12, borderWidth: 1, borderColor: BORDER, padding: 14 },
-  rescheduleActions:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' },
-  rescheduleCancelBtn:  { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: CARD },
-  rescheduleCancelText: { fontSize: 13, fontWeight: '600', color: GRAY },
-  rescheduleSaveBtn:    { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: TEAL },
-  rescheduleSaveText:   { fontSize: 13, fontWeight: '700', color: WHITE },
-  inlineError:          { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FEF2F2', borderRadius: 8, padding: 10 },
-  inlineErrorText:      { flex: 1, fontSize: 12, color: RED },
-  noticeBox:            { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ECFDF5', borderRadius: 8, padding: 10, marginBottom: 8 },
-  noticeText:           { flex: 1, fontSize: 12, color: '#047857' },
-  messageBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: BORDER, backgroundColor: CARD, marginBottom: 8 },
-  messageBtnText:   { fontSize: 13, fontWeight: '600', color: SLATE },
-  expandToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: BORDER, marginTop: 4 },
-  expandToggleText: { fontSize: 12, fontWeight: '600', color: TEAL },
-
-  centerState:     { alignItems: 'center', justifyContent: 'center', paddingVertical: 64, gap: 12 },
-  centerStateText: { fontSize: 14, color: GRAY, textAlign: 'center' },
-  retryBtn:        { backgroundColor: TEAL, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, marginTop: 4 },
-  retryBtnText:    { fontSize: 13, fontWeight: '700', color: WHITE },
+  expandToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: 32, paddingTop: space.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  expandToggleText: { fontSize: fontSize.xs, fontWeight: '600' },
 });
 
 export default PatientWebAppointmentStatus;

@@ -1,5 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { decorative, webOnly } from '@/components/web/ui/a11y';
+import { Icon } from '@/components/web/ui/icon';
 import type { CaregiverDependent } from '@/hooks/use-caregiver-dependents';
 import { caregiverMessagingState } from '@/hooks/use-caregiver-messaging';
 
@@ -42,14 +43,18 @@ export function MessageCareTeamButton({ dependent, onPress, busy, error, compact
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ disabled, busy: !!busy }}
+        // react-native-web ignores accessibilityState: the busy state is announced through aria-busy (disabled
+        // already comes from `disabled`).
+        {...webOnly({ 'aria-busy': !!busy })}
       >
         {busy
-          ? <ActivityIndicator size="small" color={PURPLE} />
-          : <Ionicons name="chatbox-ellipses-outline" size={15} color={status === 'ALLOWED' ? PURPLE : GRAY} importantForAccessibility="no" />}
+          ? <View {...decorative}><ActivityIndicator size="small" color={PURPLE} /></View>
+          : <Icon name="chatbox-ellipses-outline" size={15} color={status === 'ALLOWED' ? PURPLE : GRAY} />}
         <Text style={[styles.btnText, status !== 'ALLOWED' && styles.btnTextDisabled]}>Message Care Team</Text>
       </TouchableOpacity>
       {reason ? (
-        <Text style={[styles.reason, status === 'WAITING' && styles.reasonWaiting]} importantForAccessibility="no">
+        // Already part of the button's accessible name, so it is not read a second time.
+        <Text style={[styles.reason, status === 'WAITING' && styles.reasonWaiting]} {...decorative}>
           {reason}
         </Text>
       ) : null}

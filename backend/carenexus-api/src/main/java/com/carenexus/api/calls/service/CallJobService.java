@@ -125,7 +125,7 @@ public class CallJobService {
         });
         List<Long> claimed = tx.execute(status -> {
             Instant now = Instant.now();
-            List<CallJob> due = callJobRepository.lockDueJobs(CLAIM_BATCH_SIZE);
+            List<CallJob> due = callJobRepository.lockDueJobs(now, CLAIM_BATCH_SIZE);
             for (CallJob job : due) {
                 job.setStatus(CallJob.RUNNING);
                 job.setLockedAt(now);

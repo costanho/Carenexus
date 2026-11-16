@@ -31,7 +31,7 @@ export function CallJoinButton(props: {
         accessibilityRole="text"
         accessibilityLabel={props.withName ? `Video call with ${props.withName}: ${info.label}` : `Video call: ${info.label}`}
       >
-        <Ionicons name="time-outline" size={props.iconSize ?? 14} color={STATUS_FG} />
+        <Ionicons aria-hidden name="time-outline" size={props.iconSize ?? 14} color={STATUS_FG} />
         <Text style={styles.statusText}>{info.label}</Text>
       </View>
     );
@@ -47,7 +47,7 @@ export function CallJoinButton(props: {
       accessibilityRole="button"
       accessibilityLabel={props.withName ? `${info.label}: video call with ${props.withName}` : `${info.label}: video call`}
     >
-      <Ionicons name={props.icon ?? 'videocam-outline'} size={props.iconSize ?? 14} color={props.iconColor ?? '#4F46E5'} />
+      <Ionicons aria-hidden name={props.icon ?? 'videocam-outline'} size={props.iconSize ?? 14} color={props.iconColor ?? '#4F46E5'} />
       <Text style={props.textStyle}>{info.label}</Text>
     </TouchableOpacity>
   );

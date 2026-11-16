@@ -1,0 +1,9 @@
+Subject: Your CareNexus clinician registration was not approved
+
+Hello {{name}},
+
+Your registration as a clinician on CareNexus was not approved, so you cannot sign in with this account yet. The administrator gave this reason:
+
+{{reason}}
+
+If your details can be corrected, please contact your clinic's support team. An administrator can review your registration again.

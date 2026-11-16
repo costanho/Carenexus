@@ -1,0 +1,325 @@
+# CareNexus bundled ICD-10 catalogue: a subset of common ICD-10-CM codes for the type-ahead of the medical
+# record form (TerminologyProvider 'bundled'). Codes outside this subset are still accepted when well-formed
+# and are reported as unverified. Format: CODE<TAB>Description, UTF-8; lines starting with # are ignored.
+# Guaranteed entries (tests and e2e specs rely on them): I10, E11.9, J06.9, J02.9, R07.9, R00.2.
+A01.00	Typhoid fever, unspecified
+A06.0	Acute amebic dysentery
+A08.4	Viral intestinal infection, unspecified
+A09	Infectious gastroenteritis and colitis, unspecified
+A15.0	Tuberculosis of lung
+A41.9	Sepsis, unspecified organism
+A49.9	Bacterial infection, unspecified
+A53.9	Syphilis, unspecified
+A54.9	Gonococcal infection, unspecified
+A60.00	Herpesviral infection of urogenital system, unspecified
+B01.9	Varicella without complication
+B02.9	Zoster without complications
+B05.9	Measles without complication
+B15.9	Hepatitis A without hepatic coma
+B16.9	Acute hepatitis B without delta-agent and without hepatic coma
+B18.1	Chronic viral hepatitis B without delta-agent
+B18.2	Chronic viral hepatitis C
+B20	Human immunodeficiency virus [HIV] disease
+B34.9	Viral infection, unspecified
+B35.1	Tinea unguium
+B35.4	Tinea corporis
+B37.0	Candidal stomatitis
+B50.9	Plasmodium falciparum malaria, unspecified
+B54	Unspecified malaria
+B86	Scabies
+C18.9	Malignant neoplasm of colon, unspecified
+C34.90	Malignant neoplasm of unspecified part of unspecified bronchus or lung
+C50.919	Malignant neoplasm of unspecified site of unspecified female breast
+C53.9	Malignant neoplasm of cervix uteri, unspecified
+C61	Malignant neoplasm of prostate
+D25.9	Leiomyoma of uterus, unspecified
+D50.9	Iron deficiency anemia, unspecified
+D57.1	Sickle-cell disease without crisis
+D64.9	Anemia, unspecified
+D69.6	Thrombocytopenia, unspecified
+E03.9	Hypothyroidism, unspecified
+E05.90	Thyrotoxicosis, unspecified without thyrotoxic crisis or storm
+E10.9	Type 1 diabetes mellitus without complications
+E11.22	Type 2 diabetes mellitus with diabetic chronic kidney disease
+E11.319	Type 2 diabetes mellitus with unspecified diabetic retinopathy without macular edema
+E11.40	Type 2 diabetes mellitus with diabetic neuropathy, unspecified
+E11.65	Type 2 diabetes mellitus with hyperglycemia
+E11.9	Type 2 diabetes mellitus without complications
+E13.9	Other specified diabetes mellitus without complications
+E16.2	Hypoglycemia, unspecified
+E28.2	Polycystic ovarian syndrome
+E43	Unspecified severe protein-calorie malnutrition
+E44.0	Moderate protein-calorie malnutrition
+E46	Unspecified protein-calorie malnutrition
+E55.9	Vitamin D deficiency, unspecified
+E66.9	Obesity, unspecified
+E78.00	Pure hypercholesterolemia, unspecified
+E78.5	Hyperlipidemia, unspecified
+E83.42	Hypomagnesemia
+E86.0	Dehydration
+E87.1	Hypo-osmolality and hyponatremia
+E87.6	Hypokalemia
+F10.20	Alcohol dependence, uncomplicated
+F17.210	Nicotine dependence, cigarettes, uncomplicated
+F20.9	Schizophrenia, unspecified
+F31.9	Bipolar disorder, unspecified
+F32.9	Major depressive disorder, single episode, unspecified
+F32.A	Depression, unspecified
+F33.9	Major depressive disorder, recurrent, unspecified
+F41.1	Generalized anxiety disorder
+F41.9	Anxiety disorder, unspecified
+F43.10	Post-traumatic stress disorder, unspecified
+F43.20	Adjustment disorder, unspecified
+F51.01	Primary insomnia
+F84.0	Autistic disorder
+F90.9	Attention-deficit hyperactivity disorder, unspecified type
+G30.9	Alzheimer's disease, unspecified
+G35	Multiple sclerosis
+G40.909	Epilepsy, unspecified, not intractable, without status epilepticus
+G43.909	Migraine, unspecified, not intractable, without status migrainosus
+G44.209	Tension-type headache, unspecified, not intractable
+G45.9	Transient cerebral ischemic attack, unspecified
+G47.00	Insomnia, unspecified
+G47.33	Obstructive sleep apnea (adult) (pediatric)
+G51.0	Bell's palsy
+G56.00	Carpal tunnel syndrome, unspecified upper limb
+G62.9	Polyneuropathy, unspecified
+H10.30	Unspecified acute conjunctivitis, unspecified eye
+H10.9	Unspecified conjunctivitis
+H25.9	Unspecified age-related cataract
+H40.9	Unspecified glaucoma
+H52.4	Presbyopia
+H60.90	Unspecified otitis externa, unspecified ear
+H61.20	Impacted cerumen, unspecified ear
+H65.90	Unspecified nonsuppurative otitis media, unspecified ear
+H66.90	Otitis media, unspecified, unspecified ear
+H81.10	Benign paroxysmal vertigo, unspecified ear
+H91.90	Unspecified hearing loss, unspecified ear
+I05.9	Rheumatic mitral valve disease, unspecified
+I10	Essential (primary) hypertension
+I11.9	Hypertensive heart disease without heart failure
+I12.9	Hypertensive chronic kidney disease with stage 1 through stage 4 chronic kidney disease, or unspecified chronic kidney disease
+I20.9	Angina pectoris, unspecified
+I21.9	Acute myocardial infarction, unspecified
+I25.10	Atherosclerotic heart disease of native coronary artery without angina pectoris
+I26.99	Other pulmonary embolism without acute cor pulmonale
+I34.0	Nonrheumatic mitral (valve) insufficiency
+I35.0	Nonrheumatic aortic (valve) stenosis
+I42.9	Cardiomyopathy, unspecified
+I48.91	Unspecified atrial fibrillation
+I49.9	Cardiac arrhythmia, unspecified
+I50.9	Heart failure, unspecified
+I63.9	Cerebral infarction, unspecified
+I73.9	Peripheral vascular disease, unspecified
+I82.409	Acute embolism and thrombosis of unspecified deep veins of unspecified lower extremity
+I83.90	Asymptomatic varicose veins of unspecified lower extremity
+I95.9	Hypotension, unspecified
+J01.90	Acute sinusitis, unspecified
+J02.0	Streptococcal pharyngitis
+J02.9	Acute pharyngitis, unspecified
+J03.90	Acute tonsillitis, unspecified
+J04.0	Acute laryngitis
+J06.9	Acute upper respiratory infection, unspecified
+J11.1	Influenza due to unidentified influenza virus with other respiratory manifestations
+J12.9	Viral pneumonia, unspecified
+J15.9	Unspecified bacterial pneumonia
+J18.9	Pneumonia, unspecified organism
+J20.9	Acute bronchitis, unspecified
+J21.9	Acute bronchiolitis, unspecified
+J30.1	Allergic rhinitis due to pollen
+J30.9	Allergic rhinitis, unspecified
+J31.0	Chronic rhinitis
+J31.2	Chronic pharyngitis
+J32.9	Chronic sinusitis, unspecified
+J35.01	Chronic tonsillitis
+J40	Bronchitis, not specified as acute or chronic
+J42	Unspecified chronic bronchitis
+J43.9	Emphysema, unspecified
+J44.1	Chronic obstructive pulmonary disease with (acute) exacerbation
+J44.9	Chronic obstructive pulmonary disease, unspecified
+J45.20	Mild intermittent asthma, uncomplicated
+J45.901	Unspecified asthma with (acute) exacerbation
+J45.909	Unspecified asthma, uncomplicated
+J90	Pleural effusion, not elsewhere classified
+J96.00	Acute respiratory failure, unspecified whether with hypoxia or hypercapnia
+J98.4	Other disorders of lung
+K02.9	Dental caries, unspecified
+K05.10	Chronic gingivitis, plaque induced
+K12.0	Recurrent oral aphthae
+K21.9	Gastro-esophageal reflux disease without esophagitis
+K25.9	Gastric ulcer, unspecified as acute or chronic, without hemorrhage or perforation
+K27.9	Peptic ulcer, site unspecified, unspecified as acute or chronic, without hemorrhage or perforation
+K29.70	Gastritis, unspecified, without bleeding
+K30	Functional dyspepsia
+K35.80	Unspecified acute appendicitis
+K40.90	Unilateral inguinal hernia, without obstruction or gangrene, not specified as recurrent
+K52.9	Noninfective gastroenteritis and colitis, unspecified
+K57.30	Diverticulosis of large intestine without perforation or abscess without bleeding
+K58.9	Irritable bowel syndrome without diarrhea
+K59.00	Constipation, unspecified
+K64.9	Unspecified hemorrhoids
+K70.30	Alcoholic cirrhosis of liver without ascites
+K74.60	Unspecified cirrhosis of liver
+K76.0	Fatty (change of) liver, not elsewhere classified
+K80.20	Calculus of gallbladder without cholecystitis without obstruction
+K81.9	Cholecystitis, unspecified
+K85.90	Acute pancreatitis without necrosis or infection, unspecified
+K92.2	Gastrointestinal hemorrhage, unspecified
+L01.00	Impetigo, unspecified
+L02.91	Cutaneous abscess, unspecified
+L03.90	Cellulitis, unspecified
+L20.9	Atopic dermatitis, unspecified
+L23.9	Allergic contact dermatitis, unspecified cause
+L29.9	Pruritus, unspecified
+L30.9	Dermatitis, unspecified
+L40.9	Psoriasis, unspecified
+L50.9	Urticaria, unspecified
+L60.0	Ingrowing nail
+L70.0	Acne vulgaris
+L80	Vitiligo
+L89.90	Pressure ulcer of unspecified site, unspecified stage
+M06.9	Rheumatoid arthritis, unspecified
+M10.9	Gout, unspecified
+M16.9	Osteoarthritis of hip, unspecified
+M17.9	Osteoarthritis of knee, unspecified
+M19.90	Unspecified osteoarthritis, unspecified site
+M25.50	Pain in unspecified joint
+M25.561	Pain in right knee
+M25.562	Pain in left knee
+M32.9	Systemic lupus erythematosus, unspecified
+M54.16	Radiculopathy, lumbar region
+M54.2	Cervicalgia
+M54.50	Low back pain, unspecified
+M54.9	Dorsalgia, unspecified
+M62.830	Muscle spasm of back
+M65.30	Trigger finger, unspecified finger
+M72.2	Plantar fascial fibromatosis
+M77.10	Lateral epicondylitis, unspecified elbow
+M79.609	Pain in unspecified limb
+M79.7	Fibromyalgia
+M81.0	Age-related osteoporosis without current pathological fracture
+N17.9	Acute kidney failure, unspecified
+N18.4	Chronic kidney disease, stage 4 (severe)
+N18.6	End stage renal disease
+N18.9	Chronic kidney disease, unspecified
+N20.0	Calculus of kidney
+N30.00	Acute cystitis without hematuria
+N39.0	Urinary tract infection, site not specified
+N40.0	Benign prostatic hyperplasia without lower urinary tract symptoms
+N40.1	Benign prostatic hyperplasia with lower urinary tract symptoms
+N52.9	Male erectile dysfunction, unspecified
+N63.0	Unspecified lump in unspecified breast
+N73.9	Female pelvic inflammatory disease, unspecified
+N76.0	Acute vaginitis
+N91.2	Amenorrhea, unspecified
+N92.0	Excessive and frequent menstruation with regular cycle
+N94.6	Dysmenorrhea, unspecified
+N95.1	Menopausal and female climacteric states
+N97.9	Female infertility, unspecified
+O13.9	Gestational [pregnancy-induced] hypertension without significant proteinuria, unspecified trimester
+O14.90	Unspecified pre-eclampsia, unspecified trimester
+O21.0	Mild hyperemesis gravidarum
+O24.419	Gestational diabetes mellitus in pregnancy, unspecified control
+O80	Encounter for full-term uncomplicated delivery
+R00.0	Tachycardia, unspecified
+R00.1	Bradycardia, unspecified
+R00.2	Palpitations
+R01.1	Cardiac murmur, unspecified
+R03.0	Elevated blood-pressure reading, without diagnosis of hypertension
+R04.0	Epistaxis
+R05.9	Cough, unspecified
+R06.00	Dyspnea, unspecified
+R06.02	Shortness of breath
+R06.2	Wheezing
+R07.0	Pain in throat
+R07.89	Other chest pain
+R07.9	Chest pain, unspecified
+R09.02	Hypoxemia
+R09.81	Nasal congestion
+R10.13	Epigastric pain
+R10.31	Right lower quadrant pain
+R10.9	Unspecified abdominal pain
+R11.0	Nausea
+R11.10	Vomiting, unspecified
+R11.2	Nausea with vomiting, unspecified
+R12	Heartburn
+R13.10	Dysphagia, unspecified
+R14.0	Abdominal distension (gaseous)
+R17	Unspecified jaundice
+R19.7	Diarrhea, unspecified
+R20.2	Paresthesia of skin
+R21	Rash and other nonspecific skin eruption
+R25.2	Cramp and spasm
+R26.89	Other abnormalities of gait and mobility
+R30.0	Dysuria
+R31.9	Hematuria, unspecified
+R32	Unspecified urinary incontinence
+R35.0	Frequency of micturition
+R39.15	Urgency of urination
+R40.20	Unspecified coma
+R41.0	Disorientation, unspecified
+R42	Dizziness and giddiness
+R45.851	Suicidal ideations
+R50.9	Fever, unspecified
+R51.9	Headache, unspecified
+R52	Pain, unspecified
+R53.1	Weakness
+R53.83	Other fatigue
+R55	Syncope and collapse
+R56.9	Unspecified convulsions
+R59.0	Localized enlarged lymph nodes
+R60.0	Localized edema
+R63.0	Anorexia
+R63.4	Abnormal weight loss
+R63.5	Abnormal weight gain
+R68.83	Chills (without fever)
+R68.84	Jaw pain
+R73.03	Prediabetes
+R73.9	Hyperglycemia, unspecified
+R80.9	Proteinuria, unspecified
+R94.31	Abnormal electrocardiogram [ECG] [EKG]
+S06.0X0A	Concussion without loss of consciousness, initial encounter
+S13.4XXA	Sprain of ligaments of cervical spine, initial encounter
+S39.012A	Strain of muscle, fascia and tendon of lower back, initial encounter
+S52.501A	Unspecified fracture of the lower end of right radius, initial encounter for closed fracture
+S93.401A	Sprain of unspecified ligament of right ankle, initial encounter
+S93.402A	Sprain of unspecified ligament of left ankle, initial encounter
+T14.90XA	Injury, unspecified, initial encounter
+T30.0	Burn of unspecified body region, unspecified degree
+T78.3XXA	Angioneurotic edema, initial encounter
+T78.40XA	Allergy, unspecified, initial encounter
+U07.1	COVID-19
+W19.XXXA	Unspecified fall, initial encounter
+Z00.00	Encounter for general adult medical examination without abnormal findings
+Z00.01	Encounter for general adult medical examination with abnormal findings
+Z00.129	Encounter for routine child health examination without abnormal findings
+Z01.419	Encounter for gynecological examination (general) (routine) without abnormal findings
+Z03.89	Encounter for observation for other suspected diseases and conditions ruled out
+Z09	Encounter for follow-up examination after completed treatment for conditions other than malignant neoplasm
+Z11.3	Encounter for screening for infections with a predominantly sexual mode of transmission
+Z11.4	Encounter for screening for human immunodeficiency virus [HIV]
+Z12.31	Encounter for screening mammogram for malignant neoplasm of breast
+Z12.4	Encounter for screening for malignant neoplasm of cervix
+Z13.1	Encounter for screening for diabetes mellitus
+Z20.822	Contact with and (suspected) exposure to COVID-19
+Z23	Encounter for immunization
+Z30.011	Encounter for initial prescription of contraceptive pills
+Z30.09	Encounter for other general counseling and advice on contraception
+Z33.1	Pregnant state, incidental
+Z34.90	Encounter for supervision of normal pregnancy, unspecified, unspecified trimester
+Z51.11	Encounter for antineoplastic chemotherapy
+Z71.3	Dietary counseling and surveillance
+Z72.0	Tobacco use
+Z76.0	Encounter for issue of repeat prescription
+Z79.01	Long term (current) use of anticoagulants
+Z79.4	Long term (current) use of insulin
+Z79.84	Long term (current) use of oral hypoglycemic drugs
+Z79.899	Other long term (current) drug therapy
+Z86.73	Personal history of transient ischemic attack (TIA), and cerebral infarction without residual deficits
+Z87.891	Personal history of nicotine dependence
+Z88.0	Allergy status to penicillin
+Z91.81	History of falling
+Z95.1	Presence of aortocoronary bypass graft
+Z96.651	Presence of right artificial knee joint
+Z98.890	Other specified postprocedural states
+Z99.2	Dependence on renal dialysis

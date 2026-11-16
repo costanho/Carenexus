@@ -2,6 +2,7 @@ package com.carenexus.api.communications;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.exception.BadRequestException;
 import com.carenexus.api.common.service.AuditService;
 import com.carenexus.api.communications.dto.request.MarkThreadReadRequest;
 import com.carenexus.api.communications.dto.request.SendMessageRequest;
@@ -133,7 +134,7 @@ public class MessageServiceTest {
     @Test
     public void history_beforeAndAfterTogether_is400() {
         callerIs(DOCTOR, "DOCTOR", doctorMember);
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> messageService.listMessages(41, 10, 5, null));
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> messageService.listMessages(41, 10, 5, null));
         assertEquals("Use either before or after, not both", ex.getMessage());
     }
 
@@ -185,6 +186,8 @@ public class MessageServiceTest {
         assertEquals("stored body", result.message().getBody());
         verify(messageRepository, never()).saveAndFlush(any());
         verifyNoInteractions(notificationService);
+        // The replay changes nothing: no notification is marked read
+        verifyNoInteractions(notificationRepository);
     }
 
     @Test
@@ -224,6 +227,9 @@ public class MessageServiceTest {
                 eq("Dr. Amara Osei"), eq("Thomas Dube"));
         verify(notificationService, never()).createMessageNotification(eq(CAREGIVER), any(), any(), any(), any());
         verify(notificationService, never()).createMessageNotification(eq(DOCTOR), any(), any(), any(), any());
+        // Sending is reading: the sender's own notifications of this thread are read up to the new message
+        verify(notificationRepository).markThreadReadUpTo(eq(DOCTOR), eq(41), eq(906), any(LocalDateTime.class));
+        verify(notificationRepository, never()).markThreadReadUpTo(eq(PATIENT), any(), any(), any());
         verify(auditService).logClinicalAccess("CREATE", "MESSAGE", 906, PATIENT);
         assertEquals(CLIENT_ID, result.message().getClientMessageId());
         assertTrue(result.message().getMine());
@@ -234,13 +240,23 @@ public class MessageServiceTest {
         callerIs(DOCTOR, "DOCTOR", doctorMember);
         when(messageRepository.findByThreadIdAndSenderSystemIdAndClientMessageId(any(), any(), any())).thenReturn(Optional.empty());
 
-        assertEquals("A valid clientMessageId is required", assertThrows(RuntimeException.class,
+        assertEquals("A valid clientMessageId is required", assertThrows(BadRequestException.class,
                 () -> messageService.sendMessage(41, SendMessageRequest.builder().clientMessageId("short").body("x").build())).getMessage());
-        assertEquals("Message cannot be empty", assertThrows(RuntimeException.class,
+        assertEquals("Message cannot be empty", assertThrows(BadRequestException.class,
                 () -> messageService.sendMessage(41, send("   "))).getMessage());
-        assertEquals("Messages can be at most 4000 characters", assertThrows(RuntimeException.class,
+        assertEquals("Messages can be at most 4000 characters", assertThrows(BadRequestException.class,
                 () -> messageService.sendMessage(41, send("a".repeat(4001)))).getMessage());
         verify(messageRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(notificationRepository);
+    }
+
+    @Test
+    public void markRead_withoutPosition_is400() {
+        callerIs(DOCTOR, "DOCTOR", doctorMember);
+        assertEquals("lastReadMessageId is required", assertThrows(BadRequestException.class,
+                () -> messageService.markRead(41, new MarkThreadReadRequest(null))).getMessage());
+        assertEquals("lastReadMessageId is required", assertThrows(BadRequestException.class,
+                () -> messageService.markRead(41, null)).getMessage());
     }
 
     // ==================== READ POSITION ====================

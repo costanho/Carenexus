@@ -1,7 +1,7 @@
 import { type Browser, type BrowserContext, type BrowserContextOptions, expect, type Page } from '@playwright/test';
 import { type Api, callStatus, harareLocal, waitForCallStatus } from './api';
 import { type DemoUser, JAMES, THOMAS } from './env';
-import { login } from './ui';
+import { login, mediaPermissions } from './ui';
 
 // Helpers for fix-platform.spec.ts (dashboard role gate, register form, device check timeout, call safety).
 
@@ -16,7 +16,7 @@ export interface FixPage { context: BrowserContext; page: Page; dialogs: string[
  * goes through silently.
  */
 export async function fixPage(browser: Browser, user: DemoUser | null, options: BrowserContextOptions = {}): Promise<FixPage> {
-  const context = await browser.newContext({ permissions: ['camera', 'microphone'], ...options });
+  const context = await browser.newContext({ permissions: mediaPermissions(browser), ...options });
   const page = await context.newPage();
   const dialogs: string[] = [];
   page.on('dialog', d => {

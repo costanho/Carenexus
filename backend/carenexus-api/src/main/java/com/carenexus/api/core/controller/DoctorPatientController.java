@@ -1,495 +1,135 @@
 package com.carenexus.api.core.controller;
 
-import com.carenexus.api.common.service.AuditService;
-import com.carenexus.api.common.service.AuthorizationService;
+import com.carenexus.api.common.dto.ErrorResponse;
+import com.carenexus.api.common.dto.StandardErrors;
+import com.carenexus.api.core.dto.request.UpdateHealthStatusRequest;
+import com.carenexus.api.core.dto.response.DoctorPatientHealthStatusResponse;
+import com.carenexus.api.core.dto.response.DoctorPatientOptionResponse;
+import com.carenexus.api.core.dto.response.DoctorPatientPageResponse;
 import com.carenexus.api.core.dto.response.DoctorPatientResponse;
 import com.carenexus.api.core.service.DoctorPatientService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 /**
- * A doctor's patient list. Self endpoints require the DOCTOR role; the /{doctorSystemId}/... variants are only
- * for that doctor or an ADMIN (AuthorizationService.requireDoctorSelf).
+ * The calling doctor's patients. Authorization lives in {@link DoctorPatientService}: the lists and the detail are
+ * DOCTOR only (an administrator has no patient list); the health-status change also accepts an ADMIN. PATIENT and
+ * CAREGIVER callers are stopped by the /api/doctors/** route rule before any controller runs.
  */
 @RestController
 @RequestMapping("/api/doctors/patients")
 @RequiredArgsConstructor
+@Validated
+@Tag(name = "Doctor patients", description = "The calling doctor's patients: care-team members and patients with a "
+        + "non-cancelled appointment or a consultation with the doctor")
 public class DoctorPatientController {
 
     private final DoctorPatientService doctorPatientService;
-    private final AuthorizationService authorizationService;
-    private final AuditService auditService;
 
+    /**
+     * @deprecated use GET /api/doctors/patients/search (screens) or /options (pickers and name maps).
+     */
+    @Deprecated
     @GetMapping
-    public ResponseEntity<List<DoctorPatientResponse>> getMyPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/scheduled")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyScheduledPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorScheduledPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/scheduled")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorScheduledPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorScheduledPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/completed")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyCompletedPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorCompletedPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/completed")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorCompletedPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorCompletedPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/cancelled")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyCancelledPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorCancelledPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/cancelled")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorCancelledPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorCancelledPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/no-show")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyNoShowPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorNoShowPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/no-show")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorNoShowPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorNoShowPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/rescheduled")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyRescheduledPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorRescheduledPatients(systemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/rescheduled")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorRescheduledPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorRescheduledPatients(doctorSystemId);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/status/{status}")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyPatientsByStatus(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String status) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatientsByStatus(systemId, status.toUpperCase());
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/status/{status}")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorPatientsByStatus(
-            @PathVariable String doctorSystemId,
-            @PathVariable String status) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatientsByStatus(doctorSystemId, status.toUpperCase());
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{patientSystemId}/detail")
-    public ResponseEntity<DoctorPatientResponse> getMyPatientDetail(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String patientSystemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        DoctorPatientResponse patient = doctorPatientService.getDoctorPatientDetail(systemId, patientSystemId);
-        auditService.logClinicalAccess("READ", "PROFILE", null, patientSystemId);
-        return ResponseEntity.ok(patient);
-    }
-
-    @GetMapping("/{doctorSystemId}/{patientSystemId}/detail")
-    public ResponseEntity<DoctorPatientResponse> getDoctorPatientDetail(
-            @PathVariable String doctorSystemId,
-            @PathVariable String patientSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        DoctorPatientResponse patient = doctorPatientService.getDoctorPatientDetail(doctorSystemId, patientSystemId);
-        auditService.logClinicalAccess("READ", "PROFILE", null, patientSystemId);
-        return ResponseEntity.ok(patient);
+    @Operation(summary = "List my patients as an array (deprecated)", deprecated = true,
+            description = "DOCTOR only. A bare array ordered by last name, first name and patient id, at most 200 rows, "
+                    + "with the five most recent appointments of each patient. Audited: one READ / PROFILE row per "
+                    + "patient returned. New code uses /search for screens and /options for pickers.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The doctor's patients (JSON array)")
+    public ResponseEntity<List<DoctorPatientResponse>> getMyPatients() {
+        return ResponseEntity.ok(doctorPatientService.getMyPatients());
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<DoctorPatientResponse>> searchMyPatients(
-            @RequestAttribute("systemId") String systemId,
-            @RequestParam String query) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.searchDoctorPatients(systemId, query);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/{doctorSystemId}/search")
-    public ResponseEntity<List<DoctorPatientResponse>> searchDoctorPatients(
-            @PathVariable String doctorSystemId,
-            @RequestParam String query) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.searchDoctorPatients(doctorSystemId, query);
-        return ResponseEntity.ok(patients);
-    }
-
-    @GetMapping("/high-risk")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyHighRiskPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> allPatients = doctorPatientService.getDoctorPatients(systemId);
-
-        List<DoctorPatientResponse> highRiskPatients = allPatients.stream()
-                .filter(p -> "CRITICAL".equals(p.getHealthStatus()) || p.getNoShowCount() > 2)
-                .toList();
-
-        return ResponseEntity.ok(highRiskPatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/high-risk")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorHighRiskPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> allPatients = doctorPatientService.getDoctorPatients(doctorSystemId);
-
-        List<DoctorPatientResponse> highRiskPatients = allPatients.stream()
-                .filter(p -> "CRITICAL".equals(p.getHealthStatus()) || p.getNoShowCount() > 2)
-                .toList();
-
-        return ResponseEntity.ok(highRiskPatients);
-    }
-
-    @GetMapping("/frequent-visitors")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyFrequentVisitors(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> allPatients = doctorPatientService.getDoctorPatients(systemId);
-
-        List<DoctorPatientResponse> frequentVisitors = allPatients.stream()
-                .filter(p -> p.getTotalAppointments() >= 5)
-                .sorted((p1, p2) -> Integer.compare(p2.getTotalAppointments(), p1.getTotalAppointments()))
-                .toList();
-
-        return ResponseEntity.ok(frequentVisitors);
-    }
-
-    @GetMapping("/{doctorSystemId}/frequent-visitors")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorFrequentVisitors(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> allPatients = doctorPatientService.getDoctorPatients(doctorSystemId);
-
-        List<DoctorPatientResponse> frequentVisitors = allPatients.stream()
-                .filter(p -> p.getTotalAppointments() >= 5)
-                .sorted((p1, p2) -> Integer.compare(p2.getTotalAppointments(), p1.getTotalAppointments()))
-                .toList();
-
-        return ResponseEntity.ok(frequentVisitors);
-    }
-
-    @GetMapping("/gender/male")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyMalePatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> malePatients = patients.stream()
-                .filter(p -> "MALE".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(malePatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/gender/male")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorMalePatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> malePatients = patients.stream()
-                .filter(p -> "MALE".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(malePatients);
-    }
-
-    @GetMapping("/gender/female")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyFemalePatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> femalePatients = patients.stream()
-                .filter(p -> "FEMALE".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(femalePatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/gender/female")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorFemalePatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> femalePatients = patients.stream()
-                .filter(p -> "FEMALE".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(femalePatients);
-    }
-
-    @GetMapping("/gender/other")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyOtherGenderPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> otherPatients = patients.stream()
-                .filter(p -> "OTHER".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(otherPatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/gender/other")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorOtherGenderPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> otherPatients = patients.stream()
-                .filter(p -> "OTHER".equalsIgnoreCase(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(otherPatients);
-    }
-
-    @GetMapping("/gender/all")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyAllGenderPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        return ResponseEntity.ok(doctorPatientService.getDoctorPatients(systemId));
-    }
-
-    @GetMapping("/{doctorSystemId}/gender/all")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorAllGenderPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        return ResponseEntity.ok(doctorPatientService.getDoctorPatients(doctorSystemId));
-    }
-
-    @GetMapping("/gender/{gender}")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyPatientsByGender(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String gender) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        String upperGender = gender.toUpperCase();
-
-        if ("ALL".equals(upperGender)) {
-            return ResponseEntity.ok(patients);
-        }
-
-        List<DoctorPatientResponse> filtered = patients.stream()
-                .filter(p -> upperGender.equals(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(filtered);
-    }
-
-    @GetMapping("/{doctorSystemId}/gender/{gender}")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorPatientsByGender(
-            @PathVariable String doctorSystemId,
-            @PathVariable String gender) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        String upperGender = gender.toUpperCase();
-
-        if ("ALL".equals(upperGender)) {
-            return ResponseEntity.ok(patients);
-        }
-
-        List<DoctorPatientResponse> filtered = patients.stream()
-                .filter(p -> upperGender.equals(p.getGender()))
-                .toList();
-        return ResponseEntity.ok(filtered);
-    }
-
-    @GetMapping("/health-status/stable")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyStablePatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> stablePatients = patients.stream()
-                .filter(p -> "STABLE".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(stablePatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/health-status/stable")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorStablePatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> stablePatients = patients.stream()
-                .filter(p -> "STABLE".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(stablePatients);
-    }
-
-    @GetMapping("/health-status/monitor")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyMonitorPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> monitorPatients = patients.stream()
-                .filter(p -> "MONITOR".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(monitorPatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/health-status/monitor")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorMonitorPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> monitorPatients = patients.stream()
-                .filter(p -> "MONITOR".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(monitorPatients);
-    }
-
-    @GetMapping("/health-status/critical")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyCriticalPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        List<DoctorPatientResponse> criticalPatients = patients.stream()
-                .filter(p -> "CRITICAL".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(criticalPatients);
-    }
-
-    @GetMapping("/{doctorSystemId}/health-status/critical")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorCriticalPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        List<DoctorPatientResponse> criticalPatients = patients.stream()
-                .filter(p -> "CRITICAL".equalsIgnoreCase(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(criticalPatients);
-    }
-
-    @GetMapping("/health-status/all")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyAllHealthStatusPatients(
-            @RequestAttribute("systemId") String systemId) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        return ResponseEntity.ok(doctorPatientService.getDoctorPatients(systemId));
-    }
-
-    @GetMapping("/{doctorSystemId}/health-status/all")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorAllHealthStatusPatients(@PathVariable String doctorSystemId) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        return ResponseEntity.ok(doctorPatientService.getDoctorPatients(doctorSystemId));
-    }
-
-    @GetMapping("/health-status/{status}")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyPatientsByHealthStatus(
-            @RequestAttribute("systemId") String systemId,
-            @PathVariable String status) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-        String upperStatus = status.toUpperCase();
-
-        if ("ALL".equals(upperStatus)) {
-            return ResponseEntity.ok(patients);
-        }
-
-        List<DoctorPatientResponse> filtered = patients.stream()
-                .filter(p -> upperStatus.equals(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(filtered);
-    }
-
-    @GetMapping("/{doctorSystemId}/health-status/{status}")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorPatientsByHealthStatus(
-            @PathVariable String doctorSystemId,
-            @PathVariable String status) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
-        String upperStatus = status.toUpperCase();
-
-        if ("ALL".equals(upperStatus)) {
-            return ResponseEntity.ok(patients);
-        }
-
-        List<DoctorPatientResponse> filtered = patients.stream()
-                .filter(p -> upperStatus.equals(p.getHealthStatus()))
-                .toList();
-        return ResponseEntity.ok(filtered);
-    }
-
-    @GetMapping("/filter")
-    public ResponseEntity<List<DoctorPatientResponse>> getMyPatientsFiltered(
-            @RequestAttribute("systemId") String systemId,
-            @RequestParam(required = false) String gender,
+    @Operation(summary = "Search my patients (paged)",
+            description = "DOCTOR only. Filters (AND) and ordering run in the database; every order ends with last "
+                    + "name, first name and patient id. summary counts the doctor's whole patient set and ignores "
+                    + "filters and paging. Audited: one READ / PROFILE row per patient of the page.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "One page of the doctor's patients with the summary counts")
+    public ResponseEntity<DoctorPatientPageResponse> searchMyPatients(
+            @Parameter(description = "Case-insensitive 'contains' on first name, last name, full name, email and "
+                    + "patient id; plain 'contains' on phone. % and _ match literally")
+            @RequestParam(required = false)
+            @Size(max = 100, message = "Search text must be at most 100 characters") String query,
+            @Parameter(description = "STABLE, MONITOR or CRITICAL (case-insensitive); blank or ALL = no filter")
             @RequestParam(required = false) String healthStatus,
-            @RequestParam(required = false) String appointmentStatus) {
-        authorizationService.requireRole(AuthorizationService.DOCTOR);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(systemId);
-
-        if (gender != null && !gender.equalsIgnoreCase("ALL")) {
-            patients = patients.stream()
-                    .filter(p -> gender.equalsIgnoreCase(p.getGender()))
-                    .toList();
-        }
-
-        if (healthStatus != null && !healthStatus.equalsIgnoreCase("ALL")) {
-            patients = patients.stream()
-                    .filter(p -> healthStatus.equalsIgnoreCase(p.getHealthStatus()))
-                    .toList();
-        }
-
-        return ResponseEntity.ok(patients);
+            @Parameter(description = "MALE, FEMALE or OTHER (case-insensitive); blank or ALL = no filter")
+            @RequestParam(required = false) String gender,
+            @Parameter(description = "name (default), nextAppointment, healthStatus or lastVisit")
+            @RequestParam(required = false) String sort,
+            @Parameter(description = "Zero-based page; a negative value becomes 0")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size, clamped to 1..100")
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(doctorPatientService.searchMyPatients(query, healthStatus, gender, sort, page, size));
     }
 
-    @GetMapping("/{doctorSystemId}/filter")
-    public ResponseEntity<List<DoctorPatientResponse>> getDoctorPatientsFiltered(
-            @PathVariable String doctorSystemId,
-            @RequestParam(required = false) String gender,
-            @RequestParam(required = false) String healthStatus,
-            @RequestParam(required = false) String appointmentStatus) {
-        authorizationService.requireDoctorSelf(doctorSystemId);
-        List<DoctorPatientResponse> patients = doctorPatientService.getDoctorPatients(doctorSystemId);
+    @GetMapping("/options")
+    @Operation(summary = "List my patients' ids and names (pickers)",
+            description = "DOCTOR only. A bare array of id and name ordered by last name, first name and patient id, "
+                    + "at most 500 rows; narrow with query. Not audited (no clinical field).")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "Id and name of the doctor's patients (JSON array)")
+    public ResponseEntity<List<DoctorPatientOptionResponse>> getMyPatientOptions(
+            @Parameter(description = "Case-insensitive 'contains' on first name, last name, full name and patient id")
+            @RequestParam(required = false)
+            @Size(max = 100, message = "Search text must be at most 100 characters") String query) {
+        return ResponseEntity.ok(doctorPatientService.getMyPatientOptions(query));
+    }
 
-        if (gender != null && !gender.equalsIgnoreCase("ALL")) {
-            patients = patients.stream()
-                    .filter(p -> gender.equalsIgnoreCase(p.getGender()))
-                    .toList();
-        }
+    @GetMapping("/{patientSystemId}/detail")
+    @Operation(summary = "Get one of my patients",
+            description = "DOCTOR related to the patient (care team, non-cancelled appointment or consultation). "
+                    + "Includes the five most recent appointments with the doctor and the latest health-status note. "
+                    + "Any other doctor, and any unknown patient id, gets 403. Audited: READ / PROFILE.")
+    @StandardErrors
+    @ApiResponse(responseCode = "200", description = "The patient detail")
+    public ResponseEntity<DoctorPatientResponse> getMyPatientDetail(
+            @Parameter(description = "Patient system id", example = "PAT-00001") @PathVariable String patientSystemId) {
+        return ResponseEntity.ok(doctorPatientService.getMyPatientDetail(patientSystemId));
+    }
 
-        if (healthStatus != null && !healthStatus.equalsIgnoreCase("ALL")) {
-            patients = patients.stream()
-                    .filter(p -> healthStatus.equalsIgnoreCase(p.getHealthStatus()))
-                    .toList();
-        }
-
-        return ResponseEntity.ok(patients);
+    @PatchMapping("/{patientSystemId}/health-status")
+    @Operation(summary = "Set a patient's health status",
+            description = "A DOCTOR related to the patient, or an ADMIN. A change of status stores the given note (or "
+                    + "none) and is audited UPDATE / PROFILE; a change into CRITICAL notifies the patient and their "
+                    + "caregivers holding the records permission, without clinical detail. The same status with a note "
+                    + "replaces the note; the same status without a note changes nothing.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The health status after the call"),
+            @ApiResponse(responseCode = "400", description = "Missing or unknown health status, note too long, malformed body",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired access token",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Not a doctor related to the patient, and not an administrator",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Administrator and no patient with that id",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<DoctorPatientHealthStatusResponse> updateHealthStatus(
+            @Parameter(description = "Patient system id", example = "PAT-00001") @PathVariable String patientSystemId,
+            @Valid @RequestBody UpdateHealthStatusRequest request) {
+        return ResponseEntity.ok(doctorPatientService.updateHealthStatus(patientSystemId, request));
     }
 }

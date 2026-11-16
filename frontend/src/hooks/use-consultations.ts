@@ -1,7 +1,45 @@
-import { useEffect, useState } from 'react';
-import { api } from '@/lib/auth/auth.interceptor';
-import { useCurrentUser } from './use-current-user';
-import { loadActiveDoctors, type Doctor } from './use-doctors';
+import type { PagedState } from './use-paged';
+import type { ResourceState } from './use-resource';
+import {
+  enumOr, idOrNull, recordDoctor, recordPatientName, textOrNull,
+  usePatientRecordById, usePatientRecordPages, type PatientRecordContext,
+} from './use-medical-records';
+
+export type ConsultationStatus = 'IN_PROGRESS' | 'COMPLETED' | 'DRAFT' | 'CANCELLED';
+export type ConsultationAppointmentType = 'IN_PERSON' | 'VIDEO' | 'PHONE';
+
+const CONSULTATION_STATUSES: readonly ConsultationStatus[] = ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+const APPOINTMENT_TYPES: readonly ConsultationAppointmentType[] = ['IN_PERSON', 'VIDEO', 'PHONE'];
+
+/** `ConsultationResponse` as the API sends it (GET /api/consultations and /api/consultations/{id}). */
+export interface ConsultationDto {
+  consultationId:          number;
+  appointmentId:           number;
+  appointmentType:         ConsultationAppointmentType | null;
+  appointmentStatus:       'SCHEDULED' | 'RESCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' | null;
+  patientSystemId:         string;
+  /** Always null; kept by the API for compatibility. */
+  patientName:             string | null;
+  doctorSystemId:          string;
+  chiefComplaint:          string | null;
+  historyOfPresentIllness: string | null;
+  physicalExamination:     string | null;
+  clinicalNotes:           string | null;
+  diagnosis:               string | null;
+  treatmentPlan:           string | null;
+  followUpInstructions:    string | null;
+  followUpRequired:        boolean;
+  /** Date only, YYYY-MM-DD. */
+  followUpDate:            string | null;
+  durationMinutes:         number | null;
+  status:                  ConsultationStatus;
+  /** Clinic wall-clock date-times. */
+  startedAt:               string | null;
+  completedAt:             string | null;
+  createdAt:               string;
+  /** The CONSULT medical record created from this consultation, or null. */
+  medicalRecordId:         number | null;
+}
 
 export interface Consultation {
   consultation_id:           number;
@@ -16,18 +54,23 @@ export interface Consultation {
   treatment_plan:            string | null;
   follow_up_instructions:    string | null;
   follow_up_required:        number;
+  /** Date only, YYYY-MM-DD. */
   follow_up_date:            string | null;
   duration_minutes:          number | null;
-  status:                    'IN_PROGRESS' | 'COMPLETED' | 'DRAFT' | 'CANCELLED';
+  status:                    ConsultationStatus;
+  /** Clinic wall-clock date-times. */
   started_at:                string | null;
   completed_at:              string | null;
   created_at:                string;
+  doctor_system_id:          string;
   doctor_name:               string;
   doctor_specialization:     string | null;
   doctor_avatar_url:         string | null;
   patient_name:              string;
-  appointment_type:          'IN_PERSON' | 'VIDEO' | 'PHONE' | null;
+  appointment_type:          ConsultationAppointmentType | null;
   appointment_status:        string | null;
+  /** The medical record filed for this consultation; opening it is authorised separately (403 or 404 possible). */
+  medical_record_id:         number | null;
 }
 
 /**
@@ -38,87 +81,93 @@ export function isPatientVisibleConsultation(c: Pick<Consultation, 'status'>): b
   return c.status === 'COMPLETED';
 }
 
+export function toConsultation(r: ConsultationDto, ctx: PatientRecordContext): Consultation {
+  const appointmentType = textOrNull(r.appointmentType);
+  return {
+    consultation_id:            r.consultationId ?? 0,
+    appointment_id:             r.appointmentId ?? 0,
+    patient_id:                 0,
+    doctor_id:                  0,
+    chief_complaint:            textOrNull(r.chiefComplaint),
+    history_of_present_illness: textOrNull(r.historyOfPresentIllness),
+    physical_examination:       textOrNull(r.physicalExamination),
+    clinical_notes:             textOrNull(r.clinicalNotes),
+    diagnosis:                  textOrNull(r.diagnosis),
+    treatment_plan:             textOrNull(r.treatmentPlan),
+    follow_up_instructions:     textOrNull(r.followUpInstructions),
+    follow_up_required:         r.followUpRequired ? 1 : 0,
+    follow_up_date:             textOrNull(r.followUpDate),
+    duration_minutes:           idOrNull(r.durationMinutes),
+    status:                     enumOr(r.status, CONSULTATION_STATUSES, 'DRAFT'),
+    started_at:                 textOrNull(r.startedAt),
+    completed_at:               textOrNull(r.completedAt),
+    created_at:                 textOrNull(r.createdAt) ?? '',
+    // The API sends no doctor name on consultations: the directory or a lookup by id supplies it.
+    ...recordDoctor(r.doctorSystemId, null, ctx),
+    doctor_avatar_url:          null,
+    patient_name:               recordPatientName(r.patientName, ctx),
+    appointment_type:           appointmentType ? enumOr(appointmentType, APPOINTMENT_TYPES, 'IN_PERSON') : null,
+    appointment_status:         textOrNull(r.appointmentStatus),
+    medical_record_id:          idOrNull(r.medicalRecordId),
+  };
+}
+
+export interface ConsultationsOptions {
+  /** Rows per request. Default `RECORD_LIST_DEFAULT_PAGE_SIZE` (100); later rows come with `loadMore`. */
+  pageSize?: number;
+  /** When false nothing is requested. Default true. */
+  enabled?:  boolean;
+}
+
 interface State {
   consultations: Consultation[];
   loading:       boolean;
   error:         string | null;
   refetch:       () => void;
+  /** True when the server has more consultations than are loaded. */
+  hasMore:       boolean;
+  /** Fetches the next page and appends it to `consultations`. */
+  loadMore:      () => void;
+  loadingMore:   boolean;
+  refreshing:    boolean;
+  /** Number of completed consultations on the server. */
+  total:         number;
+  errorStatus:   number | null;
+  /** The same list in the shape `PagedList` renders. */
+  paged:         PagedState<Consultation>;
 }
 
-export function useConsultations(): State {
-  const { user, loading: userLoading, error: userError } = useCurrentUser();
-  const [consultations, setConsultations] = useState<Consultation[]>([]);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState<string | null>(null);
-  const [tick, setTick]                   = useState(0);
+const CONSULTATIONS_URL = '/api/consultations';
+const consultationKey = (row: Consultation) => row.consultation_id;
 
-  useEffect(() => {
-    if (!user) {
-      if (!userLoading) {
-        setError(userError ?? 'Could not load your account.');
-        setLoading(false);
-      }
-      return;
-    }
-    setLoading(true);
+/**
+ * The signed-in patient's finalised consultations, newest first
+ * (GET /api/consultations?patientSystemId=<caller>&status=COMPLETED). The API would also return cancelled
+ * consultations to a patient; they are not part of the history, so the list asks for completed ones only.
+ */
+export function useConsultations(options: ConsultationsOptions = {}): State {
+  const paged = usePatientRecordPages<ConsultationDto, Consultation>({
+    url:          CONSULTATIONS_URL,
+    filters:      { status: 'COMPLETED' },
+    map:          toConsultation,
+    keyOf:        consultationKey,
+    errorMessage: 'Failed to load consultations.',
+    pageSize:     options.pageSize,
+    enabled:      options.enabled,
+  });
+  return {
+    consultations: paged.items, loading: paged.loading, error: paged.error, refetch: paged.refetch,
+    hasMore: paged.hasMore, loadMore: paged.loadMore, loadingMore: paged.loadingMore,
+    refreshing: paged.refreshing, total: paged.total, errorStatus: paged.errorStatus, paged,
+  };
+}
 
-    Promise.all([
-      api.get<any[]>(`/api/consultations/patient/${user.system_id}`),
-      // Doctor names are a nicety: a failed doctor list must not hide the records themselves.
-      loadActiveDoctors().catch(() => [] as Doctor[]),
-    ])
-      .then(([consultRes, doctorsRes]) => {
-        const doctorMap = new Map<string, { name: string; specialization: string | null }>();
-        // Shared cached list; full_name already carries a single "Dr." title.
-        doctorsRes.forEach(d => {
-          const systemId = d.doctor_system_id;
-          if (!systemId) return;
-          doctorMap.set(systemId, { name: d.full_name, specialization: d.specialization ?? null });
-        });
-
-        const mapped: Consultation[] = consultRes.data.map((r: any) => {
-          const doctorSystemId = r.doctorSystemId ?? '';
-          const doctor = doctorMap.get(doctorSystemId);
-          return {
-            consultation_id:            r.consultationId            ?? 0,
-            appointment_id:             r.appointmentId             ?? 0,
-            patient_id:                 0,
-            doctor_id:                  0,
-            chief_complaint:            r.chiefComplaint            ?? null,
-            history_of_present_illness: r.historyOfPresentIllness   ?? null,
-            physical_examination:       r.physicalExamination       ?? null,
-            clinical_notes:             r.clinicalNotes             ?? null,
-            diagnosis:                  r.diagnosis                 ?? null,
-            treatment_plan:             r.treatmentPlan             ?? null,
-            follow_up_instructions:     r.followUpInstructions      ?? null,
-            follow_up_required:         r.followUpRequired          ? 1 : 0,
-            follow_up_date:             r.followUpDate              ? String(r.followUpDate) : null,
-            duration_minutes:           r.durationMinutes           ?? null,
-            status:                     (r.status ?? 'DRAFT') as Consultation['status'],
-            started_at:                 r.startedAt                 ? String(r.startedAt) : null,
-            completed_at:               r.completedAt               ? String(r.completedAt) : null,
-            created_at:                 r.createdAt                 ? String(r.createdAt) : '',
-            doctor_name:                doctor?.name                ?? (doctorSystemId || 'Unknown Doctor'),
-            doctor_specialization:      doctor?.specialization      ?? null,
-            doctor_avatar_url:          null,
-            patient_name:               `${user.first_name} ${user.last_name}`.trim() || 'Unknown Patient',
-            appointment_type:           null,
-            appointment_status:         null,
-          };
-        });
-
-        mapped.sort((a, b) => {
-          const aDate = a.completed_at ?? a.created_at;
-          const bDate = b.completed_at ?? b.created_at;
-          return new Date(bDate).getTime() - new Date(aDate).getTime();
-        });
-
-        setConsultations(mapped);
-        setError(null);
-      })
-      .catch(() => setError('Failed to load consultations.'))
-      .finally(() => setLoading(false));
-  }, [user?.system_id, userLoading, tick]);
-
-  return { consultations, loading, error, refetch: () => setTick(t => t + 1) };
+/**
+ * One consultation by id (GET /api/consultations/{id}); `null` loads nothing. For a patient an unfinished
+ * consultation answers 404.
+ */
+export function useConsultationById(consultationId: number | null): ResourceState<Consultation> {
+  return usePatientRecordById<ConsultationDto, Consultation>({
+    url: CONSULTATIONS_URL, id: consultationId, map: toConsultation, errorMessage: 'Failed to load the consultation.',
+  });
 }

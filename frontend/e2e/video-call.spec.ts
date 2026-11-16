@@ -10,6 +10,12 @@ import { liveVideoCount, newUserPage, openSection, tile, type UserPage } from '.
 // c. Full call: doctor starts, patient and caregiver ask to join, doctor admits, everyone sees
 //    live remote video; Leave keeps the call LIVE; End ends it for all; appointment not completed.
 // d. Revoking the caregiver's "join calls" permission mid-call removes her from the call.
+// Every test joins a live call with Chromium's fake camera and microphone, so the describe is @chromium-only.
+//
+// Tables written: appointments ("E2E video call test" VIDEO appointments, cancelled in afterAll), call_sessions,
+// call_participants, call_jobs and provider_events of their calls; dependent_access (Sarah's "join calls" consent,
+// restored in afterAll) and consent_records / caregiver_activity_log rows for that change; refresh_tokens and
+// audit_log for every sign-in.
 
 test.describe.configure({ mode: 'serial' });
 
@@ -28,7 +34,7 @@ async function askToJoin(page: Page, opts: { caregiver?: boolean } = {}) {
   await expect(page.getByText('Waiting for the doctor to let you in...')).toBeVisible();
 }
 
-test.describe('video call', () => {
+test.describe('video call @chromium-only', () => {
   let api: Clients;
   const pages: UserPage[] = [];
 
@@ -148,7 +154,7 @@ test.describe('video call', () => {
     // Thomas turns off "Join my video calls" for Sarah on the caregiver access screen.
     await openSection(patient.page, 'My Proxies (Caregivers)');
     await expect(patient.page.getByRole('heading', { name: 'My caregivers' })).toBeVisible();
-    const card = patient.page.locator('div').filter({ has: patient.page.getByRole('button', { name: `Remove access for ${SARAH.name}` }) })
+    const card = patient.page.locator('div').filter({ has: patient.page.getByRole('button', { name: `Remove access, ${SARAH.name}` }) })
       .filter({ has: patient.page.getByRole('switch', { name: 'Join my video calls' }) }).last();
     const callsSwitch = card.getByRole('switch', { name: 'Join my video calls' });
     await expect(callsSwitch).toHaveAttribute('aria-checked', 'true');

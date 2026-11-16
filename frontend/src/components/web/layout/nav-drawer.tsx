@@ -10,9 +10,9 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Phone-width navigation for the web dashboards: the full sidebar slides over the page, with a backdrop,
- * a Close menu button and Escape to close. Below the breakpoint the dashboards show this instead of a
- * permanent icon rail, so the page keeps the whole screen width (same pattern as the patient dashboard).
+ * Phone-width navigation for the web dashboards (patient, doctor, caregiver and admin): the full sidebar
+ * slides over the page, with a backdrop, a Close menu button and Escape to close. Below the breakpoint the
+ * dashboards show this instead of a permanent icon rail, so the page keeps the whole screen width.
  *
  * Web keyboard behaviour matches the notification panel: focus moves into the drawer when it opens and
  * stays there (Tab wraps), and when it closes focus goes back to whatever opened it (the menu button).
@@ -64,8 +64,9 @@ export function NavDrawer({ open, onClose, closeColor = '#111827', children }: {
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('focusin', onFocusIn);
-      // Back to the menu button once the drawer is gone (if it is still on the page).
-      if (opener && opener.isConnected) setTimeout(() => opener.focus?.(), 0);
+      // Back to the menu button once the drawer is gone, if it is still on the page. A navigation from the
+      // drawer replaces the whole dashboard; the new copy then gives focus to its own menu button.
+      if (opener && opener.isConnected) setTimeout(() => { if (opener.isConnected) opener.focus?.(); }, 0);
     };
   }, [open]);
 
@@ -89,7 +90,7 @@ export function NavDrawer({ open, onClose, closeColor = '#111827', children }: {
           accessibilityRole="button"
           accessibilityLabel="Close menu"
         >
-          <Ionicons name="close" size={22} color={closeColor} importantForAccessibility="no" />
+          <Ionicons aria-hidden name="close" size={22} color={closeColor} importantForAccessibility="no" />
         </TouchableOpacity>
       </View>
     </View>

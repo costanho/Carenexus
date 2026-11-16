@@ -6,11 +6,15 @@ import {
 import { LABELS, THOMAS } from './support/env';
 import { liveVideoCount, newUserPage, tile, type UserPage } from './support/ui';
 
-// e. Device edge cases: joining with the camera off, and a browser that blocks the camera.
+// e. Device edge cases: joining with the camera off, and a browser that blocks the camera. Both need Chromium's
+//    fake camera and microphone, so the describe is tagged @chromium-only (the Firefox and WebKit projects skip it).
+//
+// Tables written: appointments (an "E2E video call test" VIDEO appointment, cancelled in afterAll), call_sessions,
+// call_participants, call_jobs and provider_events of its call; refresh_tokens and audit_log for every sign-in.
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('call devices', () => {
+test.describe('call devices @chromium-only', () => {
   let api: Clients;
   let appointmentId: number;
   const pages: UserPage[] = [];

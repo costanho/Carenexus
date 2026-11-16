@@ -1,11 +1,15 @@
-import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { useUnacknowledgedAlertCount } from '@/hooks/use-ai-alerts';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { doctorCallJoin } from '@/hooks/use-doctor-appointment-actions';
+import { doctorCallJoin, isActiveAppointment } from '@/hooks/use-doctor-appointment-actions';
 import { CallJoinButton } from '@/components/web/call/call-join-button';
 import { greetingForHour, useDoctorDashboard } from '@/hooks/use-doctor-dashboard';
 import type { ScheduleEntry } from '@/hooks/use-doctor-schedule';
 import { doctorDisplayName } from '@/hooks/use-doctors';
+import { useSectionNav } from '@/hooks/use-section-nav';
+import type { SectionParamsInput, SectionProps } from '@/lib/nav/sections';
+import { clinicToday, formatClinicTime, isAfterClinicNow, toClinicLocal } from '@/lib/time/clinic';
+import { ariaLevel, decorative, Icon, type IoniconsName } from '@/components/web/ui';
 
 const WHITE   = '#FFFFFF';
 const TEXT    = '#111827';
@@ -18,16 +22,26 @@ const ORANGE  = '#B45309';
 const RED     = '#B91C1C';
 const PURPLE  = '#6D28D9';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+// Appointment times are clinic wall-clock values: they are shown as they are, never converted to the device zone.
+
+/** "10:15 CAT". */
+function formatTime(local: string) {
+  return formatClinicTime(local, local);
 }
 
-function formatDay(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+/** A clinic date "YYYY-MM-DD" in words, without shifting it through the device time zone. */
+function formatDate(date: string, options: Intl.DateTimeFormatOptions) {
+  const [y, m, d] = date.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d));
+  return Number.isNaN(at.getTime()) ? date : new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...options }).format(at);
+}
+
+/** "Fri 20 Nov". */
+function formatDay(local: string) {
+  const day = (toClinicLocal(local) ?? '').slice(0, 10);
+  return day ? formatDate(day, { weekday: 'short', day: 'numeric', month: 'short' }) : local;
 }
 
 function initials(name: string) {
@@ -41,8 +55,10 @@ function avatarColor(name: string) {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-function statusBadge(status: ScheduleEntry['status']) {
-  switch (status) {
+function statusBadge(entry: ScheduleEntry) {
+  // Ended without an outcome (decided by the server): say so instead of "Scheduled".
+  if (entry.needs_outcome) return { label: 'Awaiting outcome', color: ORANGE, bg: '#FEF3C7' };
+  switch (entry.status) {
     case 'COMPLETED':   return { label: 'Completed',   color: GREEN,  bg: '#D1FAE5' };
     case 'CANCELLED':   return { label: 'Cancelled',   color: RED,    bg: '#FEE2E2' };
     case 'NO_SHOW':     return { label: 'No Show',     color: ORANGE, bg: '#FEF3C7' };
@@ -64,17 +80,36 @@ type StatCardProps = {
   value: string;
   sub: string;
   subColor: string;
+  /** Makes the card a button that opens the list behind the number. */
+  onPress?: () => void;
 };
 
-function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: StatCardProps) {
-  return (
-    <View style={styles.statCard} accessible accessibilityLabel={`${label}: ${value}. ${sub}`}>
-      <View style={[styles.statIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={22} color={iconColor} />
+function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor, onPress }: StatCardProps) {
+  const content = (
+    <>
+      <View style={[styles.statIconBg, { backgroundColor: iconBg }]} {...decorative}>
+        <Icon name={icon} size={22} color={iconColor} />
       </View>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={[styles.statSub, { color: subColor }]}>{sub}</Text>
+    </>
+  );
+  if (onPress) {
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.statCard, pressed && styles.statCardPressed]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value}. ${sub}`}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+  return (
+    <View style={styles.statCard} accessible accessibilityLabel={`${label}: ${value}. ${sub}`}>
+      {content}
     </View>
   );
 }
@@ -82,7 +117,7 @@ function StatCard({ icon, iconBg, iconColor, label, value, sub, subColor }: Stat
 // ─── Schedule Row ─────────────────────────────────────────────────────────────
 
 function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: boolean }) {
-  const badge = statusBadge(entry.status);
+  const badge = statusBadge(entry);
   return (
     <View style={styles.apptRow}>
       <View style={styles.apptTime}>
@@ -91,7 +126,8 @@ function AppointmentRow({ entry, showDay }: { entry: ScheduleEntry; showDay?: bo
           {showDay ? formatTime(entry.scheduled_at) : `${entry.duration_minutes} mins`}
         </Text>
       </View>
-      <View style={[styles.apptAvatar, { backgroundColor: avatarColor(entry.patient_name) }]}>
+      {/* The initials repeat the name beside them, so they are hidden from assistive technology. */}
+      <View style={[styles.apptAvatar, { backgroundColor: avatarColor(entry.patient_name) }]} {...decorative}>
         <Text style={styles.apptAvatarText}>{initials(entry.patient_name)}</Text>
       </View>
       <View style={styles.apptInfo}>
@@ -122,7 +158,7 @@ function Card({ title, action, onAction, children }: {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
+        <Text style={styles.cardTitle} accessibilityRole="header" {...ariaLevel(2)}>{title}</Text>
         {!!action && !!onAction && (
           <TouchableOpacity activeOpacity={0.7} onPress={onAction} accessibilityRole="button" accessibilityLabel={action}>
             <Text style={styles.cardAction}>{action}</Text>
@@ -137,7 +173,7 @@ function Card({ title, action, onAction, children }: {
 function EmptyLine({ icon, text }: { icon: IoniconsName; text: string }) {
   return (
     <View style={styles.emptyLine}>
-      <Ionicons name={icon} size={28} color={BORDER} />
+      <Icon name={icon} size={28} color={BORDER} />
       <Text style={styles.emptyText}>{text}</Text>
     </View>
   );
@@ -145,7 +181,18 @@ function EmptyLine({ icon, text }: { icon: IoniconsName; text: string }) {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: string) => void }) {
+/**
+ * The doctor's home. Rendered with `SectionProps` (`navigate` opens a section with params); the older
+ * `onNavigate(key)` prop keeps working for plain section changes.
+ */
+export function DoctorMainDashboardArea(props: Partial<SectionProps> & { onNavigate?: (key: string) => void } = {}) {
+  const { onNavigate } = props;
+  const nav = useSectionNav();
+  const open = (section: string, params?: SectionParamsInput) => {
+    if (props.navigate) props.navigate(section, params);
+    else if (onNavigate && !params) onNavigate(section);
+    else nav.navigate(section, params);
+  };
   const { width } = useWindowDimensions();
   const isLarge = width >= 1024;
   // Phones: smaller greeting, no date pill, tighter padding (no horizontal overflow at 375 px).
@@ -156,14 +203,21 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
   const first = dashboard?.first_name || user?.first_name || '';
   const last  = dashboard?.last_name  || user?.last_name  || '';
   const name  = first ? doctorDisplayName(first, last) : 'Doctor';
-  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  // "Today" is the clinic's day, and "still to come" is measured against the clinic's clock, not the device's.
+  const today = formatDate(clinicToday(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const todayEntries = dashboard?.today ?? [];
-  const nowMs        = Date.now();
-  const stillToCome  = todayEntries.filter(e =>
-    (e.status === 'SCHEDULED' || e.status === 'RESCHEDULED') && new Date(e.scheduled_at).getTime() >= nowMs,
-  ).length;
+  const stillToCome  = todayEntries.filter(e => isActiveAppointment(e) && isAfterClinicNow(e.scheduled_at)).length;
   const todayActive  = todayEntries.filter(e => e.status !== 'CANCELLED').length;
+  const upcomingCount = dashboard?.upcoming_appointments ?? 0;
+  const needsOutcome  = dashboard?.needs_outcome_count ?? 0;
+  // Polled every 30 s by a shared store (the sidebar badge reads the same one). Until it has answered once the
+  // card shows a dash rather than a 0 that could be read as "no alerts".
+  const alerts = useUnacknowledgedAlertCount(true);
+  const alertsKnown = alerts.loaded;
+  const alertsSub = !alertsKnown
+    ? (alerts.error ? 'Could not be loaded' : 'Loading…')
+    : alerts.count > 0 ? 'Review and acknowledge' : 'Nothing to review';
 
   return (
     <ScrollView
@@ -174,22 +228,27 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.greetingBlock}>
-          <Text style={[styles.greeting, isNarrow && styles.greetingNarrow]}>{greetingForHour()}, {name}</Text>
+          {/* The greeting is the page's main heading; the cards below are level-2 sections. */}
+          <Text style={[styles.greeting, isNarrow && styles.greetingNarrow]} accessibilityRole="header" {...ariaLevel(1)}>
+            {greetingForHour()}, {name}
+          </Text>
           <Text style={styles.greetingSub}>Here's your practice at a glance.</Text>
         </View>
         {!isNarrow && (
           <View style={styles.dateBtn}>
-            <Ionicons name="calendar-outline" size={16} color={GRAY} />
+            <Icon name="calendar-outline" size={16} color={GRAY} />
             <Text style={styles.dateText}>{today}</Text>
           </View>
         )}
       </View>
 
       {loading && !dashboard ? (
-        <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>
+        <View style={styles.center} role="status" aria-live="polite" accessibilityLabel="Loading dashboard">
+          <View {...decorative}><ActivityIndicator size="large" color={BLUE} /></View>
+        </View>
       ) : error && !dashboard ? (
-        <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={44} color={RED} />
+        <View style={styles.center} accessibilityRole="alert">
+          <Icon name="alert-circle-outline" size={44} color={RED} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.8} accessibilityRole="button">
             <Text style={styles.retryBtnText}>Retry</Text>
@@ -200,16 +259,25 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
           {/* Stat Cards */}
           <View style={styles.statsRow}>
             <StatCard icon="calendar-outline"  iconBg="#EEF2FF" iconColor={BLUE}    label="Today's Appointments"   value={String(todayActive)}                              sub={`${stillToCome} still to come`} subColor={BLUE}  />
-            <StatCard icon="time-outline"      iconBg="#F5F3FF" iconColor={PURPLE}  label="Upcoming Appointments"  value={String(dashboard?.upcoming.length ?? 0)}          sub="Scheduled ahead"                subColor={GRAY}  />
+            <StatCard icon="time-outline"      iconBg="#F5F3FF" iconColor={PURPLE}  label="Upcoming Appointments"  value={String(upcomingCount)}                            sub="View upcoming"                  subColor={BLUE}  onPress={() => open('appointments', { tab: 'upcoming' })} />
+            <StatCard icon="hourglass-outline" iconBg="#FEF3C7" iconColor={ORANGE}  label="Needs Outcome"          value={String(needsOutcome)}                             sub={needsOutcome > 0 ? 'Review ended appointments' : 'Nothing waiting'} subColor={needsOutcome > 0 ? ORANGE : GRAY} onPress={() => open('appointments', { tab: 'needs-outcome' })} />
+            <StatCard
+              icon="warning-outline" iconBg="#FEE2E2" iconColor={RED}
+              label="Unacknowledged Alerts"
+              value={alertsKnown ? String(alerts.count) : '—'}
+              sub={alertsSub}
+              subColor={alertsKnown && alerts.count > 0 ? RED : GRAY}
+              onPress={nav.hasSection('ai-alerts') ? () => open('ai-alerts') : undefined}
+            />
             <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN} label="Completed Consultations" value={String(dashboard?.completed_consultations ?? 0)} sub="All time"                    subColor={GRAY}  />
             <StatCard icon="document-text-outline" iconBg="#FEF3C7" iconColor={ORANGE} label="Open Consultations"  value={String(dashboard?.pending_consultations ?? 0)}   sub="Draft or in progress"           subColor={ORANGE} />
-            <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#1D4ED8" label="My Patients"            value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="With appointments" subColor={GRAY} />
+            <StatCard icon="people-outline"    iconBg="#EFF6FF" iconColor="#1D4ED8" label="My Patients"            value={dashboard?.my_patients != null ? String(dashboard.my_patients) : '—'} sub="In your care" subColor={GRAY} />
           </View>
 
           {/* Two-column body */}
           <View style={[styles.body, isLarge && styles.bodyRow]}>
             <View style={[styles.leftCol, isLarge && styles.leftColWide]}>
-              <Card title="Today's Schedule" action="View full schedule" onAction={onNavigate && (() => onNavigate('schedule'))}>
+              <Card title="Today's Schedule" action="View full schedule" onAction={() => open('schedule')}>
                 {todayEntries.length === 0 ? (
                   <EmptyLine icon="calendar-clear-outline" text="No appointments today" />
                 ) : todayEntries.map((e, i) => (
@@ -222,7 +290,7 @@ export function DoctorMainDashboardArea({ onNavigate }: { onNavigate?: (key: str
             </View>
 
             <View style={[styles.rightCol, isLarge && styles.rightColNarrow]}>
-              <Card title="Coming Up" action="View appointments" onAction={onNavigate && (() => onNavigate('appointments'))}>
+              <Card title="Coming Up" action="View appointments" onAction={() => open('appointments', { tab: 'upcoming' })}>
                 {(dashboard?.upcoming ?? []).length === 0 ? (
                   <EmptyLine icon="time-outline" text="No upcoming appointments" />
                 ) : (dashboard?.upcoming ?? []).slice(0, 5).map((e, i) => (
@@ -279,6 +347,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, color: GRAY, marginBottom: 4 },
   statValue: { fontSize: 28, fontWeight: '700', color: TEXT, marginBottom: 2 },
   statSub:   { fontSize: 12, fontWeight: '500' },
+  statCardPressed: { opacity: 0.85 },
 
   // Body layout
   body:         { gap: 20 },

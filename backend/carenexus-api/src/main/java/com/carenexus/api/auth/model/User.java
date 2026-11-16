@@ -48,6 +48,26 @@ public class User {
     @Column(name = "system_id", nullable = false, length = 20, unique = true)
     private String systemId;
 
+    /** When the login email was confirmed; null = not verified yet. Accounts older than V23 were backfilled. */
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
+    /** True while the password was set by someone else (temporary password); cleared when the user changes it. */
+    @Column(name = "must_change_password", nullable = false)
+    @Builder.Default
+    private Boolean mustChangePassword = false;
+
+    /** When the password was last changed or reset; null = never since registration. */
+    @Column(name = "password_changed_at")
+    private LocalDateTime passwordChangedAt;
+
+    /** When the account was closed (user request or administrator); null = open. */
+    @Column(name = "closed_at")
+    private LocalDateTime closedAt;
+
+    @Column(name = "closure_reason", length = 500)
+    private String closureReason;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

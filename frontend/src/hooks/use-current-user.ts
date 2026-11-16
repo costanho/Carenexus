@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { getUser } from '@/lib/auth/auth.storage';
 
@@ -28,6 +28,14 @@ interface State {
   error:   string | null;
 }
 
+export interface CurrentUserState extends State {
+  /**
+   * Loads the signed-in user again (stored session first, then GET /api/users/me). Hooks that wait on the user
+   * call this from their own retry, so a failed first load can recover without restarting the app.
+   */
+  refetch: () => void;
+}
+
 function toCurrentUser(data: ApiUser): CurrentUser {
   const parts      = (data.name ?? '').trim().split(/\s+/);
   const first_name = parts[0] ?? '';
@@ -45,8 +53,9 @@ function toCurrentUser(data: ApiUser): CurrentUser {
   };
 }
 
-export function useCurrentUser() {
+export function useCurrentUser(): CurrentUserState {
   const [state, setState] = useState<State>({ user: null, loading: true, error: null });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +69,13 @@ export function useCurrentUser() {
       .then(data => { if (!cancelled) setState({ user: toCurrentUser(data), loading: false, error: null }); })
       .catch(() => { if (!cancelled) setState({ user: null, loading: false, error: 'Failed to load user.' }); });
     return () => { cancelled = true; };
+  }, [attempt]);
+
+  const refetch = useCallback(() => {
+    // Keep a user that is already loaded on screen; only a failed load goes back to "loading".
+    setState(prev => (prev.user ? prev : { user: null, loading: true, error: null }));
+    setAttempt(n => n + 1);
   }, []);
 
-  return state;
+  return { ...state, refetch };
 }

@@ -1,0 +1,10 @@
+Subject: New notification from CareNexus
+
+{{title}}
+
+{{message}}
+
+Open CareNexus to see the details:
+{{link}}
+
+You receive this email because email notifications are switched on in your CareNexus settings. For your privacy it contains no clinical details.
