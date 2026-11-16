@@ -17,6 +17,6 @@ public class CreateAppointmentRequest {
     private Integer durationMinutes;      // Optional, default 30
     private String type;                  // VIDEO, IN_PERSON, PHONE (default: IN_PERSON)
     private String reasonForVisit;        // Optional
-    private String videoConsultationLink; // Optional, required if type=VIDEO
+    private String videoConsultationLink; // LEGACY: accepted and ignored (calls are managed by the API)
     private String notes;                 // Optional
 }

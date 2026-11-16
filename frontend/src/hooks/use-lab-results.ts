@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/auth/auth.interceptor';
 import { useCurrentUser } from './use-current-user';
+import { loadActiveDoctors, type Doctor } from './use-doctors';
 
 export interface LabResult {
   result_id:             number;
@@ -41,27 +42,34 @@ function parseResultData(raw: any): Record<string, unknown> | null {
 }
 
 export function useLabResults(): State {
-  const { user } = useCurrentUser();
+  const { user, loading: userLoading, error: userError } = useCurrentUser();
   const [results, setResults] = useState<LabResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [tick, setTick]       = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      if (!userLoading) {
+        setError(userError ?? 'Could not load your account.');
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
 
     Promise.all([
       api.get<any[]>(`/api/lab-results/patient/${user.system_id}`),
-      api.get<any[]>('/api/doctors/profile/list/active'),
+      // Doctor names are a nicety: a failed doctor list must not hide the records themselves.
+      loadActiveDoctors().catch(() => [] as Doctor[]),
     ])
       .then(([labRes, doctorsRes]) => {
         const doctorMap = new Map<string, { name: string; specialization: string | null }>();
-        doctorsRes.data.forEach((d: any) => {
-          const systemId = d.doctorSystemId ?? d.doctor_system_id;
+        // Shared cached list; full_name already carries a single "Dr." title.
+        doctorsRes.forEach(d => {
+          const systemId = d.doctor_system_id;
           if (!systemId) return;
-          const name = `Dr. ${d.firstName ?? d.first_name ?? ''} ${d.lastName ?? d.last_name ?? ''}`.trim();
-          doctorMap.set(systemId, { name, specialization: d.specialization ?? null });
+          doctorMap.set(systemId, { name: d.full_name, specialization: d.specialization ?? null });
         });
 
         const mapped: LabResult[] = labRes.data.map((r: any) => {
@@ -99,7 +107,7 @@ export function useLabResults(): State {
       })
       .catch(() => setError('Failed to load lab results.'))
       .finally(() => setLoading(false));
-  }, [user?.system_id, tick]);
+  }, [user?.system_id, userLoading, tick]);
 
   return { results, loading, error, refetch: () => setTick(t => t + 1) };
 }

@@ -1,3 +1,7 @@
+# Local development stack: Postgres + LiveKit (dev mode) + API (Spring profile 'docker', which also loads the demo seed data).
+# Not a production deployment. Before the first `docker compose up`:
+#   cp .env.example .env
+# (.env is git-ignored). Real environments must generate their own secrets.
 services:
   postgres-db:
     image: postgres:16
@@ -5,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: carenexus_db
       POSTGRES_USER: carenexus
-      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_password}
     ports:
       - "5432:5432"
     volumes:
@@ -16,6 +20,32 @@ services:
       retries: 10
       interval: 5s
 
+  livekit:
+    image: livekit/livekit-server:v1.13.9
+    container_name: carenexus-livekit
+    # DEV ONLY: --dev uses the public dev key pair devkey/secret.
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1"]
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+        room:
+          auto_create: true
+        webhook:
+          api_key: devkey
+          urls:
+            - http://carenexus-api:9000/api/integrations/livekit/webhook
+            - http://host.docker.internal:9000/api/integrations/livekit/webhook
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   carenexus-api:
     build:
       context: ./backend/carenexus-api
@@ -25,19 +55,34 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/carenexus_db
       SPRING_DATASOURCE_USERNAME: carenexus
-      SPRING_DATASOURCE_PASSWORD: local_dev_password
-      JWT_SECRET: your-super-secret-key-that-is-at-least-32-characters-long-change-in-production
-      JWT_EXPIRATION: 900000
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-local_dev_password}
+      # No default on purpose: compose refuses to start without it. Copy .env.example to .env.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is not set - copy .env.example to .env}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-900000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081,http://localhost:19006}
+      # LiveKit dev defaults come from the 'docker' profile; override only when needed.
+      LIVEKIT_URL: ${LIVEKIT_URL:-http://livekit:7880}
+      LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      # Swagger UI and /v3/api-docs stay off unless explicitly enabled on a trusted machine.
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      # How often lapsed caregiver grants are swept (ends their conversation memberships).
+      MESSAGING_ACCESS_EXPIRY_SWEEP_MS: ${MESSAGING_ACCESS_EXPIRY_SWEEP_MS:-60000}
     ports:
       - "9000:9000"
     depends_on:
       postgres-db:
         condition: service_healthy
+      livekit:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/actuator/health"]
+      # The alpine runtime image has busybox wget, not curl
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9000/actuator/health"]
       timeout: 10s
       retries: 5
       interval: 10s
+      start_period: 40s
 
 volumes:
   postgres-data:

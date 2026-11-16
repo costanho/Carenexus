@@ -2,6 +2,9 @@ package com.carenexus.api.core.service;
 
 import com.carenexus.api.auth.model.User;
 import com.carenexus.api.auth.repository.UserRepository;
+import com.carenexus.api.calls.service.CallInfoService;
+import com.carenexus.api.common.exception.AuthorizationException;
+import com.carenexus.api.common.exception.ResourceNotFoundException;
 import com.carenexus.api.core.dto.response.AppointmentResponse;
 import com.carenexus.api.core.dto.response.DoctorPatientResponse;
 import com.carenexus.api.core.model.Appointment;
@@ -28,10 +31,11 @@ public class DoctorPatientService {
     private final DoctorRepository doctorRepository;
     private final UserRepository userRepository;
     private final AppointmentService appointmentService;
+    private final CallInfoService callInfoService;
 
     public List<DoctorPatientResponse> getDoctorPatients(String doctorSystemId) {
         Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
 
         List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
 
@@ -51,7 +55,7 @@ public class DoctorPatientService {
 
     public List<DoctorPatientResponse> getDoctorPatientsByStatus(String doctorSystemId, String status) {
         Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
 
         List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
         List<Appointment> filteredAppointments = doctorAppointments.stream()
@@ -94,10 +98,10 @@ public class DoctorPatientService {
 
     public DoctorPatientResponse getDoctorPatientDetail(String doctorSystemId, String patientSystemId) {
         Doctor doctor = doctorRepository.findBySystemId(doctorSystemId)
-                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
 
         Patient patient = patientRepository.findBySystemId(patientSystemId)
-                .orElseThrow(() -> new RuntimeException("Patient not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
 
         List<Appointment> doctorAppointments = appointmentRepository.findByDoctorSystemId(doctorSystemId);
         List<Appointment> patientWithDoctorAppointments = doctorAppointments.stream()
@@ -105,7 +109,7 @@ public class DoctorPatientService {
                 .collect(Collectors.toList());
 
         if (patientWithDoctorAppointments.isEmpty()) {
-            throw new RuntimeException("No appointments found between this doctor and patient");
+            throw new AuthorizationException("You are not part of this patient's care team", "PATIENT", null);
         }
 
         return buildDoctorPatientResponse(patient, doctorAppointments);
@@ -114,14 +118,19 @@ public class DoctorPatientService {
     public List<DoctorPatientResponse> searchDoctorPatients(String doctorSystemId, String searchTerm) {
         List<DoctorPatientResponse> allPatients = getDoctorPatients(doctorSystemId);
 
-        String lowerSearchTerm = searchTerm.toLowerCase();
+        String term = searchTerm == null ? "" : searchTerm.trim();
+        String lowerSearchTerm = term.toLowerCase();
 
         return allPatients.stream()
-                .filter(p -> p.getFirstName().toLowerCase().contains(lowerSearchTerm) ||
-                             p.getLastName().toLowerCase().contains(lowerSearchTerm) ||
-                             p.getEmail().toLowerCase().contains(lowerSearchTerm) ||
-                             p.getPhone().contains(searchTerm))
+                .filter(p -> containsIgnoreCase(p.getFirstName(), lowerSearchTerm) ||
+                             containsIgnoreCase(p.getLastName(), lowerSearchTerm) ||
+                             containsIgnoreCase(p.getEmail(), lowerSearchTerm) ||
+                             (p.getPhone() != null && p.getPhone().contains(term)))
                 .collect(Collectors.toList());
+    }
+
+    private static boolean containsIgnoreCase(String value, String lowerTerm) {
+        return value != null && value.toLowerCase().contains(lowerTerm);
     }
 
     private DoctorPatientResponse buildDoctorPatientResponse(Patient patient, List<Appointment> doctorAppointments) {
@@ -157,10 +166,14 @@ public class DoctorPatientService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        List<AppointmentResponse> recentAppointments = patientAppointments.stream()
+        List<Appointment> recent = patientAppointments.stream()
                 .sorted(Comparator.comparing(Appointment::getScheduledAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(5)
-                .map(this::mapAppointmentToResponse)
+                .collect(Collectors.toList());
+        Map<Integer, CallInfoService.CallInfo> calls = callInfoService.describeAppointments(recent);
+        List<AppointmentResponse> recentAppointments = recent.stream()
+                .map(a -> mapAppointmentToResponse(a,
+                        calls.getOrDefault(a.getAppointmentId(), CallInfoService.CallInfo.NONE)))
                 .collect(Collectors.toList());
 
         return DoctorPatientResponse.builder()
@@ -188,7 +201,7 @@ public class DoctorPatientService {
                 .build();
     }
 
-    private AppointmentResponse mapAppointmentToResponse(Appointment appointment) {
+    private AppointmentResponse mapAppointmentToResponse(Appointment appointment, CallInfoService.CallInfo call) {
         return AppointmentResponse.builder()
                 .appointmentId(appointment.getAppointmentId())
                 .patientSystemId(appointment.getPatientSystemId())
@@ -199,11 +212,16 @@ public class DoctorPatientService {
                 .type(appointment.getType())
                 .status(appointment.getStatus())
                 .reasonForVisit(appointment.getReasonForVisit())
-                .videoConsultationLink(appointment.getVideoConsultationLink())
+                // Legacy meeting links are never returned; calls use callJoinRoute.
+                .videoConsultationLink(null)
                 .reminderSent(appointment.getReminderSent())
                 .notes(appointment.getNotes())
                 .createdAt(appointment.getCreatedAt())
                 .updatedAt(appointment.getUpdatedAt())
+                .callStatus(call.callStatus())
+                .callJoinRoute(call.callJoinRoute())
+                .joinWindowOpensAt(call.joinWindowOpensAt())
+                .joinWindowClosesAt(call.joinWindowClosesAt())
                 .build();
     }
 }

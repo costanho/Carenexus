@@ -14,7 +14,6 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.stereotype.Component;
 
-import java.lang.reflect.Method;
 import java.util.Arrays;
 
 @Aspect
@@ -64,41 +63,52 @@ public class AuthorizationAspect {
     }
 
     /**
-     * Intercept methods annotated with @RequireOwnership
+     * Intercept methods annotated with @RequireOwnership.
+     *
+     * The owner parameter is normally a String systemId (e.g. patientSystemId) and is compared with the caller's
+     * systemId through AuthorizationService.requireOwnership (which audits denials). A legacy Integer userId
+     * parameter is compared with the caller's userId.
      */
     @Around("@annotation(requireOwnership)")
     public Object checkOwnershipAuthorization(ProceedingJoinPoint joinPoint, RequireOwnership requireOwnership) throws Throwable {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
-        Method method = signature.getMethod();
         String[] parameterNames = signature.getParameterNames();
         Object[] args = joinPoint.getArgs();
 
-        // Find the owner ID from method parameters
-        Integer ownerId = null;
+        Object owner = null;
+        boolean ownerParamFound = false;
         Integer resourceId = null;
 
-        for (int i = 0; i < parameterNames.length; i++) {
+        for (int i = 0; parameterNames != null && i < parameterNames.length; i++) {
             if (parameterNames[i].equals(requireOwnership.ownerIdParam())) {
-                ownerId = (Integer) args[i];
+                owner = args[i];
+                ownerParamFound = true;
             }
-            if (!requireOwnership.resourceIdParam().isEmpty() && parameterNames[i].equals(requireOwnership.resourceIdParam())) {
-                resourceId = (Integer) args[i];
+            if (!requireOwnership.resourceIdParam().isEmpty()
+                    && parameterNames[i].equals(requireOwnership.resourceIdParam())
+                    && args[i] instanceof Integer id) {
+                resourceId = id;
             }
         }
 
-        if (ownerId == null) {
-            log.error("Could not find owner ID parameter: {}", requireOwnership.ownerIdParam());
-            throw new AuthorizationException("Authorization check failed: owner ID not found");
+        if (!ownerParamFound || owner == null) {
+            log.error("@RequireOwnership on {} could not find owner parameter '{}'",
+                    signature.toShortString(), requireOwnership.ownerIdParam());
+            throw new AuthorizationException("You don't have permission to access this resource");
         }
 
-        Integer userId = userContext.getCurrentUserId();
-        if (!userId.equals(ownerId)) {
-            log.warn("Ownership check failed. User: {}, Owner: {}", userId, ownerId);
-            throw new AuthorizationException(
-                    "You don't have permission to access this resource",
-                    requireOwnership.resourceType(),
-                    resourceId
-            );
+        if (owner instanceof Integer ownerUserId) {
+            Integer userId = userContext.getCurrentUserId();
+            if (userId == null || !userId.equals(ownerUserId)) {
+                log.warn("Ownership check failed for {}", signature.toShortString());
+                throw new AuthorizationException(
+                        "You don't have permission to access this resource",
+                        requireOwnership.resourceType(),
+                        resourceId
+                );
+            }
+        } else {
+            authorizationService.requireOwnership(String.valueOf(owner), requireOwnership.resourceType(), resourceId);
         }
 
         return joinPoint.proceed();

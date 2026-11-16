@@ -4,19 +4,20 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
+import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
 import { type DoctorPatient, useDoctorPatients } from '@/hooks/use-doctor-patients';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const TEAL   = '#0D9488';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const TEAL   = '#0F766E';
 
 type IoniconsName    = React.ComponentProps<typeof Ionicons>['name'];
 type HealthFilter    = 'ALL' | 'STABLE' | 'MONITOR' | 'CRITICAL';
@@ -48,7 +49,7 @@ function formatMemberSince(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -76,7 +77,12 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
 
 // ─── Patient Card ─────────────────────────────────────────────────────────────
 
-function PatientCard({ patient }: { patient: DoctorPatient }) {
+function PatientCard({ patient, onMessage, messaging }: {
+  patient:    DoctorPatient;
+  /** Opens the private conversation with this patient; omitted when Messages is not available. */
+  onMessage?: (patient: DoctorPatient) => void;
+  messaging?: boolean;
+}) {
   const hc = healthConfig(patient.health_status);
   const ac = avatarColor(patient.full_name);
   const age = calcAge(patient.date_of_birth);
@@ -192,19 +198,41 @@ function PatientCard({ patient }: { patient: DoctorPatient }) {
           </Text>
         </View>
 
-        <TouchableOpacity style={styles.viewBtn} activeOpacity={0.8}>
-          <Text style={styles.viewBtnText}>View Profile</Text>
-          <Ionicons name="chevron-forward" size={13} color={BLUE} />
-        </TouchableOpacity>
+        {!!patient.patient_system_id && (
+          <Text style={styles.viewBtnText} selectable accessibilityLabel={`Patient ID ${patient.patient_system_id}`}>
+            {patient.patient_system_id}
+          </Text>
+        )}
       </View>
+
+      {!!onMessage && !!patient.patient_system_id && (
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={[styles.messageBtn, messaging && { opacity: 0.5 }]}
+            activeOpacity={0.8}
+            disabled={messaging}
+            onPress={() => onMessage(patient)}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${patient.full_name}`}
+            accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={14} color={BLUE} />
+            <Text style={styles.messageBtnText}>{messaging ? 'Opening…' : 'Message patient'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DoctorWebPatients() {
+export default function DoctorWebPatients({ onOpenThread }: {
+  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { patients, loading, error, refetch } = useDoctorPatients();
+  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
   const { width } = useWindowDimensions();
   const twoCol = width >= 1100;
 
@@ -262,8 +290,8 @@ export default function DoctorWebPatients() {
 
       {/* Page Header */}
       <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.pageTitle}>My Patients</Text>
+        <View style={styles.pageHeaderText}>
+          <Text style={styles.pageTitle} accessibilityRole="header">My Patients</Text>
           <Text style={styles.pageSub}>Patients who have had appointments with you</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -322,12 +350,13 @@ export default function DoctorWebPatients() {
             <TextInput
               style={styles.searchInput}
               placeholder="Search by name or email…"
+              accessibilityLabel="Search patients by name or email"
               placeholderTextColor={LGRAY}
               value={search}
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}
@@ -348,8 +377,12 @@ export default function DoctorWebPatients() {
       ) : (
         <View style={[styles.grid, twoCol && styles.gridTwo]}>
           {filtered.map(p => (
-            <View key={p.patient_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
-              <PatientCard patient={p} />
+            <View key={p.patient_system_id} style={twoCol ? styles.gridItemTwo : styles.gridItemOne}>
+              <PatientCard
+                patient={p}
+                onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
+                messaging={pendingPatient === p.patient_system_id}
+              />
             </View>
           ))}
         </View>
@@ -365,7 +398,8 @@ const styles = StyleSheet.create({
   container: { padding: 24, paddingBottom: 48 },
   center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
   pageSub:     { fontSize: 14, color: GRAY },
   refreshBtn:  {
@@ -447,8 +481,14 @@ const styles = StyleSheet.create({
   footerStatNum: { fontSize: 13, fontWeight: '700', color: TEXT },
   footerStatLabel: { fontSize: 12, color: GRAY },
   footerDivider: { width: 1, height: 16, backgroundColor: BORDER },
-  viewBtn:       { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 'auto' as any },
-  viewBtnText:   { fontSize: 13, color: BLUE, fontWeight: '500' },
+  viewBtnText:   { fontSize: 12, color: GRAY, fontWeight: '500', marginLeft: 'auto' as any },
+  cardActions:   { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 },
+  messageBtn:    {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1, borderColor: BLUE, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: WHITE,
+  },
+  messageBtnText: { fontSize: 13, color: BLUE, fontWeight: '600' },
 
   emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },

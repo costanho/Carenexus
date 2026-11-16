@@ -5,7 +5,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 export default function IndexScreen() {
   return (
     <View style={styles.loader}>
-      <ActivityIndicator size="large" color="#0D9488" />
+      <ActivityIndicator size="large" color="#0F766E" />
     </View>
   );
 }

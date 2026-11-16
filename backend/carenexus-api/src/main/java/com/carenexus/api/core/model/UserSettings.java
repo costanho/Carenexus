@@ -56,6 +56,66 @@ public class UserSettings {
     @Builder.Default
     private Boolean consultationNotifications = true;
 
+    /** UI key critical_alerts: critical results / emergencies */
+    @Column(name = "critical_alerts", nullable = false)
+    @Builder.Default
+    private Boolean criticalAlerts = true;
+
+    /** UI key medication_due: daily due-medication reminders */
+    @Column(name = "medication_reminders", nullable = false)
+    @Builder.Default
+    private Boolean medicationReminders = true;
+
+    /** UI key vitals_alert: readings outside range */
+    @Column(name = "vitals_alerts", nullable = false)
+    @Builder.Default
+    private Boolean vitalsAlerts = true;
+
+    /** UI key appt_reminder_1h (appointment_reminders = 24h reminder) */
+    @Column(name = "appointment_reminder_1h", nullable = false)
+    @Builder.Default
+    private Boolean appointmentReminder1h = true;
+
+    /** UI key appt_changes: cancelled / rescheduled */
+    @Column(name = "appointment_change_alerts", nullable = false)
+    @Builder.Default
+    private Boolean appointmentChangeAlerts = true;
+
+    /** UI key video_call_ready */
+    @Column(name = "video_call_alerts", nullable = false)
+    @Builder.Default
+    private Boolean videoCallAlerts = true;
+
+    /** UI key new_message */
+    @Column(name = "message_notifications", nullable = false)
+    @Builder.Default
+    private Boolean messageNotifications = true;
+
+    /** UI key care_plan_update */
+    @Column(name = "care_plan_update_alerts", nullable = false)
+    @Builder.Default
+    private Boolean carePlanUpdateAlerts = false;
+
+    /** UI key referral */
+    @Column(name = "referral_alerts", nullable = false)
+    @Builder.Default
+    private Boolean referralAlerts = true;
+
+    /** UI key login_alert: new device sign-in */
+    @Column(name = "login_alerts", nullable = false)
+    @Builder.Default
+    private Boolean loginAlerts = true;
+
+    /** UI key access_change: proxy permission changes */
+    @Column(name = "access_change_alerts", nullable = false)
+    @Builder.Default
+    private Boolean accessChangeAlerts = true;
+
+    /** UI key weekly_summary digest */
+    @Column(name = "weekly_summary", nullable = false)
+    @Builder.Default
+    private Boolean weeklySummary = false;
+
     @Column(name = "profile_visibility", nullable = false, length = 20)
     @Builder.Default
     private String profileVisibility = "PRIVATE";

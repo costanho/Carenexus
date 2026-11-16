@@ -9,15 +9,15 @@ import { type DoctorMedicalRecord, type RecordType, useDoctorMedicalRecords } fr
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const TEAL   = '#0D9488';
-const AMBER  = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
+const GREEN  = '#047857';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
 const NAVY   = '#1E3A5F';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -27,7 +27,7 @@ type TypeFilter   = 'ALL' | RecordType;
 
 function typeConfig(t: RecordType): { label: string; color: string; bg: string; border: string; icon: IoniconsName } {
   switch (t) {
-    case 'CONSULT':      return { label: 'Consultation',  color: BLUE,   bg: '#EEF2FF', border: '#C7D2FE', icon: 'stethoscope'          as any };
+    case 'CONSULT':      return { label: 'Consultation',  color: BLUE,   bg: '#EEF2FF', border: '#C7D2FE', icon: 'medical-outline' };
     case 'LAB':          return { label: 'Lab Result',    color: TEAL,   bg: '#CCFBF1', border: '#99F6E4', icon: 'flask-outline'             };
     case 'PRESCRIPTION': return { label: 'Prescription',  color: GREEN,  bg: '#D1FAE5', border: '#6EE7B7', icon: 'medkit-outline'            };
     case 'REFERRAL':     return { label: 'Referral',      color: NAVY,   bg: '#DBEAFE', border: '#93C5FD', icon: 'git-compare-outline'       };
@@ -45,7 +45,7 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981', '#0EA5E9'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857', '#0369A1'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -259,8 +259,8 @@ export default function DoctorWebMedicalRecords() {
 
       {/* Page header */}
       <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.pageTitle}>Medical Records</Text>
+        <View style={styles.pageHeaderText}>
+          <Text style={styles.pageTitle} accessibilityRole="header">Medical Records</Text>
           <Text style={styles.pageSub}>All records for patients associated with you</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -272,7 +272,7 @@ export default function DoctorWebMedicalRecords() {
       {/* Stats */}
       <View style={styles.statsRow}>
         <StatCard icon="folder-open-outline"   iconBg="#EEF2FF" iconColor={BLUE}   label="Total"         value={stats.total}         />
-        <StatCard icon="stethoscope"            iconBg="#EEF2FF" iconColor={BLUE}   label="Consultations" value={stats.consults}      />
+        <StatCard icon="pulse-outline"            iconBg="#EEF2FF" iconColor={BLUE}   label="Consultations" value={stats.consults}      />
         <StatCard icon="flask-outline"          iconBg="#CCFBF1" iconColor={TEAL}   label="Lab Results"   value={stats.labs}          />
         <StatCard icon="medkit-outline"         iconBg="#D1FAE5" iconColor={GREEN}  label="Prescriptions" value={stats.prescriptions} />
         <StatCard icon="git-compare-outline"    iconBg="#DBEAFE" iconColor={NAVY}   label="Referrals"     value={stats.referrals}     />
@@ -307,7 +307,7 @@ export default function DoctorWebMedicalRecords() {
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}
@@ -350,7 +350,8 @@ const styles = StyleSheet.create({
   container: { padding: 24, paddingBottom: 48 },
   center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
   pageSub:     { fontSize: 14, color: GRAY },
   refreshBtn:  {

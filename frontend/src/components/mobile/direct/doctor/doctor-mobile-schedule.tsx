@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isAfterClinicNow } from '@/hooks/use-appointments';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
 
 const NAVY   = '#0D1B2E';
@@ -11,16 +11,17 @@ const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const TEAL   = '#0D9488';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const TEAL   = '#0F766E';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type DateFilter   = 'today' | 'week' | 'all';
 type AppStatus    = ScheduleEntry['status'];
-type StatusFilter = 'ALL' | AppStatus;
+/** ACTIVE (the default) hides cancelled appointments, like the dashboard's Today count. */
+type StatusFilter = 'ACTIVE' | 'ALL' | AppStatus;
 
 function useScale() {
   const { width, height } = useWindowDimensions();
@@ -39,6 +40,7 @@ function statusConfig(st: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show'     };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled' };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress' };
+    default:            return { bg: BG,        color: GRAY,  label: String(st)    };
   }
 }
 
@@ -47,6 +49,7 @@ function typeConfig(t: ScheduleEntry['type']) {
     case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF' };
     case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG        };
   }
 }
 
@@ -82,6 +85,7 @@ function consultLabel(c: ScheduleEntry['consultation']) {
   if (!c) return 'No consultation';
   if (c.status === 'DRAFT')       return 'Draft';
   if (c.status === 'IN_PROGRESS') return 'In Progress';
+  if (c.status === 'CANCELLED')   return 'Cancelled';
   return 'Completed';
 }
 
@@ -105,6 +109,7 @@ function StatCard({ icon, iconBg, iconColor, label, value, s }: {
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
 function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number }) {
+  const [expanded, setExpanded] = useState(false);
   const sc    = statusConfig(entry.status);
   const tc    = typeConfig(entry.type);
   const today = isTodayDate(entry.scheduled_at);
@@ -118,7 +123,7 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
       {/* Header row: patient name + status badge */}
       <View style={[styles.apptHeader, { marginBottom: s(6) }]}>
         <Text style={[styles.apptPatient, { fontSize: s(15) }]} numberOfLines={1}>{entry.patient_name}</Text>
-        <View style={[styles.badge, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
+        <View style={[styles.badge, styles.noShrink, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
           <Text style={[styles.badgeText, { fontSize: s(10), color: sc.color }]}>{sc.label}</Text>
         </View>
       </View>
@@ -160,10 +165,42 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
           size={s(13)}
           color={entry.consultation ? BLUE : GRAY}
         />
-        <Text style={[styles.consultText, { fontSize: s(11), color: entry.consultation ? BLUE : GRAY }]}>
+        <Text style={[styles.consultText, { fontSize: s(11), color: entry.consultation ? BLUE : GRAY }]} numberOfLines={1}>
           {entry.consultation ? `Consultation: ${consultLabel(entry.consultation)}` : 'No consultation'}
         </Text>
       </View>
+      {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+        <Text style={{ fontSize: s(10), color: GRAY, marginTop: s(4) }}>Join video consultations from the CareNexus web app.</Text>
+      )}
+
+      {/* Details (same fields as web): identifiers a doctor needs to find the patient or appointment elsewhere */}
+      <TouchableOpacity
+        style={[styles.detailsToggle, { paddingTop: s(8), marginTop: s(8), gap: s(4) }]}
+        onPress={() => setExpanded(v => !v)}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={expanded ? `Hide details for ${entry.patient_name}` : `Show details for ${entry.patient_name}`}
+        accessibilityState={{ expanded }}
+        hitSlop={6}
+      >
+        <Text style={[styles.detailsToggleText, { fontSize: s(12) }]}>{expanded ? 'Hide details' : 'View details'}</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(13)} color={BLUE} />
+      </TouchableOpacity>
+      {expanded && (
+        <View style={{ gap: s(6), marginTop: s(8) }}>
+          {([
+            ['Patient ID',  entry.patient_system_id || '—'],
+            ['Appointment', `#${entry.appointment_id}`],
+            ['Reason',      entry.reason_for_visit ?? '—'],
+            ['Notes',       entry.notes ?? '—'],
+          ] as [string, string][]).map(([label, value]) => (
+            <View key={label} style={[styles.detailLine, { gap: s(10) }]}>
+              <Text style={[styles.detailLabel, { fontSize: s(11) }]}>{label}</Text>
+              <Text style={[styles.detailValue, { fontSize: s(12) }]} selectable>{value}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -172,10 +209,9 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
 
 export default function DoctorMobileSchedule() {
   const { s, sh } = useScale();
-  const insets = useSafeAreaInsets();
   const { entries, loading, error, refetch } = useDoctorSchedule();
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('today');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
 
   const todayStart = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0);          return d; }, []);
   const todayEnd   = useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999);      return d; }, []);
@@ -183,9 +219,13 @@ export default function DoctorMobileSchedule() {
 
   const stats = useMemo(() => ({
     total:     entries.length,
-    today:     entries.filter(e => { const d = new Date(e.scheduled_at); return d >= todayStart && d <= todayEnd; }).length,
+    today:     entries.filter(e => {
+      const d = new Date(e.scheduled_at);
+      return d >= todayStart && d <= todayEnd && e.status !== 'CANCELLED';
+    }).length,
     completed: entries.filter(e => e.status === 'COMPLETED').length,
-    upcoming:  entries.filter(e => e.status === 'SCHEDULED' || e.status === 'IN_PROGRESS').length,
+    // Booked or moved and still ahead in clinic time; past ones never closed out are not upcoming.
+    upcoming:  entries.filter(e => (e.status === 'SCHEDULED' || e.status === 'RESCHEDULED') && isAfterClinicNow(e.scheduled_at)).length,
   }), [entries, todayStart, todayEnd]);
 
   const filtered = useMemo(() => {
@@ -196,7 +236,8 @@ export default function DoctorMobileSchedule() {
         if (dateFilter === 'week')  return d >= todayStart && d <= weekEnd;
         return true;
       })
-      .filter(e => statusFilter === 'ALL' || e.status === statusFilter)
+      .filter(e => statusFilter === 'ALL'
+        || (statusFilter === 'ACTIVE' ? e.status !== 'CANCELLED' : e.status === statusFilter))
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
   }, [entries, dateFilter, statusFilter, todayStart, todayEnd, weekEnd]);
 
@@ -209,9 +250,9 @@ export default function DoctorMobileSchedule() {
   ];
 
   const statusFilters: { key: StatusFilter; label: string }[] = [
-    { key: 'ALL',         label: 'All'         },
+    { key: 'ACTIVE',      label: 'Active'      },
+    { key: 'ALL',         label: 'All incl. cancelled' },
     { key: 'SCHEDULED',   label: 'Scheduled'   },
-    { key: 'IN_PROGRESS', label: 'In Progress' },
     { key: 'COMPLETED',   label: 'Completed'   },
     { key: 'CANCELLED',   label: 'Cancelled'   },
     { key: 'NO_SHOW',     label: 'No Show'     },
@@ -221,15 +262,17 @@ export default function DoctorMobileSchedule() {
   return (
     <View style={styles.container}>
       {/* Navy Header */}
-      <View style={[styles.header, { paddingTop: insets.top + s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
+      <View style={[styles.header, { paddingTop: s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(20) }]}>My Schedule</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(20) }]} accessibilityRole="header">My Schedule</Text>
           <Text style={[styles.headerSub, { fontSize: s(12), marginTop: s(2) }]}>Appointments & Consultations</Text>
         </View>
         <TouchableOpacity
           onPress={refetch}
           style={[styles.refreshBtn, { width: s(36), height: s(36), borderRadius: s(18) }]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
@@ -240,11 +283,12 @@ export default function DoctorMobileSchedule() {
         contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {/* Full-screen states only before the first load; a refetch keeps the list (and scroll position) in place. */}
+        {loading && entries.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60) }]}>
             <ActivityIndicator size="large" color={BLUE} />
           </View>
-        ) : error ? (
+        ) : error && entries.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60), gap: s(10) }]}>
             <Ionicons name="alert-circle-outline" size={s(48)} color={RED} />
             <Text style={[styles.errorText, { fontSize: s(14) }]}>{error}</Text>
@@ -252,6 +296,8 @@ export default function DoctorMobileSchedule() {
               style={[styles.retryBtn, { borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: s(10) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading schedule"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(14) }]}>Retry</Text>
             </TouchableOpacity>
@@ -272,7 +318,7 @@ export default function DoctorMobileSchedule() {
             </ScrollView>
 
             {/* Date filter tabs */}
-            <View style={[styles.dateTabs, { borderRadius: s(10), padding: s(4), marginBottom: s(12) }]}>
+            <View style={[styles.dateTabs, { borderRadius: s(10), padding: s(4), marginBottom: s(12) }]} accessibilityRole="tablist">
               {dateFilters.map(f => (
                 <TouchableOpacity
                   key={f.key}
@@ -283,8 +329,11 @@ export default function DoctorMobileSchedule() {
                   ]}
                   onPress={() => setDateFilter(f.key)}
                   activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityLabel={f.label}
+                  accessibilityState={{ selected: dateFilter === f.key }}
                 >
-                  <Text style={[styles.dateTabText, { fontSize: s(12) }, dateFilter === f.key && styles.dateTabTextActive]}>
+                  <Text style={[styles.dateTabText, { fontSize: s(12) }, dateFilter === f.key && styles.dateTabTextActive]} numberOfLines={1}>
                     {f.label}
                   </Text>
                 </TouchableOpacity>
@@ -308,6 +357,9 @@ export default function DoctorMobileSchedule() {
                   ]}
                   onPress={() => setStatusFilter(f.key)}
                   activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityLabel={`Status: ${f.label}`}
+                  accessibilityState={{ selected: statusFilter === f.key }}
                 >
                   <Text style={[styles.pillText, { fontSize: s(12) }, statusFilter === f.key && styles.pillTextActive]}>
                     {f.label}
@@ -315,6 +367,10 @@ export default function DoctorMobileSchedule() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+
+            {!!error && (
+              <Text style={[styles.inlineError, { fontSize: s(12), marginBottom: s(8) }]} accessibilityRole="alert">{error}</Text>
+            )}
 
             {/* Result count */}
             <Text style={[styles.resultCount, { fontSize: s(12), marginBottom: s(12) }]}>
@@ -331,7 +387,7 @@ export default function DoctorMobileSchedule() {
             ) : (
               groups.map(g => (
                 <View key={g.label} style={{ marginBottom: s(16) }}>
-                  <Text style={[styles.groupLabel, { fontSize: s(11), marginBottom: s(8) }]}>{g.label}</Text>
+                  <Text style={[styles.groupLabel, { fontSize: s(11), marginBottom: s(8) }]} accessibilityRole="header">{g.label}</Text>
                   {g.items.map(e => <AppCard key={e.appointment_id} entry={e} s={s} />)}
                 </View>
               ))
@@ -346,6 +402,7 @@ export default function DoctorMobileSchedule() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  joinBtn: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BLUE, marginLeft: 'auto' },
   container: { flex: 1, backgroundColor: BG },
   scroll:    { flex: 1 },
   center:    { alignItems: 'center', justifyContent: 'center' },
@@ -380,13 +437,20 @@ const styles = StyleSheet.create({
   apptPatient:  { fontWeight: '700', color: TEXT, flex: 1, marginRight: 8 },
   apptTime:     { color: GRAY },
   badge:        { flexDirection: 'row', alignItems: 'center' },
+  noShrink:     { flexShrink: 0 },
   badgeText:    { fontWeight: '600' },
   metaRow:      { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   chip:         { flexDirection: 'row', alignItems: 'center' },
   chipText:     { fontWeight: '500' },
   apptReason:   { color: GRAY, lineHeight: 18 },
   consultRow:   { flexDirection: 'row', alignItems: 'center' },
-  consultText:  { fontWeight: '500' },
+  consultText:  { fontWeight: '500', flexShrink: 1 },
+  detailsToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
+  detailsToggleText: { fontWeight: '600', color: BLUE },
+  detailLine:        { flexDirection: 'row', alignItems: 'flex-start' },
+  detailLabel:       { width: 92, color: GRAY, fontWeight: '500' },
+  detailValue:       { flex: 1, color: TEXT },
+  inlineError:  { color: RED },
 
   errorText:    { color: GRAY, textAlign: 'center' },
   retryBtn:     { backgroundColor: BLUE },

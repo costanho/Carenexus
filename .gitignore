@@ -80,3 +80,12 @@ build/
 example
 *.md
 erd-output/
+# Communications contract, release notes and runbooks are tracked (overrides *.md above)
+!docs/communications/
+!docs/communications/**
+# Mobile fix list and screenshots (docs/mobile/)
+!docs/mobile/
+!docs/mobile/**
+# UI/UX audit report and before/after screenshots (docs/ui-ux/)
+!docs/ui-ux/
+!docs/ui-ux/**

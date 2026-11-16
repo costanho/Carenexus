@@ -14,9 +14,10 @@ import {
 } from 'react-native';
 import { login, logout } from '@/lib/auth/auth.service';
 import { ROLE_HOME, type Role } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { loginSchema, type LoginFormData } from '@/lib/validation/auth-schemas';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E'; // 4.5:1 or better on white and on the patient tint (WCAG AA)
 const PURPLE = '#7C3AED';
 const INDIGO = '#4F46E5';
 const NAVY   = '#0D1B2E';
@@ -25,9 +26,8 @@ const TEXT   = '#111827';
 const GRAY   = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
-const RED    = '#EF4444';
+const RED    = '#B91C1C';
 
-type Role = 'patient' | 'doctor' | 'proxy';
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: string }[] = [
@@ -37,11 +37,18 @@ const roles: { key: Role; label: string; icon: IoniconsName; color: string; bg: 
 ];
 
 const features: { icon: IoniconsName; text: string }[] = [
-  { icon: 'lock-closed-outline',      text: 'End-to-end encrypted records'    },
-  { icon: 'videocam-outline',         text: 'Secure video consultations'       },
-  { icon: 'sync-outline',             text: 'Real-time care coordination'      },
-  { icon: 'shield-checkmark-outline', text: 'HIPAA compliant infrastructure'   },
+  { icon: 'calendar-outline',         text: 'Book and track appointments'          },
+  { icon: 'document-text-outline',    text: 'View prescriptions and lab results'   },
+  { icon: 'people-outline',           text: 'Caregiver access for loved ones'      },
+  { icon: 'person-circle-outline',    text: 'Separate access for patients, doctors and carers' },
 ];
+
+function showPasswordHelp() {
+  showMessage(
+    'Password reset',
+    "Password reset isn't available in the app yet. Please contact CareNexus support to regain access to your account.",
+  );
+}
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -71,6 +78,7 @@ export default function LoginWeb() {
   });
 
   async function onSubmit(data: LoginFormData) {
+    if (loading) return; // Enter in the password box and the button share this handler
     setAuthError('');
     setLoading(true);
     try {
@@ -83,7 +91,8 @@ export default function LoginWeb() {
       }
       router.replace(ROLE_HOME[user.role] as any);
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Invalid email or password.';
+      const msg = err?.response?.data?.message
+        ?? (err?.response ? 'Invalid email or password.' : 'Unable to reach the server. Check your connection and try again.');
       setAuthError(msg);
     } finally {
       setLoading(false);
@@ -127,6 +136,12 @@ export default function LoginWeb() {
                 style={[styles.roleBtn, on && { borderColor: r.color, backgroundColor: r.bg }]}
                 onPress={() => setRole(r.key)}
                 activeOpacity={0.8}
+                accessibilityRole="radio"
+                accessibilityLabel={r.label}
+                accessibilityState={{ checked: on }}
+                // react-native-web ignores accessibilityState; without aria-checked a screen reader
+                // cannot tell which role is selected.
+                aria-checked={on}
               >
                 <Ionicons name={r.icon} size={22} color={on ? r.color : GRAY} />
                 <Text style={[styles.roleLabel, on && { color: r.color, fontWeight: '700' }]}>{r.label}</Text>
@@ -151,6 +166,7 @@ export default function LoginWeb() {
                 <Ionicons name="mail-outline" size={18} color={GRAY} style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
+                  accessibilityLabel="Email address"
                   placeholder="you@example.com"
                   placeholderTextColor={GRAY}
                   value={value}
@@ -169,7 +185,12 @@ export default function LoginWeb() {
         <View style={styles.fieldGroup}>
           <View style={styles.fieldHeaderRow}>
             <Text style={styles.label}>Password</Text>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={showPasswordHelp}
+              accessibilityRole="button"
+              accessibilityLabel="Forgot password"
+            >
               <Text style={[styles.forgotText, { color: active.color }]}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
@@ -181,14 +202,22 @@ export default function LoginWeb() {
                 <Ionicons name="lock-closed-outline" size={18} color={GRAY} style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
+                  accessibilityLabel="Password"
                   placeholder="Enter your password"
                   placeholderTextColor={GRAY}
                   value={value}
                   onChangeText={onChange}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
+                  onSubmitEditing={handleSubmit(onSubmit)}
                 />
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={() => setShowPass(v => !v)}
+                  style={{ padding: 4 }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPass ? 'Hide password' : 'Show password'}
+                >
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={GRAY} />
                 </TouchableOpacity>
               </View>
@@ -211,6 +240,9 @@ export default function LoginWeb() {
           onPress={handleSubmit(onSubmit)}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <Text style={styles.signInText}>Signing in…</Text>
@@ -255,9 +287,9 @@ export default function LoginWeb() {
               <Ionicons name="heart" size={28} color={WHITE} />
               <Text style={styles.panelLogoText}>CareNexus</Text>
             </View>
-            <Text style={styles.panelTitle}>Your health,{'\n'}securely connected.</Text>
+            <Text style={styles.panelTitle}>Your care,{'\n'}in one place.</Text>
             <Text style={styles.panelSub}>
-              CareNexus brings together patients, doctors, and carers on one trusted platform — accessible from anywhere.
+              CareNexus brings together patients, doctors, and carers on one platform.
             </Text>
             <View style={styles.featureList}>
               {features.map(f => (
@@ -355,7 +387,7 @@ const styles = StyleSheet.create({
   panelLogoRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   panelLogoText: { fontSize: 24, fontWeight: '800', color: WHITE },
   panelTitle:    { fontSize: 34, fontWeight: '800', color: WHITE, lineHeight: 42 },
-  panelSub:      { fontSize: 15, color: 'rgba(255,255,255,0.8)', lineHeight: 24 },
+  panelSub:      { fontSize: 15, color: 'rgba(255,255,255,0.92)', lineHeight: 24 },
 
   featureList:   { gap: 14, marginTop: 8 },
   featureRow:    { flexDirection: 'row', alignItems: 'center', gap: 12 },

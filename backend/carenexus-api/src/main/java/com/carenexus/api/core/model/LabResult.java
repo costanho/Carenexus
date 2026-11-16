@@ -2,6 +2,8 @@ package com.carenexus.api.core.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -44,7 +46,11 @@ public class LabResult {
     @Column(name = "reference_range", length = 100)
     private String referenceRange;
 
+    /**
+     * JSONB column. Must hold valid JSON text (object, array, string, number...); Hibernate binds it as json.
+     */
     @Column(name = "result_data", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String resultData;
 
     @Column(name = "status", nullable = false, length = 20)

@@ -2,14 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { usePrescriptions, type Prescription } from '@/hooks/use-prescriptions';
+import { tidyDoctorName } from '@/hooks/use-doctors';
 
-const TEAL   = '#0D9488';
+const TEAL   = '#0F766E';
 const INDIGO = '#4F46E5';
-const GREEN  = '#10B981';
-const AMBER  = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const BLUE   = '#3B82F6';
+const GREEN  = '#047857';
+const AMBER  = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const BLUE   = '#1D4ED8';
 const GRAY   = '#6B7280';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
@@ -71,7 +72,7 @@ function PrescriptionCard({ item }: { item: Prescription }) {
           {item.generic_name && (
             <Text style={styles.cardGeneric}>{item.generic_name}</Text>
           )}
-          <Text style={styles.cardDoctorName}>{item.doctor_name}</Text>
+          <Text style={styles.cardDoctorName}>{tidyDoctorName(item.doctor_name)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusCfg.bg }]}>
           <Ionicons name={statusCfg.icon} size={12} color={statusCfg.color} />
@@ -179,15 +180,15 @@ export function PatientWebPrescription({ onBack }: { onBack?: () => void }) {
     <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       {/* Header bar */}
       <View style={styles.pageHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityRole="button">
           <Ionicons name="arrow-back-outline" size={16} color={TEAL} />
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.pageHeaderCenter}>
-          <Text style={styles.pageTitle}>Prescriptions</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Prescriptions</Text>
           <Text style={styles.pageSub}>Your medication history</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Refresh">
           <Ionicons name="refresh-outline" size={18} color={TEAL} />
         </TouchableOpacity>
       </View>
@@ -259,16 +260,16 @@ const styles = StyleSheet.create({
   screen:        { flex: 1, backgroundColor: BG },
   scrollContent: { padding: 32, maxWidth: 760, alignSelf: 'center', width: '100%', paddingBottom: 48 },
 
-  pageHeader:       { flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 12 },
+  pageHeader:       { flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 12, flexWrap: 'wrap' },
   backBtn:          { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1' },
   backBtnText:      { fontSize: 13, fontWeight: '600', color: TEAL },
-  pageHeaderCenter: { flex: 1 },
+  pageHeaderCenter: { flexShrink: 1, minWidth: 0, flex: 1 },
   pageTitle:        { fontSize: 22, fontWeight: '800', color: TEXT },
   pageSub:          { fontSize: 13, color: GRAY, marginTop: 3 },
   refreshBtn:       { width: 36, height: 36, borderRadius: 10, borderWidth: 1.5, borderColor: TEAL, backgroundColor: '#E6F4F1', alignItems: 'center', justifyContent: 'center' },
 
-  statsRow:   { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  statCard:   { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: CARD, borderRadius: 14, padding: 16, borderLeftWidth: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 } as any,
+  statsRow:   { flexDirection: 'row', gap: 12, marginBottom: 24, flexWrap: 'wrap' },
+  statCard:   { flexGrow: 1, flexBasis: 150, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: CARD, borderRadius: 14, padding: 16, borderLeftWidth: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 } as any,
   statIconBg: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   statValue:  { fontSize: 22, fontWeight: '800' },
   statLabel:  { fontSize: 11, color: GRAY, fontWeight: '500', marginTop: 1 },

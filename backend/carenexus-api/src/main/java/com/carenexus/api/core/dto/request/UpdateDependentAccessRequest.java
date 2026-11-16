@@ -3,8 +3,6 @@ package com.carenexus.api.core.dto.request;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
-import java.time.LocalDateTime;
-
 @Getter
 @Setter
 @NoArgsConstructor
@@ -12,11 +10,20 @@ import java.time.LocalDateTime;
 @Builder
 public class UpdateDependentAccessRequest {
 
+    // Used by PATCH /api/caregiver/dependents/{accessId} (caregiver: may only narrow access) and
+    // PATCH /api/patients/me/caregivers/{accessId} and PATCH /api/patients/me/caregiver-access/{accessId}
+    // (patient/admin: may grant or narrow). Setting canMessageCareTeam / canJoinCalls to true approves them only
+    // when the caller is the patient; admins never approve, caregivers can never turn them on.
+
     @JsonProperty("accessLevel")
     private String accessLevel;
 
+    /**
+     * "YYYY-MM-DD" (end of that day), an ISO date-time, or null to leave unchanged.
+     * An empty string removes the expiry (patient/admin only; for a caregiver that would widen access).
+     */
     @JsonProperty("expiresAt")
-    private LocalDateTime expiresAt;
+    private String expiresAt;
 
     @JsonProperty("canViewRecords")
     private Boolean canViewRecords;
@@ -35,6 +42,10 @@ public class UpdateDependentAccessRequest {
 
     @JsonProperty("canMessageCareTeam")
     private Boolean canMessageCareTeam;
+
+    /** Requested permission to join video calls (communication permissions need the patient's approval). */
+    @JsonProperty("canJoinCalls")
+    private Boolean canJoinCalls;
 
     @JsonProperty("canViewConsultations")
     private Boolean canViewConsultations;

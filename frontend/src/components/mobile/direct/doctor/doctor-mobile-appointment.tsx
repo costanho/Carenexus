@@ -1,27 +1,35 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, ScrollView, StyleSheet, Text,
   TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ACTION_LABELS, availableActions, canReschedule, useDoctorAppointmentActions,
+  type DoctorAppointmentAction,
+} from '@/hooks/use-doctor-appointment-actions';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { MessagePatientButton } from '../../messages/messaging-actions';
+// Plain React Native (no DOM), shared with web: same clinic-hours slots, busy check and server validation.
+import {
+  DoctorReschedulePanel, formatClinicDate, formatClinicTime,
+} from '@/components/web/direct/doctor/doctor-reschedule-panel';
 
 const NAVY   = '#0D1B2E';
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BG2    = '#F3F4F6';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const TEAL   = '#0D9488';
-const AMBER  = '#D97706';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type AppStatus    = ScheduleEntry['status'];
@@ -46,14 +54,16 @@ function statusConfig(st: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show',     icon: 'alert-circle-outline'      as IoniconsName };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled', icon: 'refresh-circle-outline'   as IoniconsName };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress', icon: 'sync-outline'              as IoniconsName };
+    default:            return { bg: BG2,       color: GRAY,  label: String(st),    icon: 'help-circle-outline'       as IoniconsName };
   }
 }
 
 function typeConfig(t: AppType) {
   switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#10B981' };
+    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#047857' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF', accent: '#4F46E5' };
-    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#F59E0B' };
+    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#B45309' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG2,       accent: BORDER    };
   }
 }
 
@@ -63,6 +73,8 @@ function consultConfig(c: ScheduleEntry['consultation']) {
     case 'DRAFT':       return { label: 'Draft',       color: AMBER, bg: '#FEF3C7', icon: 'document-outline'         as IoniconsName };
     case 'IN_PROGRESS': return { label: 'In Progress', color: TEAL,  bg: '#CCFBF1', icon: 'sync-outline'              as IoniconsName };
     case 'COMPLETED':   return { label: 'Completed',   color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline' as IoniconsName };
+    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,   bg: '#FEE2E2', icon: 'close-circle-outline'     as IoniconsName };
+    default:            return { label: 'Consultation', color: GRAY, bg: BG2,       icon: 'document-outline'         as IoniconsName };
   }
 }
 
@@ -79,7 +91,7 @@ function isToday(iso: string) {
   return d.toDateString() === n.toDateString();
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -111,7 +123,23 @@ function StatCard({ icon, iconBg, iconColor, label, value, s }: {
 
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
-function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number }) {
+const ACTION_STYLE: Record<DoctorAppointmentAction, { color: string; icon: IoniconsName }> = {
+  'complete': { color: GREEN,  icon: 'checkmark-circle-outline' },
+  'no-show':  { color: ORANGE, icon: 'alert-circle-outline'     },
+  'cancel':   { color: RED,    icon: 'close-circle-outline'     },
+};
+
+function AppCard({ entry, s, busy, onAction, onRescheduled }: {
+  entry:    ScheduleEntry;
+  s:        (n: number) => number;
+  busy:     boolean;
+  onAction: (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
+  onRescheduled: (entry: ScheduleEntry, date: string, time: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const actions = availableActions(entry);
+  const reschedulable = canReschedule(entry);
   const sc  = statusConfig(entry.status);
   const tc  = typeConfig(entry.type);
   const cc  = consultConfig(entry.consultation);
@@ -136,11 +164,11 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
         <View style={[styles.avatar, { width: s(42), height: s(42), borderRadius: s(21), backgroundColor: ac }]}>
           <Text style={[styles.avatarText, { fontSize: s(14) }]}>{initials(entry.patient_name)}</Text>
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[styles.patientName, { fontSize: s(14) }]} numberOfLines={1}>{entry.patient_name}</Text>
-          <Text style={[styles.apptId, { fontSize: s(10), marginTop: s(2) }]}>Appt #{entry.appointment_id}</Text>
+          <Text style={[styles.apptId, { fontSize: s(10), marginTop: s(2) }]} numberOfLines={1}>Appt #{entry.appointment_id}</Text>
         </View>
-        <View style={[styles.badge, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
+        <View style={[styles.badge, styles.noShrink, { backgroundColor: sc.bg, borderRadius: s(20), paddingHorizontal: s(8), paddingVertical: s(3) }]}>
           <Ionicons name={sc.icon} size={s(10)} color={sc.color} />
           <Text style={[styles.badgeText, { fontSize: s(10), color: sc.color, marginLeft: s(3) }]}>{sc.label}</Text>
         </View>
@@ -179,7 +207,7 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
       {!!entry.facility_name && (
         <View style={[styles.chipsRow, { paddingHorizontal: s(14), paddingBottom: s(10), gap: s(5) }]}>
           <Ionicons name="business-outline" size={s(11)} color={GRAY} />
-          <Text style={[styles.chipText, { fontSize: s(11), color: GRAY }]}>{entry.facility_name}</Text>
+          <Text style={[styles.chipText, { fontSize: s(11), color: GRAY, flexShrink: 1 }]} numberOfLines={1}>{entry.facility_name}</Text>
         </View>
       )}
 
@@ -189,16 +217,94 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
           <Ionicons name={cc.icon} size={s(11)} color={cc.color} />
           <Text style={[styles.chipText, { fontSize: s(10), color: cc.color, marginLeft: s(3) }]}>{cc.label}</Text>
         </View>
-        {entry.type === 'VIDEO' && !!entry.video_consultation_link && (
-          <TouchableOpacity
-            style={[styles.videoBtn, { borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(5), gap: s(4) }]}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="videocam-outline" size={s(12)} color={BLUE} />
-            <Text style={[styles.videoBtnText, { fontSize: s(11) }]}>Join Call</Text>
-          </TouchableOpacity>
-        )}
+        <MessagePatientButton patientSystemId={entry.patient_system_id} patientName={entry.patient_name} compact />
+        <TouchableOpacity
+          style={[styles.detailsToggle, { gap: s(3) }]}
+          activeOpacity={0.8}
+          onPress={() => setExpanded(v => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
+          accessibilityState={{ expanded }}
+        >
+          <Text style={[styles.videoBtnText, { fontSize: s(11) }]}>{expanded ? 'Hide' : 'Details'}</Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={s(12)} color={BLUE} />
+        </TouchableOpacity>
       </View>
+      {entry.type === 'VIDEO' && (entry.status === 'SCHEDULED' || entry.status === 'RESCHEDULED') && (
+        <Text style={{ fontSize: s(10), color: GRAY, paddingHorizontal: s(14), paddingBottom: s(10) }}>Join video consultations from the CareNexus web app.</Text>
+      )}
+
+      {expanded && (
+        <View style={[styles.detailsPanel, { paddingHorizontal: s(14), paddingVertical: s(10), gap: s(5) }]}>
+          {([
+            ['Patient ID',   entry.patient_system_id],
+            ['Duration',     `${entry.duration_minutes} min`],
+            ['Type',         tc.label],
+            ['Status',       sc.label],
+            ['Consultation', cc.label],
+            ['Reason',       entry.reason_for_visit ?? '—'],
+            ['Notes',        entry.notes ?? '—'],
+            ...(entry.type === 'VIDEO' ? [['Video call', 'Available in the CareNexus web app']] : []),
+          ] as [string, string][]).map(([label, value]) => (
+            <View key={label} style={[styles.detailLine, { gap: s(10) }]}>
+              <Text style={[styles.detailLabel, { fontSize: s(11), width: s(90) }]} numberOfLines={2}>{label}</Text>
+              <Text style={[styles.detailValue, { fontSize: s(11) }]} selectable>{value}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {rescheduling && reschedulable && (
+        <View style={{ marginBottom: s(12) }}>
+          <DoctorReschedulePanel
+            entry={entry}
+            onClose={() => setRescheduling(false)}
+            onDone={(date, time) => { setRescheduling(false); onRescheduled(entry, date, time); }}
+          />
+        </View>
+      )}
+
+      {(actions.length > 0 || reschedulable) && (
+        <View style={[styles.actionRow, { paddingHorizontal: s(14), paddingBottom: s(12), gap: s(8) }]}>
+          {reschedulable && !rescheduling && (
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { borderColor: PURPLE, borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6), gap: s(4) },
+                busy && { opacity: 0.5 },
+              ]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => setRescheduling(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reschedule appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy }}
+            >
+              <Ionicons name="calendar-outline" size={s(12)} color={PURPLE} />
+              <Text style={[styles.actionBtnText, { fontSize: s(11), color: PURPLE }]}>Reschedule</Text>
+            </TouchableOpacity>
+          )}
+          {actions.map(a => (
+            <TouchableOpacity
+              key={a}
+              style={[
+                styles.actionBtn,
+                { borderColor: ACTION_STYLE[a].color, borderRadius: s(8), paddingHorizontal: s(10), paddingVertical: s(6), gap: s(4) },
+                busy && { opacity: 0.5 },
+              ]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => onAction(entry, a)}
+              accessibilityRole="button"
+              accessibilityLabel={`${ACTION_LABELS[a]} appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy, busy }}
+            >
+              <Ionicons name={ACTION_STYLE[a].icon} size={s(12)} color={ACTION_STYLE[a].color} />
+              <Text style={[styles.actionBtnText, { fontSize: s(11), color: ACTION_STYLE[a].color }]}>{ACTION_LABELS[a]}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -207,8 +313,17 @@ function AppCard({ entry, s }: { entry: ScheduleEntry; s: (n: number) => number 
 
 export default function DoctorMobileAppointment() {
   const { s, sh } = useScale();
-  const insets = useSafeAreaInsets();
   const { entries, loading, error, refetch } = useDoctorSchedule();
+  const { run, pendingId } = useDoctorAppointmentActions(refetch);
+  const [notice, setNotice] = useState('');
+  const listRef = useRef<ScrollView>(null);
+
+  function handleRescheduled(entry: ScheduleEntry, date: string, time: string) {
+    setNotice(`Appointment with ${entry.patient_name} moved to ${formatClinicDate(date)}, ${formatClinicTime(time)} CAT.`);
+    // The notice sits above the list; bring it into view (the moved card may also have re-sorted elsewhere).
+    listRef.current?.scrollTo({ y: 0, animated: true });
+    refetch();
+  }
 
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -224,7 +339,6 @@ export default function DoctorMobileAppointment() {
     completed:  entries.filter(e => e.status === 'COMPLETED').length,
     cancelled:  entries.filter(e => e.status === 'CANCELLED').length,
     noShow:     entries.filter(e => e.status === 'NO_SHOW').length,
-    inProgress: entries.filter(e => e.status === 'IN_PROGRESS').length,
   }), [entries]);
 
   const filtered = useMemo(() => {
@@ -254,7 +368,6 @@ export default function DoctorMobileAppointment() {
   const statusFilters: { key: StatusFilter; label: string }[] = [
     { key: 'ALL',         label: 'All'         },
     { key: 'SCHEDULED',   label: 'Scheduled'   },
-    { key: 'IN_PROGRESS', label: 'In Progress' },
     { key: 'COMPLETED',   label: 'Completed'   },
     { key: 'CANCELLED',   label: 'Cancelled'   },
     { key: 'NO_SHOW',     label: 'No Show'     },
@@ -264,30 +377,34 @@ export default function DoctorMobileAppointment() {
   return (
     <View style={styles.container}>
       {/* Navy Header */}
-      <View style={[styles.header, { paddingTop: insets.top + s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
+      <View style={[styles.header, { paddingTop: s(12), paddingHorizontal: s(16), paddingBottom: s(16) }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { fontSize: s(20) }]}>Appointments</Text>
+          <Text style={[styles.headerTitle, { fontSize: s(20) }]} accessibilityRole="header">Appointments</Text>
           <Text style={[styles.headerSub, { fontSize: s(12), marginTop: s(2) }]}>Your full appointment history</Text>
         </View>
         <TouchableOpacity
           onPress={refetch}
           style={[styles.refreshBtn, { width: s(36), height: s(36), borderRadius: s(18) }]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
         >
           <Ionicons name="refresh-outline" size={s(18)} color={WHITE} />
         </TouchableOpacity>
       </View>
 
       <ScrollView
+        ref={listRef}
         style={styles.scroll}
         contentContainerStyle={{ padding: s(16), paddingBottom: sh(80) }}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
+        {/* Full-screen states only before the first load; a refetch (e.g. after Complete) keeps the list in place. */}
+        {loading && entries.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60) }]}>
             <ActivityIndicator size="large" color={BLUE} />
           </View>
-        ) : error ? (
+        ) : error && entries.length === 0 ? (
           <View style={[styles.center, { paddingVertical: s(60), gap: s(10) }]}>
             <Ionicons name="alert-circle-outline" size={s(48)} color={RED} />
             <Text style={[styles.errorText, { fontSize: s(14) }]}>{error}</Text>
@@ -295,24 +412,39 @@ export default function DoctorMobileAppointment() {
               style={[styles.retryBtn, { borderRadius: s(8), paddingHorizontal: s(20), paddingVertical: s(10) }]}
               onPress={refetch}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading appointments"
             >
               <Text style={[styles.retryBtnText, { fontSize: s(14) }]}>Retry</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
+            {!!notice && (
+              <View style={[styles.notice, { gap: s(8), marginBottom: s(12), borderRadius: s(10), paddingHorizontal: s(12), paddingVertical: s(10) }]} accessibilityRole="alert">
+                <Ionicons name="checkmark-circle-outline" size={s(16)} color={GREEN} />
+                <Text style={[styles.noticeText, { fontSize: s(12) }]}>{notice}</Text>
+                <TouchableOpacity onPress={() => setNotice('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Dismiss message" hitSlop={8}>
+                  <Ionicons name="close" size={s(16)} color={GRAY} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {!!error && (
+              <Text style={[styles.inlineError, { fontSize: s(12), marginBottom: s(8) }]} accessibilityRole="alert">{error}</Text>
+            )}
+
             {/* Stats horizontal scroll */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: s(16) }} contentContainerStyle={{ gap: s(10) }}>
               <StatCard icon="calendar-number-outline"  iconBg="#EEF2FF" iconColor={BLUE}   label="Total"       value={stats.total}      s={s} />
               <StatCard icon="time-outline"             iconBg="#EEF2FF" iconColor={BLUE}   label="Scheduled"   value={stats.scheduled}  s={s} />
-              <StatCard icon="sync-outline"             iconBg="#CCFBF1" iconColor={TEAL}   label="In Progress" value={stats.inProgress} s={s} />
               <StatCard icon="checkmark-circle-outline" iconBg="#D1FAE5" iconColor={GREEN}  label="Completed"   value={stats.completed}  s={s} />
               <StatCard icon="close-circle-outline"     iconBg="#FEE2E2" iconColor={RED}    label="Cancelled"   value={stats.cancelled}  s={s} />
               <StatCard icon="alert-circle-outline"     iconBg="#FEF3C7" iconColor={ORANGE} label="No Show"     value={stats.noShow}     s={s} />
             </ScrollView>
 
             {/* Date filter tabs */}
-            <View style={[styles.dateTabs, { borderRadius: s(10), padding: s(4), marginBottom: s(12) }]}>
+            <View style={[styles.dateTabs, { borderRadius: s(10), padding: s(4), marginBottom: s(12) }]} accessibilityRole="tablist">
               {dateFilters.map(f => (
                 <TouchableOpacity
                   key={f.key}
@@ -323,8 +455,11 @@ export default function DoctorMobileAppointment() {
                   ]}
                   onPress={() => setDateFilter(f.key)}
                   activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityLabel={f.label}
+                  accessibilityState={{ selected: dateFilter === f.key }}
                 >
-                  <Text style={[styles.dateTabText, { fontSize: s(11) }, dateFilter === f.key && styles.dateTabTextActive]}>
+                  <Text style={[styles.dateTabText, { fontSize: s(11) }, dateFilter === f.key && styles.dateTabTextActive]} numberOfLines={1}>
                     {f.label}
                   </Text>
                 </TouchableOpacity>
@@ -343,6 +478,9 @@ export default function DoctorMobileAppointment() {
                   ]}
                   onPress={() => setStatusFilter(f.key)}
                   activeOpacity={0.7}
+                  accessibilityRole="tab"
+                  accessibilityLabel={`Status: ${f.label}`}
+                  accessibilityState={{ selected: statusFilter === f.key }}
                 >
                   <Text style={[styles.pillText, { fontSize: s(12) }, statusFilter === f.key && styles.pillTextActive]}>
                     {f.label}
@@ -364,7 +502,9 @@ export default function DoctorMobileAppointment() {
                 <Text style={[styles.errorText, { fontSize: s(13) }]}>Try adjusting your filters</Text>
               </View>
             ) : (
-              filtered.map(e => <AppCard key={e.appointment_id} entry={e} s={s} />)
+              filtered.map(e => (
+                <AppCard key={e.appointment_id} entry={e} s={s} busy={pendingId === e.appointment_id} onAction={run} onRescheduled={handleRescheduled} />
+              ))
             )}
           </>
         )}
@@ -412,6 +552,7 @@ const styles = StyleSheet.create({
   patientName:  { fontWeight: '700', color: TEXT },
   apptId:       { color: LGRAY, fontWeight: '500' },
   badge:        { flexDirection: 'row', alignItems: 'center' },
+  noShrink:     { flexShrink: 0 },
   badgeText:    { fontWeight: '600' },
   chipsRow:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   chip:         { flexDirection: 'row', alignItems: 'center' },
@@ -420,11 +561,22 @@ const styles = StyleSheet.create({
   reasonLabelRow: { flexDirection: 'row', alignItems: 'center' },
   reasonLabel:  { fontWeight: '700', color: BLUE, textTransform: 'uppercase', letterSpacing: 0.4 },
   reasonText:   { color: TEXT, lineHeight: 18 },
-  cardFooter:   { flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
+  cardFooter:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER },
   videoBtn:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: BLUE },
   videoBtnText: { color: BLUE, fontWeight: '500' },
+  detailsToggle: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
+  detailsPanel:  { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: BORDER, backgroundColor: BG },
+  detailLine:    { flexDirection: 'row' },
+  detailLabel:   { color: GRAY, fontWeight: '600' },
+  detailValue:   { flex: 1, color: TEXT },
+  actionRow:     { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end' },
+  actionBtn:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1, backgroundColor: WHITE },
+  actionBtnText: { fontWeight: '600' },
 
   errorText:    { color: GRAY, textAlign: 'center' },
+  inlineError:  { color: RED },
+  notice:       { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
+  noticeText:   { flex: 1, color: '#065F46', fontWeight: '500' },
   retryBtn:     { backgroundColor: BLUE },
   retryBtnText: { color: WHITE, fontWeight: '600' },
   emptyTitle:   { fontWeight: '600', color: TEXT },

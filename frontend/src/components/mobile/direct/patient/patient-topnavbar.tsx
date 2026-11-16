@@ -3,14 +3,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useLogout } from '@/hooks/use-logout';
+import { MobileNotificationBell } from '../../notifications/mobile-notification-bell';
 
 const TEXT  = '#111827';
 const GRAY  = '#6B7280';
 const WHITE = '#FFFFFF';
-const RED   = '#EF4444';
-const TEAL  = '#0D9488';
+const RED   = '#B91C1C';
+const TEAL  = '#0F766E';
 
-export function PatientTopNavbar() {
+export function PatientTopNavbar({ onProfilePress, onOpenNotifications }: {
+  onProfilePress?: () => void;
+  onOpenNotifications?: () => void;
+} = {}) {
   const insets             = useSafeAreaInsets();
   const { width, height }  = useWindowDimensions();
   const { user, loading: userLoading } = useCurrentUser();
@@ -19,9 +23,7 @@ export function PatientTopNavbar() {
   const s = (n: number) => Math.round(n * (width / 390));
   const h = (n: number) => Math.round(n * (height / 844));
 
-  const iconSize   = s(22);
   const avatarSize = s(36);
-  const badgeSize  = s(14);
 
   const firstName = user?.first_name ?? (userLoading ? '...' : 'there');
   const avatarUri = user?.avatar_url ?? null;
@@ -44,14 +46,18 @@ export function PatientTopNavbar() {
         </Text>
       </View>
 
-      {/* Right: bell + avatar + sign out */}
+      {/* Right: avatar + sign out */}
       <View style={[styles.right, { gap: s(10) }]}>
-        <BellIcon count={3} iconSize={iconSize} badgeSize={badgeSize} />
-
-        <View style={[styles.divider, { height: s(26) }]} />
-
+        {onOpenNotifications && <MobileNotificationBell onPress={onOpenNotifications} size={s(22)} />}
         {/* Avatar */}
-        <TouchableOpacity style={[styles.userRow, { gap: s(4) }]} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={[styles.userRow, { gap: s(4) }]}
+          activeOpacity={0.7}
+          onPress={onProfilePress}
+          disabled={!onProfilePress}
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+        >
           {avatarUri ? (
             <Image
               source={{ uri: avatarUri }}
@@ -64,7 +70,6 @@ export function PatientTopNavbar() {
               </Text>
             </View>
           )}
-          <Ionicons name="chevron-down" size={s(12)} color={GRAY} />
         </TouchableOpacity>
 
         <View style={[styles.divider, { height: s(26) }]} />
@@ -75,6 +80,9 @@ export function PatientTopNavbar() {
           onPress={handleLogout}
           activeOpacity={0.7}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: loading }}
         >
           <Ionicons
             name={loading ? 'hourglass-outline' : 'log-out-outline'}
@@ -85,17 +93,6 @@ export function PatientTopNavbar() {
             {loading ? '…' : 'Out'}
           </Text>
         </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-function BellIcon({ count, iconSize, badgeSize }: { count: number; iconSize: number; badgeSize: number }) {
-  return (
-    <View style={styles.bellWrapper}>
-      <Ionicons name="notifications-outline" size={iconSize} color={GRAY} />
-      <View style={[styles.badge, { minWidth: badgeSize, height: badgeSize, borderRadius: badgeSize / 2 }]}>
-        <Text style={[styles.badgeText, { fontSize: badgeSize * 0.65 }]}>{count}</Text>
       </View>
     </View>
   );
@@ -114,15 +111,6 @@ const styles = StyleSheet.create({
   title:    { fontWeight: '700', color: TEXT },
   subtitle: { color: GRAY },
   right:    { flexDirection: 'row', alignItems: 'center' },
-
-  bellWrapper: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
-  badge: {
-    position: 'absolute', top: 0, right: 0,
-    backgroundColor: RED,
-    alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 2,
-  },
-  badgeText: { color: WHITE, fontWeight: '700' },
 
   divider:        { width: StyleSheet.hairlineWidth, backgroundColor: '#E5E7EB' },
   userRow:        { flexDirection: 'row', alignItems: 'center' },

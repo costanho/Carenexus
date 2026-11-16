@@ -4,22 +4,30 @@ import {
   ActivityIndicator, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
+import {
+  ACTION_LABELS, availableActions, canReschedule, doctorCallJoin, useDoctorAppointmentActions,
+  type DoctorAppointmentAction,
+} from '@/hooks/use-doctor-appointment-actions';
+import { useDoctorMessagePatient } from '@/hooks/use-doctor-message-patient';
 import { type ScheduleEntry, useDoctorSchedule } from '@/hooks/use-doctor-schedule';
+import { CallJoinButton } from '@/components/web/call/call-join-button';
+import { callStatusLabel } from '@/lib/calls/join';
+import { DoctorReschedulePanel, formatClinicDate, formatClinicTime } from './doctor-reschedule-panel';
 
 const WHITE  = '#FFFFFF';
 const TEXT   = '#111827';
 const GRAY   = '#6B7280';
-const LGRAY  = '#9CA3AF';
+const LGRAY  = '#6B7280';
 const BORDER = '#E5E7EB';
 const BG     = '#F9FAFB';
 const BG2    = '#F3F4F6';
 const BLUE   = '#4F46E5';
-const GREEN  = '#10B981';
-const ORANGE = '#F59E0B';
-const RED    = '#EF4444';
-const PURPLE = '#8B5CF6';
-const TEAL   = '#0D9488';
-const AMBER  = '#D97706';
+const GREEN  = '#047857';
+const ORANGE = '#B45309';
+const RED    = '#B91C1C';
+const PURPLE = '#6D28D9';
+const TEAL   = '#0F766E';
+const AMBER  = '#B45309';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 type AppStatus    = ScheduleEntry['status'];
@@ -38,14 +46,16 @@ function statusConfig(s: AppStatus) {
     case 'NO_SHOW':     return { bg: '#FEF3C7', color: ORANGE, label: 'No Show',     icon: 'alert-circle-outline'       as IoniconsName };
     case 'RESCHEDULED': return { bg: '#F5F3FF', color: PURPLE, label: 'Rescheduled', icon: 'refresh-circle-outline'    as IoniconsName };
     case 'IN_PROGRESS': return { bg: '#CCFBF1', color: TEAL,  label: 'In Progress', icon: 'sync-outline'               as IoniconsName };
+    default:            return { bg: BG2,       color: GRAY,  label: String(s),     icon: 'help-circle-outline'        as IoniconsName };
   }
 }
 
 function typeConfig(t: AppType) {
   switch (t) {
-    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#10B981' };
+    case 'IN_PERSON': return { icon: 'location-outline' as IoniconsName,  label: 'In Person', color: GREEN,  bg: '#D1FAE5', accent: '#047857' };
     case 'VIDEO':     return { icon: 'videocam-outline'  as IoniconsName, label: 'Video',     color: BLUE,   bg: '#EEF2FF', accent: '#4F46E5' };
-    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#F59E0B' };
+    case 'PHONE':     return { icon: 'call-outline'      as IoniconsName, label: 'Phone',     color: ORANGE, bg: '#FEF3C7', accent: '#B45309' };
+    default:          return { icon: 'calendar-outline'  as IoniconsName, label: String(t),   color: GRAY,   bg: BG2,       accent: BORDER    };
   }
 }
 
@@ -55,6 +65,8 @@ function consultConfig(c: ScheduleEntry['consultation']) {
     case 'DRAFT':       return { label: 'Draft',       color: AMBER, bg: '#FEF3C7', icon: 'document-outline'          as IoniconsName };
     case 'IN_PROGRESS': return { label: 'In Progress', color: TEAL,  bg: '#CCFBF1', icon: 'sync-outline'               as IoniconsName };
     case 'COMPLETED':   return { label: 'Completed',   color: GREEN, bg: '#D1FAE5', icon: 'checkmark-circle-outline'   as IoniconsName };
+    case 'CANCELLED':   return { label: 'Cancelled',   color: RED,   bg: '#FEE2E2', icon: 'close-circle-outline'       as IoniconsName };
+    default:            return { label: 'Consultation', color: GRAY, bg: BG2,       icon: 'document-outline'           as IoniconsName };
   }
 }
 
@@ -71,7 +83,7 @@ function isToday(iso: string) {
   return d.toDateString() === n.toDateString();
 }
 
-const AVATAR_COLORS = ['#4F46E5', '#0D9488', '#F59E0B', '#EF4444', '#8B5CF6', '#10B981'];
+const AVATAR_COLORS = ['#4F46E5', '#0F766E', '#B45309', '#B91C1C', '#6D28D9', '#047857'];
 function avatarColor(name: string) {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -102,7 +114,25 @@ function StatCard({ icon, iconBg, iconColor, label, value }: {
 
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
-function AppCard({ entry }: { entry: ScheduleEntry }) {
+const ACTION_STYLE: Record<DoctorAppointmentAction, { color: string; icon: IoniconsName }> = {
+  'complete': { color: GREEN,  icon: 'checkmark-circle-outline' },
+  'no-show':  { color: ORANGE, icon: 'alert-circle-outline'     },
+  'cancel':   { color: RED,    icon: 'close-circle-outline'     },
+};
+
+function AppCard({ entry, busy, onAction, onRescheduled, onMessage, messaging }: {
+  entry:    ScheduleEntry;
+  busy:     boolean;
+  onAction: (entry: ScheduleEntry, action: DoctorAppointmentAction) => void;
+  onRescheduled: (entry: ScheduleEntry, date: string, time: string) => void;
+  /** Opens the private conversation with this patient; omitted when Messages is not available. */
+  onMessage?: (entry: ScheduleEntry) => void;
+  messaging?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const actions = availableActions(entry);
+  const reschedulable = canReschedule(entry);
   const sc  = statusConfig(entry.status);
   const tc  = typeConfig(entry.type);
   const cc  = consultConfig(entry.consultation);
@@ -189,28 +219,130 @@ function AppCard({ entry }: { entry: ScheduleEntry }) {
             <Text style={[styles.consultText, { color: cc.color }]}>{cc.label}</Text>
           </View>
 
-          {/* Video link */}
-          {entry.type === 'VIDEO' && !!entry.video_consultation_link && (
-            <TouchableOpacity style={styles.videoBtn} activeOpacity={0.8}>
-              <Ionicons name="videocam-outline" size={13} color={BLUE} />
-              <Text style={styles.videoBtnText}>Join Call</Text>
-            </TouchableOpacity>
-          )}
+          {/* Video call */}
+          <CallJoinButton
+            info={doctorCallJoin(entry)}
+            withName={entry.patient_name}
+            style={styles.videoBtn}
+            textStyle={styles.videoBtnText}
+            iconColor={BLUE}
+            iconSize={13}
+          />
 
-          <TouchableOpacity style={styles.viewBtn} activeOpacity={0.8}>
-            <Text style={styles.viewBtnText}>Details</Text>
-            <Ionicons name="chevron-forward" size={13} color={BLUE} />
+          <TouchableOpacity
+            style={styles.viewBtn}
+            activeOpacity={0.8}
+            onPress={() => setExpanded(v => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? 'Hide appointment details' : 'Show appointment details'}
+            accessibilityState={{ expanded }}
+          >
+            <Text style={styles.viewBtnText}>{expanded ? 'Hide details' : 'Details'}</Text>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color={BLUE} />
           </TouchableOpacity>
         </View>
       </View>
+
+      {expanded && (
+        <View style={styles.detailsPanel}>
+          <DetailLine label="Patient ID"   value={entry.patient_system_id} />
+          <DetailLine label="Appointment"  value={`#${entry.appointment_id}`} />
+          <DetailLine label="Date & time"  value={`${formatDate(entry.scheduled_at)}, ${formatTime(entry.scheduled_at)}`} />
+          <DetailLine label="Duration"     value={`${entry.duration_minutes} min`} />
+          <DetailLine label="Type"         value={tc.label} />
+          <DetailLine label="Status"       value={sc.label} />
+          <DetailLine label="Consultation" value={cc.label} />
+          <DetailLine label="Reason"       value={entry.reason_for_visit ?? '—'} />
+          <DetailLine label="Notes"        value={entry.notes ?? '—'} />
+          {entry.type === 'VIDEO' && (
+            <DetailLine label="Video call" value={callStatusLabel(entry.call_status)} />
+          )}
+        </View>
+      )}
+
+      {rescheduling && reschedulable && (
+        <DoctorReschedulePanel
+          entry={entry}
+          onClose={() => setRescheduling(false)}
+          onDone={(date, time) => { setRescheduling(false); onRescheduled(entry, date, time); }}
+        />
+      )}
+
+      {(actions.length > 0 || reschedulable || !!onMessage) && (
+        <View style={styles.actionRow}>
+          {!!onMessage && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: BLUE }, messaging && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={messaging}
+              onPress={() => onMessage(entry)}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${entry.patient_name}`}
+              accessibilityState={{ disabled: !!messaging, busy: !!messaging }}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={13} color={BLUE} />
+              <Text style={[styles.actionBtnText, { color: BLUE }]}>Message patient</Text>
+            </TouchableOpacity>
+          )}
+          {reschedulable && !rescheduling && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { borderColor: PURPLE }, busy && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => setRescheduling(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reschedule appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy }}
+            >
+              <Ionicons name="calendar-outline" size={13} color={PURPLE} />
+              <Text style={[styles.actionBtnText, { color: PURPLE }]}>Reschedule</Text>
+            </TouchableOpacity>
+          )}
+          {actions.map(a => (
+            <TouchableOpacity
+              key={a}
+              style={[styles.actionBtn, { borderColor: ACTION_STYLE[a].color }, busy && { opacity: 0.5 }]}
+              activeOpacity={0.8}
+              disabled={busy}
+              onPress={() => onAction(entry, a)}
+              accessibilityRole="button"
+              accessibilityLabel={`${ACTION_LABELS[a]} appointment with ${entry.patient_name}`}
+              accessibilityState={{ disabled: busy, busy }}
+            >
+              <Ionicons name={ACTION_STYLE[a].icon} size={13} color={ACTION_STYLE[a].color} />
+              <Text style={[styles.actionBtnText, { color: ACTION_STYLE[a].color }]}>{ACTION_LABELS[a]}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailLine}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} selectable>{value}</Text>
     </View>
   );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DoctorWebAppointment() {
+export default function DoctorWebAppointment({ onOpenThread }: {
+  /** Switch to Messages with this thread open (wired by the dashboard shell). */
+  onOpenThread?: (threadId: number) => void;
+} = {}) {
   const { entries, loading, error, refetch } = useDoctorSchedule();
+  const { run, pendingId } = useDoctorAppointmentActions(refetch);
+  const { messagePatient, pendingPatient, enabled: canMessage } = useDoctorMessagePatient(onOpenThread);
+  const [notice, setNotice] = useState('');
+
+  function handleRescheduled(entry: ScheduleEntry, date: string, time: string) {
+    setNotice(`Appointment with ${entry.patient_name} moved to ${formatClinicDate(date)}, ${formatClinicTime(time)} CAT.`);
+    refetch();
+  }
 
   const [dateFilter,   setDateFilter]   = useState<DateFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -274,11 +406,12 @@ export default function DoctorWebAppointment() {
     { key: 'PHONE',     label: 'Phone',     icon: 'call-outline'       },
   ];
 
-  if (loading) {
+  // Keep the list mounted while refreshing after an action, so the page does not jump back to the top.
+  if (loading && entries.length === 0) {
     return <View style={styles.center}><ActivityIndicator size="large" color={BLUE} /></View>;
   }
 
-  if (error) {
+  if (error && entries.length === 0) {
     return (
       <View style={styles.center}>
         <Ionicons name="alert-circle-outline" size={52} color={RED} />
@@ -295,8 +428,8 @@ export default function DoctorWebAppointment() {
 
       {/* Page Header */}
       <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.pageTitle}>Appointments</Text>
+        <View style={styles.pageHeaderText}>
+          <Text style={styles.pageTitle} accessibilityRole="header">Appointments</Text>
           <Text style={styles.pageSub}>Complete appointment history for your patients</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={refetch} activeOpacity={0.8}>
@@ -366,18 +499,29 @@ export default function DoctorWebAppointment() {
             <TextInput
               style={styles.searchInput}
               placeholder="Search patient…"
+              accessibilityLabel="Search appointments by patient"
               placeholderTextColor={LGRAY}
               value={search}
               onChangeText={setSearch}
             />
             {!!search && (
-              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => setSearch('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Clear search">
                 <Ionicons name="close-circle" size={15} color={LGRAY} />
               </TouchableOpacity>
             )}
           </View>
         </View>
       </View>
+
+      {!!notice && (
+        <View style={styles.notice} accessibilityRole="alert">
+          <Ionicons name="checkmark-circle-outline" size={16} color={GREEN} />
+          <Text style={styles.noticeText}>{notice}</Text>
+          <TouchableOpacity onPress={() => setNotice('')} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Dismiss message">
+            <Ionicons name="close" size={16} color={GRAY} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Result count */}
       <Text style={styles.resultCount}>
@@ -393,7 +537,17 @@ export default function DoctorWebAppointment() {
         </View>
       ) : (
         <View style={styles.list}>
-          {filtered.map(e => <AppCard key={e.appointment_id} entry={e} />)}
+          {filtered.map(e => (
+            <AppCard
+              key={e.appointment_id}
+              entry={e}
+              busy={pendingId === e.appointment_id}
+              onAction={run}
+              onRescheduled={handleRescheduled}
+              onMessage={canMessage ? (x => messagePatient(x.patient_system_id)) : undefined}
+              messaging={pendingPatient === e.patient_system_id}
+            />
+          ))}
         </View>
       )}
     </ScrollView>
@@ -407,7 +561,8 @@ const styles = StyleSheet.create({
   container: { padding: 24, paddingBottom: 48 },
   center:    { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
 
-  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  pageHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', rowGap: 12, columnGap: 12 },
+  pageHeaderText: { flexShrink: 1, minWidth: 0 },
   pageTitle:   { fontSize: 24, fontWeight: '700', color: TEXT, marginBottom: 4 },
   pageSub:     { fontSize: 14, color: GRAY },
   refreshBtn:  {
@@ -455,6 +610,12 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: TEXT, outlineStyle: 'none' } as any,
 
   resultCount: { fontSize: 13, color: GRAY, fontWeight: '500', marginBottom: 12 },
+  notice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+    backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  noticeText: { flex: 1, fontSize: 13, color: '#065F46', fontWeight: '500' },
 
   list: { gap: 12 },
 
@@ -504,6 +665,15 @@ const styles = StyleSheet.create({
   videoBtnText: { fontSize: 12, color: BLUE, fontWeight: '500' },
   viewBtn:    { flexDirection: 'row', alignItems: 'center', gap: 3 },
   viewBtnText:{ fontSize: 13, color: BLUE, fontWeight: '500' },
+
+  detailsPanel: { borderTopWidth: 1, borderTopColor: BORDER, paddingHorizontal: 16, paddingVertical: 12, gap: 6, backgroundColor: BG },
+  detailLine:   { flexDirection: 'row', gap: 12 },
+  detailLabel:  { width: 110, fontSize: 12, color: GRAY, fontWeight: '600' },
+  detailValue:  { flex: 1, fontSize: 12, color: TEXT },
+
+  actionRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 14 },
+  actionBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: WHITE },
+  actionBtnText: { fontSize: 12, fontWeight: '600' },
 
   emptyState: { alignItems: 'center', gap: 10, paddingVertical: 64 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: TEXT },

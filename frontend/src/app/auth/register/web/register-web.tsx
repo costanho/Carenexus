@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { PhoneInput } from '@/components/shared/phone-input';
 import { parseApiError, register } from '@/lib/auth/auth.service';
+import { ROLE_HOME } from '@/lib/auth/auth.types';
+import { showMessage } from '@/lib/ui/dialogs';
 import { registerSchema } from '@/lib/validation/register/register.schema';
 import { COLORS, REGISTER_ROLES, type IoniconsName, type RegisterFormData, type Role } from '@/lib/validation/register/register.types';
 import { getPasswordStrength } from '@/lib/validation/register/register.validators';
@@ -21,10 +23,10 @@ import { getPasswordStrength } from '@/lib/validation/register/register.validato
 const { NAVY, WHITE, TEXT, GRAY, BORDER, BG, RED } = COLORS;
 
 const panelPoints: { icon: IoniconsName; text: string }[] = [
-  { icon: 'person-add-outline',       text: 'Create your secure health profile'  },
-  { icon: 'shield-checkmark-outline', text: 'Your data is encrypted and private' },
-  { icon: 'videocam-outline',         text: 'Consult doctors from anywhere'       },
-  { icon: 'notifications-outline',    text: 'Get real-time care updates'          },
+  { icon: 'person-add-outline',       text: 'Create your health profile'          },
+  { icon: 'calendar-outline',         text: 'Book and track appointments'         },
+  { icon: 'document-text-outline',    text: 'View prescriptions and lab results'  },
+  { icon: 'people-outline',           text: 'Give a caregiver access when needed' },
 ];
 
 function FieldError({ message }: { message?: string }) {
@@ -40,12 +42,14 @@ function FieldError({ message }: { message?: string }) {
 function Field({
   label, icon, placeholder, value, onChangeText,
   keyboardType = 'default', secureTextEntry = false,
-  rightElement, error,
+  rightElement, error, onSubmitEditing,
 }: {
   label: string; icon: IoniconsName; placeholder: string;
   value: string; onChangeText: (v: string) => void;
   keyboardType?: any; secureTextEntry?: boolean;
   rightElement?: React.ReactNode; error?: string;
+  /** Enter in the field submits the form. */
+  onSubmitEditing?: () => void;
 }) {
   return (
     <View style={styles.fieldGroup}>
@@ -54,6 +58,9 @@ function Field({
         <Ionicons name={icon} size={17} color={GRAY} style={styles.inputIcon} />
         <TextInput
           style={styles.input}
+          // The visible label is a sibling Text; this gives the input itself an accessible name.
+          accessibilityLabel={label}
+          aria-invalid={!!error}
           placeholder={placeholder}
           placeholderTextColor={GRAY}
           value={value}
@@ -62,6 +69,7 @@ function Field({
           secureTextEntry={secureTextEntry}
           autoCapitalize={secureTextEntry || keyboardType === 'email-address' ? 'none' : 'words'}
           autoCorrect={false}
+          onSubmitEditing={onSubmitEditing}
         />
         {rightElement}
       </View>
@@ -95,12 +103,14 @@ export default function RegisterWeb() {
   const passwordValue = watch('password');
   const agreedValue   = watch('agreed');
   const strength      = getPasswordStrength(passwordValue);
+  const submit        = handleSubmit(onSubmit);
 
   async function onSubmit(data: RegisterFormData) {
+    if (loading) return; // Enter in a field and the button share this handler
     setAuthError('');
     setLoading(true);
     try {
-      await register({
+      const res = await register({
         firstName: data.firstName,
         lastName:  data.lastName,
         email:     data.email,
@@ -108,6 +118,13 @@ export default function RegisterWeb() {
         password:  data.password,
         role,
       });
+      if (res.tokens && res.user && ROLE_HOME[res.user.role]) {
+        // Signed in straight away
+        router.replace(ROLE_HOME[res.user.role] as any);
+        return;
+      }
+      // No session issued (e.g. clinician accounts pending verification): show the server's message.
+      showMessage('Account created', res.message ?? 'Your account has been created. Please sign in.');
       router.replace('/auth/login/web/login-web');
     } catch (err) {
       setAuthError(parseApiError(err, 'Registration failed. Please try again.'));
@@ -139,12 +156,12 @@ export default function RegisterWeb() {
           </View>
         </View>
 
-        <Text style={styles.heading}>Create your account</Text>
+        <Text style={styles.heading} accessibilityRole="header">Create your account</Text>
         <Text style={styles.subheading}>Join CareNexus — it only takes a minute.</Text>
 
         {/* Role selector */}
-        <Text style={styles.label}>I am a</Text>
-        <View style={styles.roleRow}>
+        <Text style={styles.label} nativeID="register-role-label">I am a</Text>
+        <View style={styles.roleRow} accessibilityRole="radiogroup" aria-labelledby="register-role-label">
           {REGISTER_ROLES.map(r => {
             const on = role === r.key;
             return (
@@ -153,6 +170,11 @@ export default function RegisterWeb() {
                 style={[styles.roleBtn, on && { borderColor: r.color, backgroundColor: r.bg }]}
                 onPress={() => setRole(r.key)}
                 activeOpacity={0.8}
+                accessibilityRole="radio"
+                accessibilityLabel={r.desc ? `${r.label}, ${r.desc}` : r.label}
+                accessibilityState={{ checked: on }}
+                // react-native-web ignores accessibilityState; aria-checked tells screen readers which is selected.
+                aria-checked={on}
               >
                 <Ionicons name={r.icon} size={20} color={on ? r.color : GRAY} />
                 <Text style={[styles.roleLabel, on && { color: r.color, fontWeight: '700' }]}>{r.label}</Text>
@@ -173,7 +195,7 @@ export default function RegisterWeb() {
             <Controller control={control} name="firstName"
               render={({ field: { onChange, value } }) => (
                 <Field label="First Name" icon="person-outline" placeholder="John"
-                  value={value} onChangeText={onChange} error={errors.firstName?.message} />
+                  value={value} onChangeText={onChange} onSubmitEditing={submit} error={errors.firstName?.message} />
               )}
             />
           </View>
@@ -181,7 +203,7 @@ export default function RegisterWeb() {
             <Controller control={control} name="lastName"
               render={({ field: { onChange, value } }) => (
                 <Field label="Last Name" icon="person-outline" placeholder="Smith"
-                  value={value} onChangeText={onChange} error={errors.lastName?.message} />
+                  value={value} onChangeText={onChange} onSubmitEditing={submit} error={errors.lastName?.message} />
               )}
             />
           </View>
@@ -190,7 +212,7 @@ export default function RegisterWeb() {
         <Controller control={control} name="email"
           render={({ field: { onChange, value } }) => (
             <Field label="Email Address" icon="mail-outline" placeholder="you@example.com"
-              value={value} onChangeText={onChange} keyboardType="email-address" error={errors.email?.message} />
+              value={value} onChangeText={onChange} keyboardType="email-address" onSubmitEditing={submit} error={errors.email?.message} />
           )}
         />
 
@@ -208,9 +230,9 @@ export default function RegisterWeb() {
         <Controller control={control} name="password"
           render={({ field: { onChange, value } }) => (
             <Field label="Password" icon="lock-closed-outline" placeholder="Min. 8 characters"
-              value={value} onChangeText={onChange} secureTextEntry={!showPass} error={errors.password?.message}
+              value={value} onChangeText={onChange} secureTextEntry={!showPass} onSubmitEditing={submit} error={errors.password?.message}
               rightElement={
-                <TouchableOpacity onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPass ? 'Hide password' : 'Show password'} onPress={() => setShowPass(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
                   <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={17} color={GRAY} />
                 </TouchableOpacity>
               }
@@ -229,9 +251,9 @@ export default function RegisterWeb() {
         <Controller control={control} name="confirmPassword"
           render={({ field: { onChange, value } }) => (
             <Field label="Confirm Password" icon="lock-closed-outline" placeholder="Re-enter your password"
-              value={value} onChangeText={onChange} secureTextEntry={!showConf} error={errors.confirmPassword?.message}
+              value={value} onChangeText={onChange} secureTextEntry={!showConf} onSubmitEditing={submit} error={errors.confirmPassword?.message}
               rightElement={
-                <TouchableOpacity onPress={() => setShowConf(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={showConf ? 'Hide password confirmation' : 'Show password confirmation'} onPress={() => setShowConf(v => !v)} style={{ padding: 4 }} activeOpacity={0.7}>
                   <Ionicons name={showConf ? 'eye-off-outline' : 'eye-outline'} size={17} color={GRAY} />
                 </TouchableOpacity>
               }
@@ -246,6 +268,11 @@ export default function RegisterWeb() {
               style={styles.termsRow}
               onPress={() => onChange(agreedValue ? (undefined as any) : true)}
               activeOpacity={0.8}
+              accessibilityRole="checkbox"
+              accessibilityLabel="I agree to the Terms of Service and Privacy Policy"
+              accessibilityState={{ checked: !!agreedValue }}
+              aria-checked={!!agreedValue}
+              aria-invalid={!!errors.agreed}
             >
               <View style={[styles.checkbox, agreedValue ? { backgroundColor: active.color, borderColor: active.color } : undefined]}>
                 {agreedValue && <Ionicons name="checkmark" size={12} color={WHITE} />}
@@ -277,9 +304,12 @@ export default function RegisterWeb() {
         {/* Submit */}
         <TouchableOpacity
           style={[styles.submitBtn, { backgroundColor: active.color, opacity: loading ? 0.7 : 1 }]}
-          onPress={handleSubmit(onSubmit)}
+          onPress={submit}
           activeOpacity={0.85}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Create Account"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           <Ionicons name="person-add-outline" size={18} color={WHITE} />
           <Text style={styles.submitText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
@@ -288,7 +318,8 @@ export default function RegisterWeb() {
         {/* Sign in */}
         <View style={styles.signinRow}>
           <Text style={styles.signinText}>Already have an account? </Text>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/login/web/login-web')}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/login/web/login-web')}
+            accessibilityRole="link" accessibilityLabel="Sign in">
             <Text style={[styles.signinLink, { color: active.color }]}>Sign in</Text>
           </TouchableOpacity>
         </View>
