@@ -1,0 +1,170 @@
+{
+  "verifiedAt": "2026-11-17T08:32:14.123Z",
+  "api": "http://localhost:9000",
+  "readOnly": true,
+  "health": {
+    "status": "UP",
+    "groups": [
+      "liveness",
+      "readiness"
+    ]
+  },
+  "invoice": {
+    "invoiceId": 3,
+    "invoiceNo": "INV-2026-900003",
+    "patientSystemId": "PAT-00001",
+    "patientName": "Linda Moyo",
+    "doctorSystemId": "DOC-00002",
+    "doctorName": "James Banda",
+    "createdBySystemId": "DOC-00002",
+    "appointmentId": null,
+    "consultationId": null,
+    "lineItems": [
+      {
+        "description": "Phone consultation",
+        "quantity": 1,
+        "unitPrice": 1000,
+        "amount": 1000
+      },
+      {
+        "description": "Medical report",
+        "quantity": 1,
+        "unitPrice": 500,
+        "amount": 500
+      }
+    ],
+    "subtotal": 1500,
+    "tax": 0,
+    "discount": 0,
+    "total": 1500,
+    "amountPaid": 1500,
+    "outstanding": 0,
+    "currency": "KES",
+    "status": "PAID",
+    "dueDate": "2026-10-14",
+    "issuedAt": "2026-09-30T11:42:10",
+    "paidAt": "2026-11-17T10:28:23.207617",
+    "cancelReason": null,
+    "notes": "Demo invoice",
+    "createdAt": "2026-09-30T11:42:10",
+    "updatedAt": "2026-11-17T10:28:23.100734"
+  },
+  "heartRate": {
+    "metricId": 20,
+    "patientSystemId": "PAT-00001",
+    "type": "HEART_RATE",
+    "value": 72,
+    "unit": "bpm",
+    "source": "MANUAL",
+    "deviceId": null,
+    "readingGroupId": "6b9765de-ef41-420a-be4a-342e1fd87b45",
+    "isAbnormal": false,
+    "severity": "NORMAL",
+    "notes": "e2e-recording Morning heart rate",
+    "recordedAt": "2026-11-17T10:27:47",
+    "recordedBySystemId": "PAT-00001",
+    "recordedByName": "Linda Moyo",
+    "canDelete": true
+  },
+  "call": {
+    "appointmentId": 720,
+    "callStatus": "ENDED",
+    "participants": []
+  },
+  "messaging": {
+    "threadId": 337,
+    "patientReads": [
+      {
+        "messageId": 1203,
+        "threadId": 337,
+        "clientMessageId": "78040213-2ac7-454e-9582-09d8ae7e8635",
+        "senderSystemId": "PAT-00021",
+        "senderName": "Thomas Dube",
+        "senderRole": "PATIENT",
+        "senderLabel": "Thomas Dube",
+        "body": "I have updated my readings. Could you review my care plan before my next appointment?",
+        "urgent": false,
+        "sentAt": "2026-11-17T08:28:49.111701Z",
+        "mine": true
+      },
+      {
+        "messageId": 1204,
+        "threadId": 337,
+        "clientMessageId": null,
+        "senderSystemId": "DOC-00002",
+        "senderName": "James Banda",
+        "senderRole": "DOCTOR",
+        "senderLabel": "Dr. James Banda",
+        "body": "Thanks Thomas. I will review your readings and care plan before your next visit.",
+        "urgent": false,
+        "sentAt": "2026-11-17T08:29:23.017291Z",
+        "mine": false
+      }
+    ],
+    "doctorReads": [
+      {
+        "messageId": 1203,
+        "threadId": 337,
+        "clientMessageId": null,
+        "senderSystemId": "PAT-00021",
+        "senderName": "Thomas Dube",
+        "senderRole": "PATIENT",
+        "senderLabel": "Thomas Dube",
+        "body": "I have updated my readings. Could you review my care plan before my next appointment?",
+        "urgent": false,
+        "sentAt": "2026-11-17T08:28:49.111701Z",
+        "mine": false
+      },
+      {
+        "messageId": 1204,
+        "threadId": 337,
+        "clientMessageId": "a16fd248-9a84-434a-ac8a-6aef3131abe4",
+        "senderSystemId": "DOC-00002",
+        "senderName": "James Banda",
+        "senderRole": "DOCTOR",
+        "senderLabel": "Dr. James Banda",
+        "body": "Thanks Thomas. I will review your readings and care plan before your next visit.",
+        "urgent": false,
+        "sentAt": "2026-11-17T08:29:23.017291Z",
+        "mine": true
+      }
+    ]
+  },
+  "httpChecks": [
+    {
+      "role": "public",
+      "path": "/actuator/health",
+      "status": 200
+    },
+    {
+      "role": "linda",
+      "path": "/api/billing/invoices/me?size=100",
+      "status": 200
+    },
+    {
+      "role": "linda",
+      "path": "/api/health-metrics/patient/PAT-00001?type=HEART_RATE&size=100",
+      "status": 200
+    },
+    {
+      "role": "james",
+      "path": "/api/appointments/720/call",
+      "status": 200
+    },
+    {
+      "role": "thomas",
+      "path": "/api/communications/threads?patientSystemId=PAT-00021&size=50",
+      "status": 200
+    },
+    {
+      "role": "thomas",
+      "path": "/api/communications/threads/337/messages?limit=100",
+      "status": 200
+    },
+    {
+      "role": "james",
+      "path": "/api/communications/threads/337/messages?limit=100",
+      "status": 200
+    }
+  ]
+}

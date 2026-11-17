@@ -1,0 +1,99 @@
+{
+  "verifiedAt": "2026-11-17T08:33:38.216599+00:00",
+  "fullVideoDecode": "passed; ffmpeg exit 0",
+  "media": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "width": 1600,
+        "height": 1000,
+        "avg_frame_rate": "25/1"
+      },
+      {
+        "codec_name": "mov_text",
+        "avg_frame_rate": "0/0"
+      },
+      {
+        "codec_name": "bin_data",
+        "avg_frame_rate": "0/0"
+      }
+    ],
+    "chapters": [
+      {
+        "id": 0,
+        "time_base": "1/1000",
+        "start": 0,
+        "start_time": "0.000000",
+        "end": 66480,
+        "end_time": "66.480000",
+        "tags": {
+          "title": "Patient: dashboard, vitals, care plan and local payment"
+        }
+      },
+      {
+        "id": 1,
+        "time_base": "1/1000",
+        "start": 66480,
+        "start_time": "66.480000",
+        "end": 96560,
+        "end_time": "96.560000",
+        "tags": {
+          "title": "Patient: messaging and caregiver permissions"
+        }
+      },
+      {
+        "id": 2,
+        "time_base": "1/1000",
+        "start": 96560,
+        "start_time": "96.560000",
+        "end": 143800,
+        "end_time": "143.800000",
+        "tags": {
+          "title": "Doctor: messages, availability, prescriptions and clinical alerts"
+        }
+      },
+      {
+        "id": 3,
+        "time_base": "1/1000",
+        "start": 143800,
+        "start_time": "143.800000",
+        "end": 174640,
+        "end_time": "174.640000",
+        "tags": {
+          "title": "Video consultation: synthetic camera, real local LiveKit call"
+        }
+      },
+      {
+        "id": 4,
+        "time_base": "1/1000",
+        "start": 174640,
+        "start_time": "174.640000",
+        "end": 203280,
+        "end_time": "203.280000",
+        "tags": {
+          "title": "Caregiver: linked patients and shared records"
+        }
+      },
+      {
+        "id": 5,
+        "time_base": "1/1000",
+        "start": 203280,
+        "start_time": "203.280000",
+        "end": 240000,
+        "end_time": "240.000000",
+        "tags": {
+          "title": "Administrator: users, billing, audit trail and settings"
+        }
+      }
+    ],
+    "format": {
+      "duration": "240.000000",
+      "size": "10776495"
+    }
+  },
+  "screenChecks": 21,
+  "recordedSegments": 6,
+  "observedErrors": 0
+}

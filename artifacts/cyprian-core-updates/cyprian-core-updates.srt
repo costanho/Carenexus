@@ -1,0 +1,99 @@
+1
+00:00:00,000 --> 00:00:04,000
+Patient dashboard and clinical overview
+
+2
+00:00:09,672 --> 00:00:13,672
+Record and save a heart-rate reading
+
+3
+00:00:27,150 --> 00:00:31,150
+Care plan goals and interventions
+
+4
+00:00:37,862 --> 00:00:41,862
+Invoices and a local simulated payment
+
+5
+00:01:06,480 --> 00:01:10,480
+Patient-to-doctor messaging
+
+6
+00:01:23,578 --> 00:01:27,578
+Caregiver consent and granular permissions
+
+7
+00:01:36,560 --> 00:01:40,560
+Doctor receives and replies to the patient
+
+8
+00:01:53,161 --> 00:01:57,161
+Doctor practice dashboard
+
+9
+00:01:59,727 --> 00:02:03,727
+Doctor booking availability
+
+10
+00:02:07,353 --> 00:02:11,353
+Prescriptions and medication management
+
+11
+00:02:14,899 --> 00:02:18,899
+Clinical alerts and screening follow-up
+
+12
+00:02:23,800 --> 00:02:27,800
+Video consultation device check with synthetic camera input
+
+13
+00:02:30,038 --> 00:02:34,038
+Doctor starts the consultation
+
+14
+00:02:37,286 --> 00:02:40,044
+Doctor admits the waiting patient
+
+15
+00:02:40,194 --> 00:02:44,194
+Live two-party call through the local LiveKit server
+
+16
+00:02:49,698 --> 00:02:53,698
+Doctor ends the call for everyone
+
+17
+00:02:54,640 --> 00:02:58,640
+Caregiver dashboard and linked patients
+
+18
+00:03:01,261 --> 00:03:05,261
+Shared patient profile and permissions
+
+19
+00:03:08,808 --> 00:03:12,808
+Caregiver medication overview
+
+20
+00:03:15,357 --> 00:03:19,357
+Shared health summary
+
+21
+00:03:23,280 --> 00:03:27,280
+Administration dashboard
+
+22
+00:03:30,395 --> 00:03:34,395
+User management
+
+23
+00:03:36,942 --> 00:03:40,942
+Clinic billing administration
+
+24
+00:03:43,493 --> 00:03:47,493
+Audit trail of backend activity
+
+25
+00:03:51,047 --> 00:03:55,047
+Clinic system settings

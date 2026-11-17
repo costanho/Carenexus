@@ -1,0 +1,11 @@
+# Keep only the finished recording and its verification evidence in version control.
+*
+!.gitignore
+!README.md
+!carenexus-cyprian-core-updates.mp4
+!recording-preview.png
+!cyprian-core-updates.srt
+!recording.json
+!delivery-verification.json
+!verification.json
+!backend-verification.json
