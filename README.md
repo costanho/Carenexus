@@ -197,6 +197,21 @@ Administrators cannot register themselves. On a fresh production database set `C
 
 Startup fails when LiveKit is enabled outside `local`/`docker`/`test` with the dev secret `secret` or a secret shorter than 32 characters. If LiveKit is not configured at all, the API still starts; calls report "temporarily unavailable" and the webhook returns 404.
 
+### One way to host it: Neon + Fly.io + Vercel
+
+Nothing in the code depends on these hosts; the two Dockerfiles and the variables above stay the contract. The files
+for this setup are thin:
+
+| Piece | Host | Files | Notes |
+|---|---|---|---|
+| PostgreSQL 16 | Neon | none | Use the **direct** endpoint (host without `-pooler`) with `?sslmode=require` in `SPRING_DATASOURCE_URL`; the API pools its own connections. Pick the same region as the API. |
+| API | Fly.io | `backend/carenexus-api/fly.toml` | Builds the Dockerfile's `volume-owner` target: uploads go to a Fly volume at `STORAGE_LOCAL_DIR`, which must stay on **one** machine until a real storage provider exists. Scheduled jobs run in the API, so the machine never auto-stops. Secrets: `fly secrets import < <file>`. |
+| Web app | Vercel | `frontend/vercel.json`, `frontend/scripts/vercel-build-output.mjs` | Project **Root Directory** `frontend`. `npm run vercel-build` exports the app and writes Vercel's Build Output with the nginx container's routing and the headers from `docker/security-headers.inc.template`. Set `EXPO_PUBLIC_API_URL` (required, https) and `CSP_CONNECT_SRC` (LiveKit `https://` and `wss://` URLs) in the Vercel project; changing either needs a redeploy. |
+| Video | LiveKit Cloud | none | Fly and Vercel can't host LiveKit's media ports well; use a LiveKit Cloud project. |
+
+Order: Neon database, then the Fly app (it needs the database), then Vercel (it needs the API URL), then put the
+Vercel origin into the API's `CORS_ALLOWED_ORIGINS` and `CARENEXUS_WEB_BASE_URL`.
+
 ---
 
 ## What is local and what needs a real provider

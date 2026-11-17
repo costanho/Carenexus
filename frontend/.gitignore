@@ -7,6 +7,8 @@ node_modules/
 .expo/
 dist/
 web-build/
+# Vercel Build Output API (npm run vercel-build) and `vercel link` state
+.vercel/
 expo-env.d.ts
 
 # Native
