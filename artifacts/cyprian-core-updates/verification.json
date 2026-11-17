@@ -1,0 +1,128 @@
+[
+  {
+    "screen": "linda-dashboard",
+    "url": "http://localhost:8081/dashboard/patient",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "linda-health-tracking",
+    "url": "http://localhost:8081/dashboard/patient?section=health-tracking",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "linda-care-plans",
+    "url": "http://localhost:8081/dashboard/patient?section=care-plans",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "linda-medical-records",
+    "url": "http://localhost:8081/dashboard/patient?section=medical-records",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "linda-billing",
+    "url": "http://localhost:8081/dashboard/patient?section=billing",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "thomas-messages",
+    "url": "http://localhost:8081/dashboard/patient?section=messages",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "thomas-my-proxies",
+    "url": "http://localhost:8081/dashboard/patient?section=my-proxies",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-dashboard",
+    "url": "http://localhost:8081/dashboard/doctor",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-availability",
+    "url": "http://localhost:8081/dashboard/doctor?section=availability",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-patients",
+    "url": "http://localhost:8081/dashboard/doctor?section=patients",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-prescriptions",
+    "url": "http://localhost:8081/dashboard/doctor?section=prescriptions",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-ai-alerts",
+    "url": "http://localhost:8081/dashboard/doctor?section=ai-alerts",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "james-messages",
+    "url": "http://localhost:8081/dashboard/doctor?section=messages",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "sarah-dashboard",
+    "url": "http://localhost:8081/dashboard/proxy",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "sarah-profile-settings",
+    "url": "http://localhost:8081/dashboard/proxy?section=profile-settings",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "sarah-health-summary",
+    "url": "http://localhost:8081/dashboard/proxy?section=health-summary",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "admin-dashboard",
+    "url": "http://localhost:8081/dashboard/admin",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "admin-users",
+    "url": "http://localhost:8081/dashboard/admin?section=users",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "admin-billing",
+    "url": "http://localhost:8081/dashboard/admin?section=billing",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "admin-audit-log",
+    "url": "http://localhost:8081/dashboard/admin?section=audit-log",
+    "errors": [],
+    "rendering_artifacts": []
+  },
+  {
+    "screen": "admin-system-settings",
+    "url": "http://localhost:8081/dashboard/admin?section=system-settings",
+    "errors": [],
+    "rendering_artifacts": []
+  }
+]

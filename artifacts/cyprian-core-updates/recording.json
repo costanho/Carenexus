@@ -1,0 +1,154 @@
+{
+  "file": "carenexus-cyprian-core-updates.mp4",
+  "duration": 240.0,
+  "chapters": [
+    {
+      "start": 0.0,
+      "end": 66.48,
+      "title": "Patient: dashboard, vitals, care plan and local payment",
+      "who": "linda"
+    },
+    {
+      "start": 66.48,
+      "end": 96.56,
+      "title": "Patient: messaging and caregiver permissions",
+      "who": "thomas"
+    },
+    {
+      "start": 96.56,
+      "end": 143.8,
+      "title": "Doctor: messages, availability, prescriptions and clinical alerts",
+      "who": "james"
+    },
+    {
+      "start": 143.8,
+      "end": 174.64000000000001,
+      "title": "Video consultation: synthetic camera, real local LiveKit call",
+      "who": "video-call"
+    },
+    {
+      "start": 174.64000000000001,
+      "end": 203.28000000000003,
+      "title": "Caregiver: linked patients and shared records",
+      "who": "sarah"
+    },
+    {
+      "start": 203.28000000000003,
+      "end": 240.00000000000003,
+      "title": "Administrator: users, billing, audit trail and settings",
+      "who": "admin"
+    }
+  ],
+  "scenes": [
+    {
+      "seconds": 0,
+      "title": "Patient dashboard and clinical overview"
+    },
+    {
+      "seconds": 9.671999999999999,
+      "title": "Record and save a heart-rate reading"
+    },
+    {
+      "seconds": 27.150000000000002,
+      "title": "Care plan goals and interventions"
+    },
+    {
+      "seconds": 37.862,
+      "title": "Invoices and a local simulated payment"
+    },
+    {
+      "seconds": 66.48,
+      "title": "Patient-to-doctor messaging"
+    },
+    {
+      "seconds": 83.578,
+      "title": "Caregiver consent and granular permissions"
+    },
+    {
+      "seconds": 96.56,
+      "title": "Doctor receives and replies to the patient"
+    },
+    {
+      "seconds": 113.161,
+      "title": "Doctor practice dashboard"
+    },
+    {
+      "seconds": 119.727,
+      "title": "Doctor booking availability"
+    },
+    {
+      "seconds": 127.35300000000001,
+      "title": "Prescriptions and medication management"
+    },
+    {
+      "seconds": 134.899,
+      "title": "Clinical alerts and screening follow-up"
+    },
+    {
+      "seconds": 143.8,
+      "title": "Video consultation device check with synthetic camera input"
+    },
+    {
+      "seconds": 150.038,
+      "title": "Doctor starts the consultation"
+    },
+    {
+      "seconds": 157.286,
+      "title": "Doctor admits the waiting patient"
+    },
+    {
+      "seconds": 160.194,
+      "title": "Live two-party call through the local LiveKit server"
+    },
+    {
+      "seconds": 169.698,
+      "title": "Doctor ends the call for everyone"
+    },
+    {
+      "seconds": 174.64000000000001,
+      "title": "Caregiver dashboard and linked patients"
+    },
+    {
+      "seconds": 181.26100000000002,
+      "title": "Shared patient profile and permissions"
+    },
+    {
+      "seconds": 188.80800000000002,
+      "title": "Caregiver medication overview"
+    },
+    {
+      "seconds": 195.35700000000003,
+      "title": "Shared health summary"
+    },
+    {
+      "seconds": 203.28000000000003,
+      "title": "Administration dashboard"
+    },
+    {
+      "seconds": 210.39500000000004,
+      "title": "User management"
+    },
+    {
+      "seconds": 216.94200000000004,
+      "title": "Clinic billing administration"
+    },
+    {
+      "seconds": 223.49300000000002,
+      "title": "Audit trail of backend activity"
+    },
+    {
+      "seconds": 231.04700000000003,
+      "title": "Clinic system settings"
+    }
+  ],
+  "checks": [
+    "Heart-rate reading persisted: HTTP 201",
+    "Local payment simulation settled: HTTP 200",
+    "Patient message persisted",
+    "Doctor received patient message and sent reply",
+    "Patient admission through doctor UI",
+    "Two live video streams",
+    "Both streams decode more than 10 new frames",
+    "End call propagates to both participants"
+  ]
+}
