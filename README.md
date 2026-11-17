@@ -214,10 +214,21 @@ for this setup are thin. Staging runs at `https://carenexus-web-staging.fly.dev`
 Order: Neon database, then the API (it needs the database), then the web app (it needs the API URL), then put the
 web origin into the API's `CORS_ALLOWED_ORIGINS` and `CARENEXUS_WEB_BASE_URL`.
 
-After every deploy, `cd frontend && npm run smoke:staging` checks the deployed pair end to end: API health, CORS,
-access rules, registration, sign-in, the patient endpoints, then the web app in headless Chromium (sign-in and every
-patient page, failing on console errors, failed API calls and CSP violations). It creates one `smoke+<timestamp>@example.com`
-patient per run. `SMOKE_API` / `SMOKE_WEB` point it at another environment; `-- --api-only` skips the browser.
+After every deploy, `cd frontend && npm run smoke:staging` checks the deployed pair end to end, over the API and in
+headless Chromium (failing on console errors, failed API calls and CSP violations):
+
+- **Patient:** registration, sign-in, every patient endpoint and page.
+- **Admin:** two-factor sign-in, clinician approval, users, settings, audit log, every admin page.
+- **Doctor:** refused until approved, then weekly hours and every doctor page.
+- **Caregiver:** no access before a grant, view-only access after it, cannot book, loses access on revoke.
+- **Cross-role:** the patient books the doctor (a double booking is refused), both sides and the caregiver see the
+  appointment, the doctor is notified, patient and doctor exchange messages.
+
+Each run registers one `smoke+<timestamp>-<role>@example.com` patient, doctor and caregiver, then cancels the
+appointment and revokes the grant. The admin flows use the staging test administrator: `SMOKE_ADMIN_EMAIL`,
+`SMOKE_ADMIN_PASSWORD` and `SMOKE_ADMIN_TOTP_SECRET` (its Base32 two-factor secret), from the environment or a
+git-ignored `frontend/.env.smoke.local` (`SMOKE_ENV_FILE` points elsewhere). `SMOKE_API` / `SMOKE_WEB` target another
+environment; `-- --api-only` skips the browser.
 
 ---
 
