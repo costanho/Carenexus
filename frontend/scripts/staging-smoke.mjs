@@ -16,6 +16,7 @@
 // Exit code 0 only when every check passes. Screenshots of failing pages go to smoke-results/ (git-ignored).
 // Registration is rate limited (10 per hour per client address); one run registers three accounts.
 
+import { Buffer } from 'node:buffer';
 import { createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -507,7 +508,8 @@ const failed = results.filter((r) => !r.ok);
 const bySection = {};
 for (const r of results) {
   const s = (bySection[r.section] ??= { pass: 0, fail: 0 });
-  r.ok ? s.pass++ : s.fail++;
+  if (r.ok) s.pass++;
+  else s.fail++;
 }
 console.log('\nSummary');
 for (const [name, s] of Object.entries(bySection)) console.log(`  ${s.fail ? 'FAIL' : 'ok  '}  ${name}: ${s.pass}/${s.pass + s.fail}`);
