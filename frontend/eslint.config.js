@@ -293,6 +293,8 @@ module.exports = defineConfig([
       '.expo/**',
       'e2e-report/**',
       'e2e-results/**',
+      'smoke-results/**',
+      '.vercel/**',
       'playwright/.cache/**',
       'coverage/**',
       'expo-env.d.ts',

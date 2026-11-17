@@ -1,0 +1,76 @@
+# Fly.io app for the CareNexus API (staging). Deploy from this directory: `fly deploy`.
+# Secrets (database, JWT, MFA key, LiveKit, CORS origin) are NOT here: set them with `fly secrets import`.
+# The README section "What staging and production must set" lists every one.
+#
+# One-time setup, from backend/carenexus-api:
+#   fly apps create <app-name>                    # then put the name in `app` below
+#   fly volumes create carenexus_storage --region ord --size 3
+#   fly secrets import < <path to your git-ignored secrets file>
+#   fly deploy
+
+# Must be globally unique on Fly.io; change it if `fly apps create` says the name is taken.
+app = "carenexus-api-staging"
+# Chicago, next to the Neon project in AWS us-east-2 (Ohio). Keep API and database close: most requests make several
+# database round trips. If the database moves (e.g. Neon eu-central-1), move this and the volume with it.
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+  # Starts as root only to hand the root-owned Fly volume to the carenexus user, then runs as carenexus.
+  build-target = "volume-owner"
+
+[env]
+  # staging: local provider implementations (email, SMS, push, storage, payments) only log a warning.
+  # production refuses them at startup until real providers are configured.
+  CARENEXUS_ENVIRONMENT = "staging"
+  SERVER_PORT = "9000"
+  # Uploaded files live on the Fly volume mounted below. A volume belongs to ONE machine: keep a single machine
+  # until a real (S3-compatible) storage provider replaces local storage.
+  STORAGE_LOCAL_DIR = "/data/storage"
+  # The local email provider never sends mail, so a required email confirmation would lock every new account out.
+  AUTH_REQUIRE_VERIFIED_EMAIL = "false"
+  # The web app (frontend/fly.toml). Exact HTTPS origin, no trailing slash.
+  CORS_ALLOWED_ORIGINS = "https://carenexus-web-staging.fly.dev"
+  CARENEXUS_WEB_BASE_URL = "https://carenexus-web-staging.fly.dev"
+  # Calls stay "temporarily unavailable" until the LIVEKIT_* secrets are set.
+  LIVEKIT_ENABLED = "true"
+  LIVEKIT_WEBHOOK_ENABLED = "false"
+  # Some web pages read many counts at once (lab results: 16 requests). On a shared CPU a burst holds connections for
+  # seconds, so keep enough of them and let requests wait instead of failing after the 10 s default.
+  # Neon's free compute allows about 100 connections.
+  DB_POOL_MAX_SIZE = "20"
+  DB_POOL_MIN_IDLE = "2"
+  DB_POOL_CONNECTION_TIMEOUT_MS = "30000"
+  # Tuned for a shared-cpu-1x machine: the JVM uses most of the memory; only the quick C1 compiler runs, so startup and
+  # warm-up do not compete with requests for the small CPU share; serial GC and smaller thread stacks suit 1 vCPU.
+  # On a larger (performance) machine drop everything but MaxRAMPercentage.
+  JAVA_TOOL_OPTIONS = "-XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1 -XX:CICompilerCount=1 -XX:+UseSerialGC -Xss512k"
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  # Scheduled jobs (reminders, outbound messages, expiry sweeps) run inside the API, so it must not sleep.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 150
+    hard_limit = 200
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/actuator/health"
+    interval = "30s"
+    timeout = "5s"
+    # Flyway migrations run on the first start against an empty Neon database.
+    grace_period = "90s"
+
+[mounts]
+  source = "carenexus_storage"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
