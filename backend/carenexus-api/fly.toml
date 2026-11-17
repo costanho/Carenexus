@@ -4,15 +4,15 @@
 #
 # One-time setup, from backend/carenexus-api:
 #   fly apps create <app-name>                    # then put the name in `app` below
-#   fly volumes create carenexus_storage --region fra --size 3
+#   fly volumes create carenexus_storage --region ord --size 3
 #   fly secrets import < <path to your git-ignored secrets file>
 #   fly deploy
 
 # Must be globally unique on Fly.io; change it if `fly apps create` says the name is taken.
 app = "carenexus-api-staging"
-# Frankfurt, next to a Neon project in AWS eu-central-1 (Neon has no African region). Keep API and database in the
-# same region: most requests make several database round trips.
-primary_region = "fra"
+# Chicago, next to the Neon project in AWS us-east-2 (Ohio). Keep API and database close: most requests make several
+# database round trips. If the database moves (e.g. Neon eu-central-1), move this and the volume with it.
+primary_region = "ord"
 
 [build]
   dockerfile = "Dockerfile"
@@ -29,6 +29,10 @@ primary_region = "fra"
   STORAGE_LOCAL_DIR = "/data/storage"
   # The local email provider never sends mail, so a required email confirmation would lock every new account out.
   AUTH_REQUIRE_VERIFIED_EMAIL = "false"
+  # The web app (frontend/fly.toml). Exact HTTPS origin, no trailing slash.
+  CORS_ALLOWED_ORIGINS = "https://carenexus-web-staging.fly.dev"
+  CARENEXUS_WEB_BASE_URL = "https://carenexus-web-staging.fly.dev"
+  # Calls stay "temporarily unavailable" until the LIVEKIT_* secrets are set.
   LIVEKIT_ENABLED = "true"
   LIVEKIT_WEBHOOK_ENABLED = "false"
   # Neon's free compute allows about 100 connections; one machine needs far fewer.
