@@ -79,4 +79,6 @@ temp/
 # Playwright
 e2e-results/
 e2e-report/
+# npm run smoke:staging screenshots
+smoke-results/
 playwright/.cache/

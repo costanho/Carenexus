@@ -197,20 +197,27 @@ Administrators cannot register themselves. On a fresh production database set `C
 
 Startup fails when LiveKit is enabled outside `local`/`docker`/`test` with the dev secret `secret` or a secret shorter than 32 characters. If LiveKit is not configured at all, the API still starts; calls report "temporarily unavailable" and the webhook returns 404.
 
-### One way to host it: Neon + Fly.io + Vercel
+### One way to host it: Neon + Fly.io (staging)
 
 Nothing in the code depends on these hosts; the two Dockerfiles and the variables above stay the contract. The files
-for this setup are thin:
+for this setup are thin. Staging runs at `https://carenexus-web-staging.fly.dev` (web) and
+`https://carenexus-api-staging.fly.dev` (API), both in Fly's `ord` region next to a Neon project in AWS `us-east-2`.
 
 | Piece | Host | Files | Notes |
 |---|---|---|---|
-| PostgreSQL 16 | Neon | none | Use the **direct** endpoint (host without `-pooler`) with `?sslmode=require` in `SPRING_DATASOURCE_URL`; the API pools its own connections. Pick the same region as the API. |
-| API | Fly.io | `backend/carenexus-api/fly.toml` | Builds the Dockerfile's `volume-owner` target: uploads go to a Fly volume at `STORAGE_LOCAL_DIR`, which must stay on **one** machine until a real storage provider exists. Scheduled jobs run in the API, so the machine never auto-stops. Secrets: `fly secrets import < <file>`. |
-| Web app | Vercel | `frontend/vercel.json`, `frontend/scripts/vercel-build-output.mjs` | Project **Root Directory** `frontend`. `npm run vercel-build` exports the app and writes Vercel's Build Output with the nginx container's routing and the headers from `docker/security-headers.inc.template`. Set `EXPO_PUBLIC_API_URL` (required, https) and `CSP_CONNECT_SRC` (LiveKit `https://` and `wss://` URLs) in the Vercel project; changing either needs a redeploy. |
+| PostgreSQL | Neon | none | Use the **direct** endpoint (host without `-pooler`): Flyway's migration lock needs a session, which the pooler does not keep. `SPRING_DATASOURCE_URL=jdbc:postgresql://<host>/<db>?sslmode=require` with user and password in their own variables; the API pools its own connections. Same region as the API. |
+| API | Fly.io | `backend/carenexus-api/fly.toml` | Builds the Dockerfile's `volume-owner` target: uploads go to a Fly volume at `STORAGE_LOCAL_DIR`, which must stay on **one** machine until a real storage provider exists. Scheduled jobs run in the API, so the machine never auto-stops. Secrets: `fly secrets import < <file>`. A trial Fly account stops every machine after 5 minutes; add a card first. On `shared-cpu-1x` the JVM options in `fly.toml` (C1 only, serial GC) plus the image's CDS archive keep startup to a few minutes; expect deploys to take that long. |
+| Web app | Fly.io | `frontend/fly.toml` | The nginx image (`frontend/Dockerfile`). `EXPO_PUBLIC_API_URL` is a build argument in `fly.toml`, `CSP_CONNECT_SRC` an environment variable; add the LiveKit `https://` and `wss://` URLs to it once calls are configured. |
+| Web app (alternative) | Vercel | `frontend/vercel.json`, `frontend/scripts/vercel-build-output.mjs` | Project **Root Directory** `frontend`. `npm run vercel-build` exports the app and writes Vercel's Build Output with the nginx container's routing and the headers from `docker/security-headers.inc.template`. Set `EXPO_PUBLIC_API_URL` (required, https) and `CSP_CONNECT_SRC` in the Vercel project; changing either needs a redeploy. |
 | Video | LiveKit Cloud | none | Fly and Vercel can't host LiveKit's media ports well; use a LiveKit Cloud project. |
 
-Order: Neon database, then the Fly app (it needs the database), then Vercel (it needs the API URL), then put the
-Vercel origin into the API's `CORS_ALLOWED_ORIGINS` and `CARENEXUS_WEB_BASE_URL`.
+Order: Neon database, then the API (it needs the database), then the web app (it needs the API URL), then put the
+web origin into the API's `CORS_ALLOWED_ORIGINS` and `CARENEXUS_WEB_BASE_URL`.
+
+After every deploy, `cd frontend && npm run smoke:staging` checks the deployed pair end to end: API health, CORS,
+access rules, registration, sign-in, the patient endpoints, then the web app in headless Chromium (sign-in and every
+patient page, failing on console errors, failed API calls and CSP violations). It creates one `smoke+<timestamp>@example.com`
+patient per run. `SMOKE_API` / `SMOKE_WEB` point it at another environment; `-- --api-only` skips the browser.
 
 ---
 

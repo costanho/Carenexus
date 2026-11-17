@@ -13,7 +13,7 @@ if [ "$(id -u)" = "0" ]; then
         fi
         chmod 0700 "$STORAGE_LOCAL_DIR"
     fi
-    exec su-exec carenexus java -jar /app/app.jar "$@"
+    exec su-exec carenexus java -XX:SharedArchiveFile=/app/app.jsa -Xlog:cds=off -jar /app/app.jar "$@"
 fi
 
-exec java -jar /app/app.jar "$@"
+exec java -XX:SharedArchiveFile=/app/app.jsa -Xlog:cds=off -jar /app/app.jar "$@"

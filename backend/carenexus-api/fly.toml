@@ -35,11 +35,16 @@ primary_region = "ord"
   # Calls stay "temporarily unavailable" until the LIVEKIT_* secrets are set.
   LIVEKIT_ENABLED = "true"
   LIVEKIT_WEBHOOK_ENABLED = "false"
-  # Neon's free compute allows about 100 connections; one machine needs far fewer.
-  DB_POOL_MAX_SIZE = "10"
+  # Some web pages read many counts at once (lab results: 16 requests). On a shared CPU a burst holds connections for
+  # seconds, so keep enough of them and let requests wait instead of failing after the 10 s default.
+  # Neon's free compute allows about 100 connections.
+  DB_POOL_MAX_SIZE = "20"
   DB_POOL_MIN_IDLE = "2"
-  # Let the JVM use most of the machine's memory (the default is a quarter).
-  JAVA_TOOL_OPTIONS = "-XX:MaxRAMPercentage=75"
+  DB_POOL_CONNECTION_TIMEOUT_MS = "30000"
+  # Tuned for a shared-cpu-1x machine: the JVM uses most of the memory; only the quick C1 compiler runs, so startup and
+  # warm-up do not compete with requests for the small CPU share; serial GC and smaller thread stacks suit 1 vCPU.
+  # On a larger (performance) machine drop everything but MaxRAMPercentage.
+  JAVA_TOOL_OPTIONS = "-XX:MaxRAMPercentage=75 -XX:TieredStopAtLevel=1 -XX:CICompilerCount=1 -XX:+UseSerialGC -Xss512k"
 
 [http_service]
   internal_port = 9000
